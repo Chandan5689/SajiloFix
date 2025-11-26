@@ -22,6 +22,7 @@ import ProviderMyServices from './pages/Dashboard/Provider/ProviderMyServices/Pr
 import CustomerReviews from './pages/Dashboard/Provider/Reviews/CustomerReviews'
 import ProviderEarnings from './pages/Dashboard/Provider/Earnings/ProviderEarnings'
 import MyProfile from './pages/Dashboard/Provider/ProviderMyProfile/MyProfile'
+import Availability from './pages/Dashboard/Provider/Availability/Availability'
 function App() {
   const [count, setCount] = useState(0)
 
@@ -50,6 +51,7 @@ function App() {
               <Route path='/provider/reviews' element={<CustomerReviews />} />
               <Route path='/provider/earnings' element={<ProviderEarnings />} />
               <Route path='/provider/my-profile' element={<MyProfile />} />
+              <Route path='/provider/availability' element={<Availability />} />
               
 
               

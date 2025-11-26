@@ -17,9 +17,9 @@ const sidebarItems = [
   { key: "my-services", label: "My Services", icon: <AiOutlineCalendar size={20} />, link: "/provider/my-services" },
   { key: "earnings", label: "Earnings", icon: <AiOutlineDollarCircle size={20} />, link: "/provider/earnings" },
   { key: "reviews", label: "Reviews", icon: <AiOutlineStar size={20} />, link: "/provider/reviews" },
-  { key: "my-profile", label: "Profile", icon: <FaUserCircle size={20} />, link: "/provider/my-profile" },
-  { key: "availability", label: "Availability", icon: <FaRegCalendarCheck size={20} />, link: "#" },
+  { key: "availability", label: "Availability", icon: <FaRegCalendarCheck size={20} />, link: "/provider/availability" },
   { key: "messages", label: "Messages", icon: <BiMessageDetail size={20} />, link: "#" },
+  { key: "my-profile", label: "Profile", icon: <FaUserCircle size={20} />, link: "/provider/my-profile" },
 ];
 
 export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, children }) {
