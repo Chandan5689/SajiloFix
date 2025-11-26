@@ -19,6 +19,9 @@ import UserPayments from './pages/Dashboard/User/UserPayments'
 import ProviderDashboard from './pages/Dashboard/Provider/ProviderDashboard'
 import ProviderMyBookings from './pages/Dashboard/Provider/ProviderMyBookings'
 import ProviderMyServices from './pages/Dashboard/Provider/ProviderMyServices/ProviderMyServices'
+import CustomerReviews from './pages/Dashboard/Provider/Reviews/CustomerReviews'
+import ProviderEarnings from './pages/Dashboard/Provider/Earnings/ProviderEarnings'
+import MyProfile from './pages/Dashboard/Provider/ProviderMyProfile/MyProfile'
 function App() {
   const [count, setCount] = useState(0)
 
@@ -44,6 +47,10 @@ function App() {
               <Route path='/provider/dashboard' element={<ProviderDashboard />} />
               <Route path='/provider/my-bookings' element={<ProviderMyBookings />} />
               <Route path='/provider/my-services' element={<ProviderMyServices />} />
+              <Route path='/provider/reviews' element={<CustomerReviews />} />
+              <Route path='/provider/earnings' element={<ProviderEarnings />} />
+              <Route path='/provider/my-profile' element={<MyProfile />} />
+              
 
               
               

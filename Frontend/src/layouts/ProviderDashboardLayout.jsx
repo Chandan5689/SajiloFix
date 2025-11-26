@@ -15,9 +15,9 @@ const sidebarItems = [
   { key: "dashboard", label: "Dashboard", icon: <AiOutlineDashboard size={20} />, link: "/provider/dashboard" },
   { key: "my-bookings", label: "My Bookings", icon: <BiBookOpen size={20} />, link: "/provider/my-bookings" },
   { key: "my-services", label: "My Services", icon: <AiOutlineCalendar size={20} />, link: "/provider/my-services" },
-  { key: "earnings", label: "Earnings", icon: <AiOutlineDollarCircle size={20} />, link: "#" },
-  { key: "reviews", label: "Reviews", icon: <AiOutlineStar size={20} />, link: "#" },
-  { key: "profile", label: "Profile", icon: <FaUserCircle size={20} />, link: "#" },
+  { key: "earnings", label: "Earnings", icon: <AiOutlineDollarCircle size={20} />, link: "/provider/earnings" },
+  { key: "reviews", label: "Reviews", icon: <AiOutlineStar size={20} />, link: "/provider/reviews" },
+  { key: "my-profile", label: "Profile", icon: <FaUserCircle size={20} />, link: "/provider/my-profile" },
   { key: "availability", label: "Availability", icon: <FaRegCalendarCheck size={20} />, link: "#" },
   { key: "messages", label: "Messages", icon: <BiMessageDetail size={20} />, link: "#" },
 ];
