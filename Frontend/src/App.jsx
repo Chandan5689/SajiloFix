@@ -3,7 +3,6 @@ import { useState } from 'react'
 import './App.css'
 import Navbar from './components/Navbar'
 import Register from './pages/Auth/Register'
-import Login from './pages/Auth/Login'
 import HomePage from './pages/HomePage/HomePage'
 import { BrowserRouter, Router, Route, Routes } from 'react-router-dom'
 import Footer from './components/Footer'
@@ -23,6 +22,8 @@ import CustomerReviews from './pages/Dashboard/Provider/Reviews/CustomerReviews'
 import ProviderEarnings from './pages/Dashboard/Provider/Earnings/ProviderEarnings'
 import MyProfile from './pages/Dashboard/Provider/ProviderMyProfile/MyProfile'
 import Availability from './pages/Dashboard/Provider/Availability/Availability'
+import Login from './pages/Auth/Login/Login'
+
 function App() {
   const [count, setCount] = useState(0)
 
