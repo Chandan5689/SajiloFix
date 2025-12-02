@@ -1,230 +1,614 @@
-import React, { useState } from 'react'
-import { FaLock, FaPhone, FaPhoneAlt, FaTimes } from 'react-icons/fa';
-import { FaEnvelope } from "react-icons/fa";
-import { FcGoogle } from "react-icons/fc";
-import { Link } from 'react-router';
-function Register() {
-    // const [userType, setUserType] = useState < 'find' | 'offer' > ('find');
-    const [userType, setUserType] = useState('find');
-    const [user, setUser] = useState({
-        name: 'John Doe',
-        email: 'john@example.com',
-        avatar: 'JD'
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import authService from '../../services/authService';
+import api from '../../api/axios';
+
+const Register = () => {
+  const navigate = useNavigate();
+  const [activeStep, setActiveStep] = useState('find');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [specialities, setSpecialities] = useState([]);
+  const [specializations, setSpecializations] = useState([]);
+  const [profilePreview, setProfilePreview] = useState(null);
+
+  const [formData, setFormData] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone_number: '',
+    password: '',
+    confirm_password: '',
+    user_type: 'find',
+    business_name: '',
+    years_of_experience: '',
+    service_area: '',
+    address: '',
+    city: '',
+    bio: '',
+    profile_picture: null,
+    specialities: [],
+    specializations: []
+  });
+
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // Fetch specialities and specializations
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [specialitiesRes, specializationsRes] = await Promise.all([
+          api.get('/auth/specialities/'),
+          api.get('/auth/specializations/')
+        ]);
+        setSpecialities(specialitiesRes.data);
+        setSpecializations(specializationsRes.data);
+      } catch (err) {
+        console.error('Error fetching data:', err);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const handleStepChange = (step) => {
+    setActiveStep(step);
+    setFormData({ ...formData, user_type: step });
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    // Clear field error when user starts typing
+    if (fieldErrors[name]) {
+      setFieldErrors({ ...fieldErrors, [name]: '' });
+    }
+  };
+
+  const handleProfilePictureChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setFieldErrors({ ...fieldErrors, profile_picture: 'File size must be less than 5MB' });
+        return;
+      }
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setFieldErrors({ ...fieldErrors, profile_picture: 'Only image files are allowed' });
+        return;
+      }
+
+      setFormData({ ...formData, profile_picture: file });
+     
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfilePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+     
+      // Clear error
+      if (fieldErrors.profile_picture) {
+        setFieldErrors({ ...fieldErrors, profile_picture: '' });
+      }
+    }
+  };
+
+  const handleSpecialityToggle = (specialityId) => {
+    setFormData(prev => {
+      const newSpecialities = prev.specialities.includes(specialityId)
+        ? prev.specialities.filter(id => id !== specialityId)
+        : [...prev.specialities, specialityId];
+      return { ...prev, specialities: newSpecialities };
     });
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [phoneNumber, setPhoneNumber] = useState('');
-    const [rememberMe, setRememberMe] = useState(false);
-    const [acceptTerms, setAcceptTerms] = useState(false);
+  };
 
-    return (
-        <div className="min-h-screen bg-linear-to-br from-blue-50 to-white flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative">
-                <button
+  const handleSpecializationToggle = (specializationId) => {
+    setFormData(prev => {
+      const newSpecializations = prev.specializations.includes(specializationId)
+        ? prev.specializations.filter(id => id !== specializationId)
+        : [...prev.specializations, specializationId];
+      return { ...prev, specializations: newSpecializations };
+    });
+  };
 
-                    className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 cursor-pointer"
-                >
-                    <FaTimes className='text-xl' />
-                </button>
-                <div className="p-8">
-                    <div className="text-center mb-8">
-                        <h2
+  const validateForm = () => {
+    const errors = {};
 
-                            className="text-3xl font-bold text-blue-600 mb-2 cursor-pointer hover:text-blue-700 transition-colors duration-300"
-                            style={{ fontFamily: 'Poppins, sans-serif' }}
-                        >
-                            SajiloFix
-                        </h2>
-                        <h3 className="text-2xl font-bold text-gray-900 mb-2">
-                            Create account
-                        </h3>
-                        <p className="text-gray-600">
-                            Sign up to get started with our services
-                        </p>
-                    </div>
-                    <form className="space-y-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-3">
-                                I want to
-                            </label>
-                            <div className="grid grid-cols-2 gap-3 mb-6">
-                                <button
-                                    type="button"
-                                    onClick={() => setUserType('find')}
-                                    className={`flex items-center justify-center px-4 py-3 border-2 rounded-lg font-medium transition-colors  ${userType === 'find'
-                                        ? 'border-blue-500 bg-blue-50 text-blue-600'
-                                        : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
-                                        }`}
-                                >
-                                    <i className="fas fa-search mr-2"></i>
-                                    Find Services
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setUserType('offer')}
-                                    className={`flex items-center justify-center px-4 py-3 border-2 rounded-lg font-medium transition-colors  ${userType === 'offer'
-                                        ? 'border-blue-500 bg-blue-50 text-blue-600'
-                                        : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
-                                        }`}
-                                >
-                                    <i className="fas fa-briefcase mr-2"></i>
-                                    Offer Services
-                                </button>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    First Name
-                                </label>
-                                <input
-                                    type="text"
-                                    value={firstName}
-                                    onChange={(e) => setFirstName(e.target.value)}
-                                    placeholder="John"
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none
-                                    "
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Last Name
-                                </label>
-                                <input
-                                    type="text"
-                                    value={lastName}
-                                    onChange={(e) => setLastName(e.target.value)}
-                                    placeholder="Doe"
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none"
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Email address
-                            </label>
-                            <div className="relative">
-                                <FaEnvelope className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
-                                <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="john@example.com"
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none"
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Phone Number
-                            </label>
-                            <div className="relative">
-                                <FaPhoneAlt className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
-                                <input
-                                    type="tel"
-                                    value={phoneNumber}
-                                    onChange={(e) => setPhoneNumber(e.target.value)}
-                                    placeholder="+1 (555) 123-4567"
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none"
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Password
-                            </label>
-                            <div className="relative">
-                                <FaLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
-                                <input
-                                    type="password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="Create a strong password"
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none"
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Confirm Password
-                            </label>
-                            <div className="relative">
-                                <FaLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
-                                <input
-                                    type="password"
-                                    value={confirmPassword}
-                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                    placeholder="Confirm your password"
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none"
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div className="flex items-start">
-                            <input
-                                type="checkbox"
-                                id="terms"
-                                checked={acceptTerms}
-                                onChange={(e) => setAcceptTerms(e.target.checked)}
-                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded cursor-pointer mt-1"
-                                required
-                            />
-                            <label htmlFor="terms" className="ml-2 text-sm text-gray-700 cursor-pointer">
-                                I agree to the <a href="#" className="text-blue-600 hover:text-blue-500">Terms of Service</a> and <a href="#" className="text-blue-600 hover:text-blue-500">Privacy Policy</a>
-                            </label>
-                        </div>
-                        <button
-                            type="submit"
-                            className="w-full bg-blue-600 text-white py-3 font-semibold hover:bg-blue-700 transition-colors cursor-pointer whitespace-nowrap rounded-lg"
-                        >
-                            Create Account
-                        </button>
-                    </form>
-                    <div className="mt-6">
-                        <div className="relative">
-                            <div className="absolute inset-0 flex items-center">
-                                <div className="w-full border-t border-gray-300" />
-                            </div>
-                            <div className="relative flex justify-center text-sm">
-                                <span className="px-2 bg-white text-gray-500">Or continue with</span>
-                            </div>
-                        </div>
-                        <div className="mt-6 grid ">
-                            <button className="w-full inline-flex justify-center py-2 px-4 border-2 border-gray-500 shadow-sm text-sm font-medium text-gray-500 hover:text-white hover:bg-gray-400 cursor-pointer rounded-lg transition-all duration-200">
-                                <FcGoogle className="mr-2 text-xl" />
-                                Google
-                            </button>
-                            {/* <button className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 cursor-pointer ">
-                                <i className="fab fa-facebook-f mr-2 text-blue-600"></i>
-                                Facebook
-                            </button> */}
-                        </div>
-                    </div>
-                    <div className="mt-6 text-center">
-                        <p className="text-sm text-gray-600">
-                            Already have an account?
-                            <button
-                                
-                                className="ml-1 text-blue-600 hover:text-blue-500 font-medium cursor-pointer"
-                            >
-                                <Link to="/login">
-                                    Sign in here
-                                </Link>
-                            </button>
-                        </p>
-                    </div>
-                </div>
-            </div>
+    if (!formData.first_name.trim()) errors.first_name = 'First name is required';
+    if (!formData.last_name.trim()) errors.last_name = 'Last name is required';
+    if (!formData.email.trim()) errors.email = 'Email is required';
+    if (!formData.phone_number.trim()) errors.phone_number = 'Phone number is required';
+    if (!formData.password) errors.password = 'Password is required';
+    if (!formData.confirm_password) errors.confirm_password = 'Please confirm password';
+   
+    if (formData.password && formData.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters';
+    }
+   
+    if (formData.password !== formData.confirm_password) {
+      errors.confirm_password = 'Passwords do not match';
+    }
+
+    // Validation for service providers
+    if (formData.user_type === 'offer') {
+      if (formData.specialities.length === 0) {
+        errors.specialities = 'Please select at least one speciality';
+      }
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMessage('');
+
+    if (!validateForm()) {
+      setError('Please fix the errors in the form');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Create FormData for file upload
+      const submitData = new FormData();
+     
+      // Append all text fields
+      Object.keys(formData).forEach(key => {
+        if (key === 'profile_picture') {
+          // Handle file separately
+          if (formData.profile_picture) {
+            submitData.append('profile_picture', formData.profile_picture);
+          }
+        } else if (key === 'specialities' || key === 'specializations') {
+          // Handle arrays
+          formData[key].forEach(id => {
+            submitData.append(key, id);
+          });
+        } else if (formData[key] !== '' && formData[key] !== null) {
+          submitData.append(key, formData[key]);
+        }
+      });
+
+      const response = await authService.register(submitData);
+     
+      setSuccessMessage('Registration successful! Redirecting...');
+     
+      // Redirect based on user type
+      setTimeout(() => {
+        if (formData.user_type === 'offer') {
+          navigate('/provider/dashboard');
+        } else {
+          navigate('/');
+        }
+      }, 2000);
+
+    } catch (err) {
+      console.error('Registration error:', err);
+     
+      if (err.email) {
+        setFieldErrors({ ...fieldErrors, email: err.email[0] });
+      }
+      if (err.password) {
+        setFieldErrors({ ...fieldErrors, password: err.password[0] });
+      }
+      if (err.phone_number) {
+        setFieldErrors({ ...fieldErrors, phone_number: err.phone_number[0] });
+      }
+     
+      setError(err.detail || err.non_field_errors?.[0] || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getFilteredSpecializations = () => {
+    if (formData.specialities.length === 0) return [];
+    return specializations.filter(spec =>
+      formData.specialities.includes(spec.speciality)
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-linear-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl w-full bg-white rounded-2xl shadow-2xl p-8">
+        <div className="text-center mb-8">
+          <h2 className="text-4xl font-bold text-gray-900 mb-2">Join SajiloFix</h2>
+          <p className="text-gray-600">Create your account and get started</p>
         </div>
-    )
-}
 
-export default Register
+        {/* User Type Selection */}
+        <div className="flex gap-4 mb-8">
+          <button
+            type="button"
+            onClick={() => handleStepChange('find')}
+            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all ${
+              activeStep === 'find'
+                ? 'bg-blue-600 text-white shadow-lg scale-105'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <div className="text-xl mb-2">🔍</div>
+            Find Services
+          </button>
+          <button
+            type="button"
+            onClick={() => handleStepChange('offer')}
+            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all ${
+              activeStep === 'offer'
+                ? 'bg-green-600 text-white shadow-lg scale-105'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <div className="text-xl mb-2">🛠️</div>
+            Offer Services
+          </button>
+        </div>
+
+        {/* Error Messages */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+            <p className="text-red-700">{error}</p>
+          </div>
+        )}
+
+        {/* Success Message */}
+        {successMessage && (
+          <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
+            <p className="text-green-700">{successMessage}</p>
+          </div>
+        )}
+
+        {/* Registration Form */}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Profile Picture Upload */}
+          <div className="flex flex-col items-center mb-6">
+            <div className="relative">
+              <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-gray-300">
+                {profilePreview ? (
+                  <img src={profilePreview} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-4xl text-gray-400">👤</span>
+                )}
+              </div>
+              <label
+                htmlFor="profile_picture"
+                className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </label>
+              <input
+                type="file"
+                id="profile_picture"
+                name="profile_picture"
+                accept="image/*"
+                onChange={handleProfilePictureChange}
+                className="hidden"
+              />
+            </div>
+            <p className="text-sm text-gray-500 mt-2">Upload profile picture</p>
+            {fieldErrors.profile_picture && (
+              <p className="text-red-500 text-sm mt-1">{fieldErrors.profile_picture}</p>
+            )}
+          </div>
+
+          {/* Basic Information */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                First Name *
+              </label>
+              <input
+                type="text"
+                name="first_name"
+                value={formData.first_name}
+                onChange={handleInputChange}
+                className={`w-full px-4 py-3 border ${
+                  fieldErrors.first_name ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                placeholder="John"
+              />
+              {fieldErrors.first_name && (
+                <p className="text-red-500 text-sm mt-1">{fieldErrors.first_name}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Last Name *
+              </label>
+              <input
+                type="text"
+                name="last_name"
+                value={formData.last_name}
+                onChange={handleInputChange}
+                className={`w-full px-4 py-3 border ${
+                  fieldErrors.last_name ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                placeholder="Doe"
+              />
+              {fieldErrors.last_name && (
+                <p className="text-red-500 text-sm mt-1">{fieldErrors.last_name}</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Email Address *
+            </label>
+            <input
+              type="email"
+              name="email"
+              value={formData.email}
+              onChange={handleInputChange}
+              className={`w-full px-4 py-3 border ${
+                fieldErrors.email ? 'border-red-500' : 'border-gray-300'
+              } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              placeholder="john@example.com"
+            />
+            {fieldErrors.email && (
+              <p className="text-red-500 text-sm mt-1">{fieldErrors.email}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Phone Number *
+            </label>
+            <input
+              type="tel"
+              name="phone_number"
+              value={formData.phone_number}
+              onChange={handleInputChange}
+              className={`w-full px-4 py-3 border ${
+                fieldErrors.phone_number ? 'border-red-500' : 'border-gray-300'
+              } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              placeholder="+977 98XXXXXXXX"
+            />
+            {fieldErrors.phone_number && (
+              <p className="text-red-500 text-sm mt-1">{fieldErrors.phone_number}</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Password *
+              </label>
+              <input
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleInputChange}
+                className={`w-full px-4 py-3 border ${
+                  fieldErrors.password ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                placeholder="••••••••"
+              />
+              {fieldErrors.password && (
+                <p className="text-red-500 text-sm mt-1">{fieldErrors.password}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confirm Password *
+              </label>
+              <input
+                type="password"
+                name="confirm_password"
+                value={formData.confirm_password}
+                onChange={handleInputChange}
+                className={`w-full px-4 py-3 border ${
+                  fieldErrors.confirm_password ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                placeholder="••••••••"
+              />
+              {fieldErrors.confirm_password && (
+                <p className="text-red-500 text-sm mt-1">{fieldErrors.confirm_password}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Additional fields for service providers */}
+          {activeStep === 'offer' && (
+            <>
+              <div className="border-t pt-6">
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                  Professional Information
+                </h3>
+
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Business Name
+                    </label>
+                    <input
+                      type="text"
+                      name="business_name"
+                      value={formData.business_name}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Your Business Name"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Years of Experience
+                      </label>
+                      <input
+                        type="number"
+                        name="years_of_experience"
+                        value={formData.years_of_experience}
+                        onChange={handleInputChange}
+                        min="0"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="5"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        City
+                      </label>
+                      <input
+                        type="text"
+                        name="city"
+                        value={formData.city}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Kathmandu"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Service Area
+                    </label>
+                    <input
+                      type="text"
+                      name="service_area"
+                      value={formData.service_area}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="e.g., Kathmandu Valley"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Address
+                    </label>
+                    <input
+                      type="text"
+                      name="address"
+                      value={formData.address}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Your Address"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Bio / Description
+                    </label>
+                    <textarea
+                      name="bio"
+                      value={formData.bio}
+                      onChange={handleInputChange}
+                      rows="4"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Tell us about yourself and your services..."
+                    />
+                  </div>
+
+                  {/* Specialities Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Specialities * (Select at least one)
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {specialities.map(speciality => (
+                        <button
+                          key={speciality.id}
+                          type="button"
+                          onClick={() => handleSpecialityToggle(speciality.id)}
+                          className={`p-3 rounded-lg border-2 transition-all ${
+                            formData.specialities.includes(speciality.id)
+                              ? 'border-blue-600 bg-blue-50 text-blue-700'
+                              : 'border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          {speciality.name}
+                        </button>
+                      ))}
+                    </div>
+                    {fieldErrors.specialities && (
+                      <p className="text-red-500 text-sm mt-2">{fieldErrors.specialities}</p>
+                    )}
+                  </div>
+
+                  {/* Specializations Selection */}
+                  {formData.specialities.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Specializations (Optional)
+                      </label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-4 border border-gray-200 rounded-lg">
+                        {getFilteredSpecializations().map(specialization => (
+                          <button
+                            key={specialization.id}
+                            type="button"
+                            onClick={() => handleSpecializationToggle(specialization.id)}
+                            className={`p-2 text-sm rounded-lg border transition-all text-left ${
+                              formData.specializations.includes(specialization.id)
+                                ? 'border-green-600 bg-green-50 text-green-700'
+                                : 'border-gray-300 hover:border-gray-400'
+                            }`}
+                          >
+                            {specialization.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className={`w-full py-4 px-6 rounded-xl font-semibold text-white transition-all ${
+              loading
+                ? 'bg-gray-400 cursor-not-allowed'
+                : activeStep === 'find'
+                ? 'bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl'
+                : 'bg-green-600 hover:bg-green-700 shadow-lg hover:shadow-xl'
+            }`}
+          >
+            {loading ? (
+              <span className="flex items-center justify-center">
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Creating Account...
+              </span>
+            ) : (
+              'Create Account'
+            )}
+          </button>
+
+          {/* Login Link */}
+          <div className="text-center">
+            <p className="text-gray-600">
+              Already have an account?{' '}
+              <Link to="/login" className="text-blue-600 hover:text-blue-700 font-semibold">
+                Log In
+              </Link>
+            </p>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default Register;
