@@ -24,45 +24,49 @@ import MyProfile from './pages/Dashboard/Provider/ProviderMyProfile/MyProfile'
 import Availability from './pages/Dashboard/Provider/Availability/Availability'
 import Login from './pages/Auth/Login/Login'
 
+
 function App() {
   const [count, setCount] = useState(0)
 
   return (
     <>
-      <BrowserRouter>
-        <div className=''>
-          <Navbar />
-          <main>
-            <Routes>
-              <Route path='/' element={<HomePage />} />
-              <Route path='/login' element={<Login />} />
-              <Route path='/register' element={<Register />} />
-              <Route path='/about' element={<About />} />
-              <Route path='/contact' element={<Contact />} />
-              <Route path='/howitworks' element={<HowItWorksPage />} />
-              <Route path='/services' element={<Service />} />
-              <Route path="/provider/:id" element={<BookingPage />} />
-              <Route path="/user/dashboard" element={<UserDashboard />} />
-              <Route path="/user/my-bookings" element={<MyBookings />} />
-              <Route path='/user/my-profile' element={<UserMyProfile />} />
-              <Route path='/user/my-payments' element={<UserPayments />} />
-              <Route path='/provider/dashboard' element={<ProviderDashboard />} />
-              <Route path='/provider/my-bookings' element={<ProviderMyBookings />} />
-              <Route path='/provider/my-services' element={<ProviderMyServices />} />
-              <Route path='/provider/reviews' element={<CustomerReviews />} />
-              <Route path='/provider/earnings' element={<ProviderEarnings />} />
-              <Route path='/provider/my-profile' element={<MyProfile />} />
-              <Route path='/provider/availability' element={<Availability />} />
-              
+      
+        <BrowserRouter>
+          <div className=''>
+            <Navbar />
+            <main>
+              <Routes>
+                <Route path='/' element={<HomePage />} />
+                <Route path='/login' element={<Login />} />
+                <Route path='/register' element={<Register />} />
+                <Route path='/about' element={<About />} />
+                <Route path='/contact' element={<Contact />} />
+                <Route path='/howitworks' element={<HowItWorksPage />} />
+                <Route path='/services' element={<Service />} />
+                <Route path="/provider/:id" element={<BookingPage />} />
+                <Route path="/user/dashboard" element={<UserDashboard />} />
+                <Route path="/user/my-bookings" element={<MyBookings />} />
+                <Route path='/user/my-profile' element={<UserMyProfile />} />
+                <Route path='/user/my-payments' element={<UserPayments />} />
+                <Route path='/provider/dashboard' element={<ProviderDashboard />} />
+                <Route path='/provider/my-bookings' element={<ProviderMyBookings />} />
+                <Route path='/provider/my-services' element={<ProviderMyServices />} />
+                <Route path='/provider/reviews' element={<CustomerReviews />} />
+                <Route path='/provider/earnings' element={<ProviderEarnings />} />
+                <Route path='/provider/my-profile' element={<MyProfile />} />
+                <Route path='/provider/availability' element={<Availability />} />
 
-              
-              
-            </Routes>
-          </main>
-          <Footer />
-        </div>
 
-      </BrowserRouter>
+
+
+              </Routes>
+            </main>
+            <Footer />
+          </div>
+
+        </BrowserRouter>
+    
+
     </>
   )
 }
