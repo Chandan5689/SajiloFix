@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.core.validators import RegexValidator
 import os
 
 def user_profile_picture_path(instance, filename):
@@ -18,21 +19,35 @@ class User(AbstractUser):
         ('offer', 'Offer Services'),
     )
     
+     # Phone number validator for exactly 10 digits
+    phone_regex = RegexValidator(
+        regex=r'^(?:\+977|977)?(97|98)\d{8}$',
+    message=(
+        "Enter a valid Nepal mobile number. "
+        "Examples: 9812345678, 9712345678, +9779812345678"
+    )
+    )
     # Basic Info
     email = models.EmailField(unique=True)
-    phone_number = models.CharField(max_length=15, blank=False, null=False,unique=True)
+    phone_number = models.CharField(
+        max_length=14,
+        unique=True,
+        validators=[phone_regex],
+        help_text="Enter 10 digit phone number (e.g., 9812345678)"
+    )
     user_type = models.CharField(max_length=10, choices=USER_TYPE_CHOICES, default='find')
     
     # Profile Picture
     profile_picture = models.ImageField(
         upload_to=user_profile_picture_path, 
-        blank=True, 
-        null=True
+        blank=False, 
+        null=False,
+        default='profile_pictures/default.jpg'
     )
     
     # Address Information
-    address = models.CharField(max_length=255, blank=True, null=True)
-    city = models.CharField(max_length=100, blank=True, null=True)
+    address = models.CharField(max_length=255, blank=False, null=False,default='')
+    city = models.CharField(max_length=100, blank=False, null=False,default='')
     
     # Professional Bio
     bio = models.TextField(blank=True, null=True)
@@ -40,7 +55,7 @@ class User(AbstractUser):
     # Business Information (for service providers)
     business_name = models.CharField(max_length=255, blank=True, null=True)
     years_of_experience = models.IntegerField(default=0, blank=True, null=True)
-    service_area = models.CharField(max_length=255, blank=True, null=True)
+    service_area = models.CharField(max_length=255, blank=False, null=False,default='')
     
     # Status
     is_verified = models.BooleanField(default=False)

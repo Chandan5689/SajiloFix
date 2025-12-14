@@ -1,16 +1,16 @@
-import axios from 'axios';
-
-const API_URL = 'http://127.0.0.1:8000/api/auth/';
+import api from '../api/axios';
 
 const authService = {
     register: async (formData) => {
         try {
-            // FormData is passed directly, axios handles the headers
-            const response = await axios.post(`${API_URL}register/`, formData, {
+            // Create config for multipart/form-data
+            const config = {
                 headers: {
-                    'Content-Type': 'multipart/form-data'
+                    'Content-Type': 'multipart/form-data',
                 }
-            });
+            };
+
+            const response = await api.post('/auth/register/', formData, config);
             
             if (response.data.tokens) {
                 localStorage.setItem('access_token', response.data.tokens.access);
@@ -26,14 +26,14 @@ const authService = {
 
     login: async (email, password) => {
         try {
-            const response = await axios.post(`${API_URL}login/`, { 
-                email, 
-                password 
-            });
+            const response = await api.post('/auth/login/', { email, password });
             
             if (response.data.access) {
                 localStorage.setItem('access_token', response.data.access);
                 localStorage.setItem('refresh_token', response.data.refresh);
+                // Fetch user details after login
+                const userResponse = await api.get('/auth/me/');
+                localStorage.setItem('user', JSON.stringify(userResponse.data));
             }
             
             return response.data;
@@ -49,8 +49,7 @@ const authService = {
     },
 
     getCurrentUser: () => {
-        const user = localStorage.getItem('user');
-        return user ? JSON.parse(user) : null;
+        return JSON.parse(localStorage.getItem('user'));
     },
 
     isAuthenticated: () => {

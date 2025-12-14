@@ -1,8 +1,273 @@
+import axios from 'axios';
+import api from '../api/axios'
+const API_URL = 'http://127.0.0.1:8000/api/auth/';
+
+const authService = {
+    register: async (formData) => {
+        try {
+            // FormData is passed directly, axios handles the headers
+            const response = await axios.post(`${API_URL}register/`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+            
+            if (response.data.tokens) {
+                localStorage.setItem('access_token', response.data.tokens.access);
+                localStorage.setItem('refresh_token', response.data.tokens.refresh);
+                localStorage.setItem('user', JSON.stringify(response.data.user));
+            }
+            
+            return response.data;
+        } catch (error) {
+            throw error.response?.data || error.message;
+        }
+    },
+
+    login: async (email, password) => {
+        try {
+            const response = await axios.post(`${API_URL}login/`, { 
+                email, 
+                password 
+            });
+            
+            if (response.data.access) {
+                localStorage.setItem('access_token', response.data.access);
+                localStorage.setItem('refresh_token', response.data.refresh);
+            }
+            
+            return response.data;
+        } catch (error) {
+            throw error.response?.data || error.message;
+        }
+    },
+
+    logout: () => {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user');
+    },
+
+    getCurrentUser: () => {
+        const user = localStorage.getItem('user');
+        return user ? JSON.parse(user) : null;
+    },
+
+    isAuthenticated: () => {
+        return !!localStorage.getItem('access_token');
+    }
+};
+
+export default authService;
+
+
+
+
+
+
+
+
+
+
+//users/serializers.py
+
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from rest_framework.validators import UniqueValidator
+from .models import Speciality, Specialization, UserSpeciality, UserSpecialization, Certificate
+
+User = get_user_model()
+
+
+class SpecialitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Speciality
+        fields = ['id', 'name', 'slug']
+
+
+class SpecializationSerializer(serializers.ModelSerializer):
+    speciality_name = serializers.CharField(source='speciality.name', read_only=True)
+    
+    class Meta:
+        model = Specialization
+        fields = ['id', 'name', 'speciality_name']
+
+
+class CertificateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Certificate
+        fields = ['id', 'name', 'file', 'uploaded_at']
+        read_only_fields = ['uploaded_at']
+
+
+class RegisterSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(
+        required=True,
+        validators=[UniqueValidator(queryset=User.objects.all())]
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        validators=[validate_password],
+        style={'input_type': 'password'}
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={'input_type': 'password'}
+    )
+    first_name = serializers.CharField(required=True)
+    last_name = serializers.CharField(required=True)
+    phone_number = serializers.CharField(required=True)
+    user_type = serializers.ChoiceField(choices=['find', 'offer'], required=True)
+    
+    # Optional fields for service providers
+    business_name = serializers.CharField(required=False, allow_blank=True)
+    years_of_experience = serializers.IntegerField(required=False, allow_null=True)
+    service_area = serializers.CharField(required=False, allow_blank=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
+    bio = serializers.CharField(required=False, allow_blank=True)
+    profile_picture = serializers.ImageField(required=True, allow_null=False)
+    
+    # Specialities and Specializations (IDs)
+    specialities = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True
+        default=list
+    )
+    specializations = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True
+        default=list
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            'email', 'password', 'confirm_password', 'first_name', 'last_name',
+            'phone_number', 'user_type', 'business_name', 'years_of_experience',
+            'service_area', 'address', 'city', 'bio', 'profile_picture',
+            'specialities', 'specializations'
+        )
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['confirm_password']:
+            raise serializers.ValidationError(
+                {"password": "Password fields didn't match."}
+            )
+        
+        # If user is offering services, validate specialities
+        if attrs.get('user_type') == 'offer':
+            specialities = attrs.get('specialities', [])
+            if not specialities:
+                raise serializers.ValidationError(
+                    {"specialities": "Service providers must select at least one speciality."}
+                )
+        
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('confirm_password')
+        
+        # Extract specialities and specializations
+        speciality_ids = validated_data.pop('specialities', [])
+        specialization_ids = validated_data.pop('specializations', [])
+        
+        # Create username from email
+        username = validated_data['email'].split('@')[0]
+        base_username = username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}{counter}"
+            counter += 1
+        
+        # Create user
+        user = User.objects.create_user(
+            username=username,
+            email=validated_data['email'],
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
+            phone_number=validated_data['phone_number'],
+            user_type=validated_data['user_type'],
+            password=validated_data['password'],
+            business_name=validated_data.get('business_name', ''),
+            years_of_experience=validated_data.get('years_of_experience', 0),
+            service_area=validated_data.get('service_area', ''),
+            address=validated_data.get('address', ''),
+            city=validated_data.get('city', ''),
+            bio=validated_data.get('bio', ''),
+            profile_picture=validated_data.get('profile_picture', None)
+        )
+        
+        # Add specialities
+        for spec_id in speciality_ids:
+            try:
+                speciality = Speciality.objects.get(id=spec_id)
+                UserSpeciality.objects.create(user=user, speciality=speciality)
+            except Speciality.DoesNotExist:
+                pass
+        
+        # Add specializations
+        for spec_id in specialization_ids:
+            try:
+                specialization = Specialization.objects.get(id=spec_id)
+                UserSpecialization.objects.create(user=user, specialization=specialization)
+            except Specialization.DoesNotExist:
+                pass
+        
+        return user
+
+
+class UserSerializer(serializers.ModelSerializer):
+    specialities = serializers.SerializerMethodField()
+    specializations = serializers.SerializerMethodField()
+    certificates = CertificateSerializer(many=True, read_only=True)
+    profile_picture_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = (
+            'id', 'email', 'first_name', 'last_name', 'phone_number', 'user_type',
+            'profile_picture', 'profile_picture_url', 'address', 'city', 'bio',
+            'business_name', 'years_of_experience', 'service_area', 'is_verified',
+            'specialities', 'specializations', 'certificates', 'created_at'
+        )
+        read_only_fields = ('id', 'is_verified', 'created_at')
+    
+    def get_profile_picture_url(self, obj):
+        if obj.profile_picture:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.profile_picture.url)
+        return None
+    
+    def get_specialities(self, obj):
+        user_specialities = UserSpeciality.objects.filter(user=obj).select_related('speciality')
+        return [{'id': us.speciality.id, 'name': us.speciality.name} for us in user_specialities]
+    
+    def get_specializations(self, obj):
+        user_specializations = UserSpecialization.objects.filter(user=obj).select_related('specialization')
+        return [{'id': us.specialization.id, 'name': us.specialization.name} for us in user_specializations]
+
+
+
+
+
+
+
+
+
+
+// Register.jsx
+
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import authService from '../../services/authService';
 import api from '../../api/axios';
-import { X, Upload, FileText, Eye, Trash2 } from 'lucide-react';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -13,7 +278,6 @@ const Register = () => {
   const [specialities, setSpecialities] = useState([]);
   const [specializations, setSpecializations] = useState([]);
   const [profilePreview, setProfilePreview] = useState(null);
-  const [certificates, setCertificates] = useState([]);
 
   const [formData, setFormData] = useState({
     first_name: '',
@@ -40,18 +304,17 @@ const Register = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        console.log('Fetching specialities...');
+        console.log('Fetching specialities and specializations...');
         const [specialitiesRes, specializationsRes] = await Promise.all([
           api.get('/auth/specialities/'),
           api.get('/auth/specializations/')
         ]);
-        
         console.log('Specialities received:', specialitiesRes.data);
         console.log('Specializations received:', specializationsRes.data);
-        
         setSpecialities(specialitiesRes.data);
         setSpecializations(specializationsRes.data);
       } catch (err) {
+
         console.error('Error fetching data:', err);
         console.error('Error response:', err.response);
         setError('Failed to load specialities. Please refresh the page.');
@@ -68,6 +331,7 @@ const Register = () => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
+    // Clear field error when user starts typing
     if (fieldErrors[name]) {
       setFieldErrors({ ...fieldErrors, [name]: '' });
     }
@@ -76,88 +340,32 @@ const Register = () => {
   const handleProfilePictureChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         setFieldErrors({ ...fieldErrors, profile_picture: 'File size must be less than 5MB' });
         return;
       }
 
+      // Validate file type
       if (!file.type.startsWith('image/')) {
         setFieldErrors({ ...fieldErrors, profile_picture: 'Only image files are allowed' });
         return;
       }
 
       setFormData({ ...formData, profile_picture: file });
-     
+
+      // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setProfilePreview(reader.result);
       };
       reader.readAsDataURL(file);
-     
+
+      // Clear error
       if (fieldErrors.profile_picture) {
         setFieldErrors({ ...fieldErrors, profile_picture: '' });
       }
     }
-  };
-
-  const handleCertificateUpload = (e) => {
-    const files = Array.from(e.target.files);
-    
-    // Validate files
-    const validFiles = [];
-    const errors = [];
-    
-    files.forEach(file => {
-      // Check file size (max 10MB per file)
-      if (file.size > 10 * 1024 * 1024) {
-        errors.push(`${file.name} is too large (max 10MB)`);
-        return;
-      }
-      
-      // Check file type (pdf, images, doc, docx)
-      const allowedTypes = [
-        'application/pdf',
-        'image/jpeg',
-        'image/jpg',
-        'image/png',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      ];
-      
-      if (!allowedTypes.includes(file.type)) {
-        errors.push(`${file.name} has invalid format`);
-        return;
-      }
-      
-      validFiles.push(file);
-    });
-    
-    if (errors.length > 0) {
-      setFieldErrors({ ...fieldErrors, certificates: errors.join(', ') });
-      return;
-    }
-    
-    // Add valid files to certificates
-    const newCertificates = validFiles.map(file => ({
-      id: Date.now() + Math.random(),
-      name: file.name,
-      file: file,
-      preview: URL.createObjectURL(file)
-    }));
-    
-    setCertificates([...certificates, ...newCertificates]);
-    
-    // Clear error
-    if (fieldErrors.certificates) {
-      setFieldErrors({ ...fieldErrors, certificates: '' });
-    }
-    
-    // Reset input
-    e.target.value = '';
-  };
-
-  const handleRemoveCertificate = (id) => {
-    setCertificates(certificates.filter(cert => cert.id !== id));
   };
 
   const handleSpecialityToggle = (specialityId) => {
@@ -183,31 +391,20 @@ const Register = () => {
 
     if (!formData.first_name.trim()) errors.first_name = 'First name is required';
     if (!formData.last_name.trim()) errors.last_name = 'Last name is required';
-    if (!formData.email.trim()) {
-      errors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      errors.email = 'Email is invalid';
-    }
-    
-    // Phone number validation - exactly 10 digits starting with 98
-    if (!formData.phone_number.trim()) {
-      errors.phone_number = 'Phone number is required';
-    } else if (!/^98\d{8}$/.test(formData.phone_number)) {
-      errors.phone_number = 'Phone number must be exactly 10 digits starting with 98 (e.g., 9812345678)';
-    }
-    
-    if (!formData.password) {
-      errors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
+    if (!formData.email.trim()) errors.email = 'Email is required';
+    if (!formData.phone_number.trim()) errors.phone_number = 'Phone number is required';
+    if (!formData.password) errors.password = 'Password is required';
+    if (!formData.confirm_password) errors.confirm_password = 'Please confirm password';
+
+    if (formData.password && formData.password.length < 8) {
       errors.password = 'Password must be at least 8 characters';
     }
-   
-    if (!formData.confirm_password) {
-      errors.confirm_password = 'Please confirm password';
-    } else if (formData.password !== formData.confirm_password) {
+
+    if (formData.password !== formData.confirm_password) {
       errors.confirm_password = 'Passwords do not match';
     }
 
+    // Validation for service providers
     if (formData.user_type === 'offer') {
       if (formData.specialities.length === 0) {
         errors.specialities = 'Please select at least one speciality';
@@ -231,19 +428,23 @@ const Register = () => {
     setLoading(true);
 
     try {
+      // Create FormData for file upload
       const submitData = new FormData();
-     
+
       // Append all text fields
       Object.keys(formData).forEach(key => {
         if (key === 'profile_picture') {
+          // Handle file separately
           if (formData.profile_picture) {
             submitData.append('profile_picture', formData.profile_picture);
           }
         } else if (key === 'specialities') {
+          // FIXED: Append each speciality individually with brackets
           formData.specialities.forEach((id, index) => {
             submitData.append(`specialities[${index}]`, id);
           });
         } else if (key === 'specializations') {
+          // FIXED: Append each specialization individually with brackets
           formData.specializations.forEach((id, index) => {
             submitData.append(`specializations[${index}]`, id);
           });
@@ -251,21 +452,18 @@ const Register = () => {
           submitData.append(key, formData[key]);
         }
       });
-      
-      // Append certificates
-      certificates.forEach((cert, index) => {
-        submitData.append(`certificates[${index}]`, cert.file);
-      });
 
+      // Debug: Log FormData contents
       console.log('FormData contents:');
       for (let pair of submitData.entries()) {
-        console.log(pair[0] + ':', pair[1]);
+        console.log(pair[0] + ': ' + pair[1]);
       }
 
       const response = await authService.register(submitData);
-     
+
       setSuccessMessage('Registration successful! Redirecting...');
-     
+
+      // Redirect based on user type
       setTimeout(() => {
         if (formData.user_type === 'offer') {
           navigate('/provider/dashboard');
@@ -276,7 +474,7 @@ const Register = () => {
 
     } catch (err) {
       console.error('Registration error:', err);
-     
+
       if (err.email) {
         setFieldErrors({ ...fieldErrors, email: err.email[0] });
       }
@@ -286,10 +484,12 @@ const Register = () => {
       if (err.phone_number) {
         setFieldErrors({ ...fieldErrors, phone_number: err.phone_number[0] });
       }
+      if (err.profile_picture) {
+        setFieldErrors({ ...fieldErrors, profile_picture: err.profile_picture[0] });
+      }
       if (err.specialities) {
         setFieldErrors({ ...fieldErrors, specialities: err.specialities[0] || err.specialities });
       }
-     
       setError(err.detail || err.non_field_errors?.[0] || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
@@ -316,36 +516,35 @@ const Register = () => {
           <button
             type="button"
             onClick={() => handleStepChange('find')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
-              activeStep === 'find'
+            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all ${activeStep === 'find'
                 ? 'bg-blue-600 text-white shadow-lg scale-105'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+              }`}
           >
-            <div className="text-2xl mb-2">🔍</div>
+            <div className="text-xl mb-2">🔍</div>
             Find Services
           </button>
           <button
             type="button"
             onClick={() => handleStepChange('offer')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
-              activeStep === 'offer'
+            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all ${activeStep === 'offer'
                 ? 'bg-green-600 text-white shadow-lg scale-105'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+              }`}
           >
-            <div className="text-2xl mb-2">🛠️</div>
+            <div className="text-xl mb-2">🛠️</div>
             Offer Services
           </button>
         </div>
 
-        {/* Messages */}
+        {/* Error Messages */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
             <p className="text-red-700">{error}</p>
           </div>
         )}
 
+        {/* Success Message */}
         {successMessage && (
           <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
             <p className="text-green-700">{successMessage}</p>
@@ -354,7 +553,7 @@ const Register = () => {
 
         {/* Registration Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Profile Picture */}
+          {/* Profile Picture Upload */}
           <div className="flex flex-col items-center mb-6">
             <div className="relative">
               <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-gray-300">
@@ -376,6 +575,7 @@ const Register = () => {
               <input
                 type="file"
                 id="profile_picture"
+                name="profile_picture"
                 accept="image/*"
                 onChange={handleProfilePictureChange}
                 className="hidden"
@@ -390,15 +590,16 @@ const Register = () => {
           {/* Basic Information */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">First Name *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                First Name *
+              </label>
               <input
                 type="text"
                 name="first_name"
                 value={formData.first_name}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.first_name ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.first_name ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="John"
               />
               {fieldErrors.first_name && (
@@ -407,15 +608,16 @@ const Register = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Last Name *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Last Name *
+              </label>
               <input
                 type="text"
                 name="last_name"
                 value={formData.last_name}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.last_name ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.last_name ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="Doe"
               />
               {fieldErrors.last_name && (
@@ -425,15 +627,16 @@ const Register = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Email Address *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Email Address *
+            </label>
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleInputChange}
-              className={`w-full px-4 py-3 border ${
-                fieldErrors.email ? 'border-red-500' : 'border-gray-300'
-              } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              className={`w-full px-4 py-3 border ${fieldErrors.email ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
               placeholder="john@example.com"
             />
             {fieldErrors.email && (
@@ -442,18 +645,18 @@ const Register = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number *  (10 digits)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Phone Number *
+            </label>
             <input
               type="tel"
               name="phone_number"
               value={formData.phone_number}
               onChange={handleInputChange}
-              className={`w-full px-4 py-3 border ${
-                fieldErrors.phone_number ? 'border-red-500' : 'border-gray-300'
-              } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              className={`w-full px-4 py-3 border ${fieldErrors.phone_number ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
               placeholder="+977 98XXXXXXXX"
             />
-           <p className="mt-1 text-xs text-gray-500">Enter 10 digits starting with 98</p>
             {fieldErrors.phone_number && (
               <p className="text-red-500 text-sm mt-1">{fieldErrors.phone_number}</p>
             )}
@@ -461,15 +664,16 @@ const Register = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Password *
+              </label>
               <input
                 type="password"
                 name="password"
                 value={formData.password}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.password ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="••••••••"
               />
               {fieldErrors.password && (
@@ -478,15 +682,16 @@ const Register = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confirm Password *
+              </label>
               <input
                 type="password"
                 name="confirm_password"
                 value={formData.confirm_password}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.confirm_password ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.confirm_password ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="••••••••"
               />
               {fieldErrors.confirm_password && (
@@ -495,89 +700,103 @@ const Register = () => {
             </div>
           </div>
 
-          {/* Service Provider Fields */}
+          {/* Additional fields for service providers */}
           {activeStep === 'offer' && (
             <>
-              <div className="border-t pt-6 mt-6">
-                <h3 className="text-xl font-semibold text-gray-900 mb-4">Professional Information</h3>
+              <div className="border-t pt-6">
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                  Professional Information
+                </h3>
 
                 <div className="space-y-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Business Name</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Business Name
+                    </label>
                     <input
                       type="text"
                       name="business_name"
                       value={formData.business_name}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Your Business Name"
                     />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Years of Experience</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Years of Experience
+                      </label>
                       <input
                         type="number"
                         name="years_of_experience"
                         value={formData.years_of_experience}
                         onChange={handleInputChange}
                         min="0"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="5"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        City
+                      </label>
                       <input
                         type="text"
                         name="city"
                         value={formData.city}
                         onChange={handleInputChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Kathmandu"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Service Area</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Service Area
+                    </label>
                     <input
                       type="text"
                       name="service_area"
                       value={formData.service_area}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="e.g., Kathmandu Valley"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Address
+                    </label>
                     <input
                       type="text"
                       name="address"
                       value={formData.address}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Your Address"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Bio / Description</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Bio / Description
+                    </label>
                     <textarea
                       name="bio"
                       value={formData.bio}
                       onChange={handleInputChange}
                       rows="4"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Tell us about yourself and your services..."
                     />
                   </div>
 
-                  {/* Specialities */}
+                  {/* Specialities Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Specialities * (Select at least one)
@@ -588,11 +807,10 @@ const Register = () => {
                           key={speciality.id}
                           type="button"
                           onClick={() => handleSpecialityToggle(speciality.id)}
-                          className={`p-3 rounded-lg border-2 transition-all ${
-                            formData.specialities.includes(speciality.id)
+                          className={`p-3 rounded-lg border-2 transition-all ${formData.specialities.includes(speciality.id)
                               ? 'border-blue-600 bg-blue-50 text-blue-700'
                               : 'border-gray-300 hover:border-gray-400'
-                          }`}
+                            }`}
                         >
                           {speciality.name}
                         </button>
@@ -603,11 +821,11 @@ const Register = () => {
                     )}
                   </div>
 
-                  {/* Specializations */}
+                  {/* Specializations Selection */}
                   {formData.specialities.length > 0 && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Specializations (Select relevant ones)
+                        Specializations (Based on selected specialities)
                       </label>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-4 border border-gray-200 rounded-lg">
                         {getFilteredSpecializations().map(specialization => (
@@ -615,11 +833,10 @@ const Register = () => {
                             key={specialization.id}
                             type="button"
                             onClick={() => handleSpecializationToggle(specialization.id)}
-                            className={`p-2 text-sm rounded-lg border transition-all text-left ${
-                              formData.specializations.includes(specialization.id)
+                            className={`p-2 text-sm rounded-lg border transition-all text-left ${formData.specializations.includes(specialization.id)
                                 ? 'border-green-600 bg-green-50 text-green-700'
                                 : 'border-gray-300 hover:border-gray-400'
-                            }`}
+                              }`}
                           >
                             {specialization.name}
                           </button>
@@ -627,69 +844,6 @@ const Register = () => {
                       </div>
                     </div>
                   )}
-
-                  {/* Certificates Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Certificates / Documents (Optional)
-                    </label>
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
-                      <div className="text-center">
-                        <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                        <div className="mt-4">
-                          <label
-                            htmlFor="certificates"
-                            className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors inline-block"
-                          >
-                            Upload Certificates
-                          </label>
-                          <input
-                            type="file"
-                            id="certificates"
-                            multiple
-                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                            onChange={handleCertificateUpload}
-                            className="hidden"
-                          />
-                        </div>
-                        <p className="mt-2 text-xs text-gray-500">
-                          PDF, JPG, PNG, DOC, DOCX up to 10MB each
-                        </p>
-                      </div>
-                    </div>
-                    {fieldErrors.certificates && (
-                      <p className="text-red-500 text-sm mt-2">{fieldErrors.certificates}</p>
-                    )}
-
-                    {/* Uploaded Certificates List */}
-                    {certificates.length > 0 && (
-                      <div className="mt-4 space-y-2">
-                        {certificates.map(cert => (
-                          <div
-                            key={cert.id}
-                            className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <FileText className="h-8 w-8 text-blue-600" />
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">{cert.name}</p>
-                                <p className="text-xs text-gray-500">
-                                  {(cert.file.size / 1024 / 1024).toFixed(2)} MB
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCertificate(cert.id)}
-                              className="text-red-600 hover:text-red-800 transition-colors"
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             </>
@@ -699,13 +853,12 @@ const Register = () => {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-4 px-6 rounded-xl font-semibold text-white transition-all ${
-              loading
+            className={`w-full py-4 px-6 rounded-xl font-semibold text-white transition-all ${loading
                 ? 'bg-gray-400 cursor-not-allowed'
                 : activeStep === 'find'
-                ? 'bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl'
-                : 'bg-green-600 hover:bg-green-700 shadow-lg hover:shadow-xl'
-            }`}
+                  ? 'bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl'
+                  : 'bg-green-600 hover:bg-green-700 shadow-lg hover:shadow-xl'
+              }`}
           >
             {loading ? (
               <span className="flex items-center justify-center">
