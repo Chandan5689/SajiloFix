@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import authService from '../../services/authService';
+import { useFirebaseAuth } from '../../context/FirebaseAuthContext';
+import { sendEmailVerification, reload } from 'firebase/auth';
+import { auth } from '../../config/firebase';
 import api from '../../api/axios';
+import PhoneVerification from './PhoneVerification';
 import { X, Upload, FileText, Eye, Trash2 } from 'lucide-react';
 
 const Register = () => {
   const navigate = useNavigate();
+  const { register: firebaseRegister, user: firebaseUser, checkEmailVerification } = useFirebaseAuth();
   const [activeStep, setActiveStep] = useState('find');
+  const [registrationStep, setRegistrationStep] = useState(1); // 1: Basic info, 2: Email verification, 3: Phone verification
+  const [location, setLocation] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -45,10 +51,10 @@ const Register = () => {
           api.get('/auth/specialities/'),
           api.get('/auth/specializations/')
         ]);
-        
+
         console.log('Specialities received:', specialitiesRes.data);
         console.log('Specializations received:', specializationsRes.data);
-        
+
         setSpecialities(specialitiesRes.data);
         setSpecializations(specializationsRes.data);
       } catch (err) {
@@ -87,13 +93,13 @@ const Register = () => {
       }
 
       setFormData({ ...formData, profile_picture: file });
-     
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setProfilePreview(reader.result);
       };
       reader.readAsDataURL(file);
-     
+
       if (fieldErrors.profile_picture) {
         setFieldErrors({ ...fieldErrors, profile_picture: '' });
       }
@@ -102,18 +108,18 @@ const Register = () => {
 
   const handleCertificateUpload = (e) => {
     const files = Array.from(e.target.files);
-    
+
     // Validate files
     const validFiles = [];
     const errors = [];
-    
+
     files.forEach(file => {
       // Check file size (max 10MB per file)
       if (file.size > 10 * 1024 * 1024) {
         errors.push(`${file.name} is too large (max 10MB)`);
         return;
       }
-      
+
       // Check file type (pdf, images, doc, docx)
       const allowedTypes = [
         'application/pdf',
@@ -123,20 +129,20 @@ const Register = () => {
         'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       ];
-      
+
       if (!allowedTypes.includes(file.type)) {
         errors.push(`${file.name} has invalid format`);
         return;
       }
-      
+
       validFiles.push(file);
     });
-    
+
     if (errors.length > 0) {
       setFieldErrors({ ...fieldErrors, certificates: errors.join(', ') });
       return;
     }
-    
+
     // Add valid files to certificates
     const newCertificates = validFiles.map(file => ({
       id: Date.now() + Math.random(),
@@ -144,14 +150,14 @@ const Register = () => {
       file: file,
       preview: URL.createObjectURL(file)
     }));
-    
+
     setCertificates([...certificates, ...newCertificates]);
-    
+
     // Clear error
     if (fieldErrors.certificates) {
       setFieldErrors({ ...fieldErrors, certificates: '' });
     }
-    
+
     // Reset input
     e.target.value = '';
   };
@@ -188,20 +194,20 @@ const Register = () => {
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       errors.email = 'Email is invalid';
     }
-    
-    // Phone number validation - exactly 10 digits starting with 98
+
+    // Phone number validation - exactly 10 digits starting with 98 or 97
     if (!formData.phone_number.trim()) {
       errors.phone_number = 'Phone number is required';
-    } else if (!/^98\d{8}$/.test(formData.phone_number)) {
-      errors.phone_number = 'Phone number must be exactly 10 digits starting with 98 (e.g., 9812345678)';
+    } else if (!/^(98|97)\d{8}$/.test(formData.phone_number)) {
+      errors.phone_number = 'Phone number must be exactly 10 digits starting with 98 or 97 (e.g., 9812345678)';
     }
-    
+
     if (!formData.password) {
       errors.password = 'Password is required';
     } else if (formData.password.length < 8) {
       errors.password = 'Password must be at least 8 characters';
     }
-   
+
     if (!formData.confirm_password) {
       errors.confirm_password = 'Please confirm password';
     } else if (formData.password !== formData.confirm_password) {
@@ -232,7 +238,7 @@ const Register = () => {
 
     try {
       const submitData = new FormData();
-     
+
       // Append all text fields
       Object.keys(formData).forEach(key => {
         if (key === 'profile_picture') {
@@ -240,43 +246,49 @@ const Register = () => {
             submitData.append('profile_picture', formData.profile_picture);
           }
         } else if (key === 'specialities') {
-          formData.specialities.forEach((id, index) => {
-            submitData.append(`specialities[${index}]`, id);
-          });
+          if (formData.user_type === 'offer' && formData.specialities.length > 0) {
+            formData.specialities.forEach((id, index) => {
+              submitData.append(`specialities[${index}]`, id);
+            });
+          }
         } else if (key === 'specializations') {
-          formData.specializations.forEach((id, index) => {
-            submitData.append(`specializations[${index}]`, id);
-          });
+          // Only add specializations for service providers
+          if (formData.user_type === 'offer' && formData.specializations.length > 0) {
+            formData.specializations.forEach((id, index) => {
+              submitData.append(`specializations[${index}]`, id);
+            });
+          }
         } else if (formData[key] !== '' && formData[key] !== null && formData[key] !== undefined) {
           submitData.append(key, formData[key]);
         }
       });
-      
-      // Append certificates
-      certificates.forEach((cert, index) => {
-        submitData.append(`certificates[${index}]`, cert.file);
-      });
+
+      if (formData.user_type === 'offer' && certificates.length > 0) {
+        certificates.forEach((cert, index) => {
+          submitData.append(`certificates[${index}]`, cert.file);
+        });
+      };
 
       console.log('FormData contents:');
       for (let pair of submitData.entries()) {
         console.log(pair[0] + ':', pair[1]);
       }
 
-      const response = await authService.register(submitData);
-     
-      setSuccessMessage('Registration successful! Redirecting...');
-     
-      setTimeout(() => {
-        if (formData.user_type === 'offer') {
-          navigate('/provider/dashboard');
-        } else {
-          navigate('/');
-        }
-      }, 2000);
+      // Create Firebase account
+      await firebaseRegister(formData.email, formData.password, formData.first_name, formData.last_name);
+      
+      // Store form data in localStorage for later use in phone verification
+      localStorage.setItem('pendingRegistration', JSON.stringify({
+        ...formData,
+        certificates: certificates.map(cert => ({ name: cert.name, file: null })) // Don't store File objects
+      }));
+
+      setSuccessMessage('Account created! Please check your email and click the verification link.');
+      setRegistrationStep(2); // Move to email verification step
 
     } catch (err) {
       console.error('Registration error:', err);
-     
+
       if (err.email) {
         setFieldErrors({ ...fieldErrors, email: err.email[0] });
       }
@@ -286,11 +298,26 @@ const Register = () => {
       if (err.phone_number) {
         setFieldErrors({ ...fieldErrors, phone_number: err.phone_number[0] });
       }
+      if (err.profile_picture) {
+        setFieldErrors({ ...fieldErrors, profile_picture: err.profile_picture[0] });
+      }
       if (err.specialities) {
         setFieldErrors({ ...fieldErrors, specialities: err.specialities[0] || err.specialities });
       }
-     
-      setError(err.detail || err.non_field_errors?.[0] || 'Registration failed. Please try again.');
+
+      let errorMessage = 'Registration failed. Please try again.';
+      
+      if (err.code === 'auth/email-already-in-use') {
+        errorMessage = 'This email is already registered. Please login instead.';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address';
+      } else if (err.code === 'auth/weak-password') {
+        errorMessage = 'Password is too weak. Please use a stronger password.';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -302,6 +329,172 @@ const Register = () => {
       formData.specialities.includes(spec.speciality)
     );
   };
+
+  // Check email verification status periodically when on step 2
+  useEffect(() => {
+    if (registrationStep === 2 && firebaseUser) {
+      const checkInterval = setInterval(async () => {
+        try {
+          // Reload user to get latest emailVerified status
+          await reload(firebaseUser);
+          if (firebaseUser.emailVerified) {
+            clearInterval(checkInterval);
+            setRegistrationStep(3); // Move to phone verification
+          }
+        } catch (err) {
+          console.error('Error checking email verification:', err);
+        }
+      }, 2000); // Check every 2 seconds
+
+      return () => clearInterval(checkInterval);
+    }
+  }, [registrationStep, firebaseUser]);
+
+  const handleResendEmailVerification = async () => {
+    if (firebaseUser) {
+      try {
+        await sendEmailVerification(firebaseUser);
+        setSuccessMessage('Verification email sent! Please check your inbox.');
+      } catch (err) {
+        setError('Failed to resend verification email. Please try again.');
+      }
+    }
+  };
+
+  const handlePhoneVerified = async () => {
+    // Get pending registration data
+    const pendingData = JSON.parse(localStorage.getItem('pendingRegistration') || '{}');
+    
+    try {
+      const idToken = await firebaseUser.getIdToken();
+      
+      // Update user type and location
+      await api.post(
+        'auth/update-user-type/',
+        {
+          user_type: activeStep,
+          location: location || pendingData.location || '',
+          ...(activeStep === 'offer' && {
+            business_name: pendingData.business_name || '',
+            years_of_experience: pendingData.years_of_experience || 0,
+            service_area: pendingData.service_area || '',
+            city: pendingData.city || '',
+            address: pendingData.address || '',
+            bio: pendingData.bio || '',
+            specialities: pendingData.specialities || [],
+            specializations: pendingData.specializations || [],
+          }),
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+          },
+        }
+      );
+
+      // Clear pending registration
+      localStorage.removeItem('pendingRegistration');
+
+      // Redirect based on user type
+      if (activeStep === 'offer') {
+        navigate('/complete-provider-profile');
+      } else {
+        navigate('/');
+      }
+    } catch (err) {
+      console.error('Error completing registration:', err);
+      setError(err.response?.data?.error || 'Failed to complete registration');
+    }
+  };
+
+  // Step 3: Phone Verification
+  if (registrationStep === 3) {
+    return (
+      <PhoneVerification 
+        userType={activeStep} 
+        location={location || formData.location || ''} 
+        onComplete={handlePhoneVerified} 
+      />
+    );
+  }
+
+  // Step 2: Email Verification Waiting
+  if (registrationStep === 2) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-4xl">📧</span>
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">
+              Verify Your Email
+            </h2>
+            <p className="text-gray-600">
+              We sent a verification link to
+            </p>
+            <p className="font-semibold text-gray-900 mt-1">{formData.email}</p>
+          </div>
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
+              <p className="text-green-700 text-sm">{successMessage}</p>
+            </div>
+          )}
+
+          <div className="space-y-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                <strong>Steps:</strong>
+              </p>
+              <ol className="text-sm text-blue-800 mt-2 space-y-1 list-decimal list-inside">
+                <li>Check your email inbox (and spam folder)</li>
+                <li>Click the verification link in the email</li>
+                <li>Come back here - we'll automatically detect when you've verified</li>
+              </ol>
+            </div>
+
+            <div className="text-center">
+              <p className="text-sm text-gray-600 mb-4">
+                Waiting for email verification...
+              </p>
+              <div className="flex justify-center">
+                <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleResendEmailVerification}
+              className="w-full text-blue-600 hover:text-blue-700 text-sm font-medium"
+            >
+              Resend Verification Email
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem('pendingRegistration');
+                navigate('/login');
+              }}
+              className="w-full text-gray-600 hover:text-gray-700 text-sm"
+            >
+              Cancel and go to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -316,11 +509,10 @@ const Register = () => {
           <button
             type="button"
             onClick={() => handleStepChange('find')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
-              activeStep === 'find'
-                ? 'bg-blue-600 text-white shadow-lg scale-105'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${activeStep === 'find'
+              ? 'bg-blue-600 text-white shadow-lg scale-105'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
           >
             <div className="text-2xl mb-2">🔍</div>
             Find Services
@@ -328,11 +520,10 @@ const Register = () => {
           <button
             type="button"
             onClick={() => handleStepChange('offer')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
-              activeStep === 'offer'
-                ? 'bg-green-600 text-white shadow-lg scale-105'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${activeStep === 'offer'
+              ? 'bg-green-600 text-white shadow-lg scale-105'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
           >
             <div className="text-2xl mb-2">🛠️</div>
             Offer Services
@@ -340,17 +531,6 @@ const Register = () => {
         </div>
 
         {/* Messages */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
-            <p className="text-red-700">{error}</p>
-          </div>
-        )}
-
-        {successMessage && (
-          <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
-            <p className="text-green-700">{successMessage}</p>
-          </div>
-        )}
 
         {/* Registration Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -396,9 +576,8 @@ const Register = () => {
                 name="first_name"
                 value={formData.first_name}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.first_name ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.first_name ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="John"
               />
               {fieldErrors.first_name && (
@@ -413,9 +592,8 @@ const Register = () => {
                 name="last_name"
                 value={formData.last_name}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.last_name ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.last_name ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="Doe"
               />
               {fieldErrors.last_name && (
@@ -431,14 +609,26 @@ const Register = () => {
               name="email"
               value={formData.email}
               onChange={handleInputChange}
-              className={`w-full px-4 py-3 border ${
-                fieldErrors.email ? 'border-red-500' : 'border-gray-300'
-              } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              className={`w-full px-4 py-3 border ${fieldErrors.email ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
               placeholder="john@example.com"
             />
             {fieldErrors.email && (
               <p className="text-red-500 text-sm mt-1">{fieldErrors.email}</p>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Location *</label>
+            <input
+              type="text"
+              name="location"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="e.g., Kathmandu"
+              required
+            />
           </div>
 
           <div>
@@ -448,12 +638,11 @@ const Register = () => {
               name="phone_number"
               value={formData.phone_number}
               onChange={handleInputChange}
-              className={`w-full px-4 py-3 border ${
-                fieldErrors.phone_number ? 'border-red-500' : 'border-gray-300'
-              } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              className={`w-full px-4 py-3 border ${fieldErrors.phone_number ? 'border-red-500' : 'border-gray-300'
+                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
               placeholder="+977 98XXXXXXXX"
             />
-           <p className="mt-1 text-xs text-gray-500">Enter 10 digits starting with 98</p>
+            <p className="mt-1 text-xs text-gray-500">Enter 10 digits starting with 98 or 97</p>
             {fieldErrors.phone_number && (
               <p className="text-red-500 text-sm mt-1">{fieldErrors.phone_number}</p>
             )}
@@ -467,9 +656,8 @@ const Register = () => {
                 name="password"
                 value={formData.password}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.password ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="••••••••"
               />
               {fieldErrors.password && (
@@ -484,9 +672,8 @@ const Register = () => {
                 name="confirm_password"
                 value={formData.confirm_password}
                 onChange={handleInputChange}
-                className={`w-full px-4 py-3 border ${
-                  fieldErrors.confirm_password ? 'border-red-500' : 'border-gray-300'
-                } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                className={`w-full px-4 py-3 border ${fieldErrors.confirm_password ? 'border-red-500' : 'border-gray-300'
+                  } rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="••••••••"
               />
               {fieldErrors.confirm_password && (
@@ -588,11 +775,10 @@ const Register = () => {
                           key={speciality.id}
                           type="button"
                           onClick={() => handleSpecialityToggle(speciality.id)}
-                          className={`p-3 rounded-lg border-2 transition-all ${
-                            formData.specialities.includes(speciality.id)
-                              ? 'border-blue-600 bg-blue-50 text-blue-700'
-                              : 'border-gray-300 hover:border-gray-400'
-                          }`}
+                          className={`p-3 rounded-lg border-2 transition-all ${formData.specialities.includes(speciality.id)
+                            ? 'border-blue-600 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                            }`}
                         >
                           {speciality.name}
                         </button>
@@ -615,11 +801,10 @@ const Register = () => {
                             key={specialization.id}
                             type="button"
                             onClick={() => handleSpecializationToggle(specialization.id)}
-                            className={`p-2 text-sm rounded-lg border transition-all text-left ${
-                              formData.specializations.includes(specialization.id)
-                                ? 'border-green-600 bg-green-50 text-green-700'
-                                : 'border-gray-300 hover:border-gray-400'
-                            }`}
+                            className={`p-2 text-sm rounded-lg border transition-all text-left ${formData.specializations.includes(specialization.id)
+                              ? 'border-green-600 bg-green-50 text-green-700'
+                              : 'border-gray-300 hover:border-gray-400'
+                              }`}
                           >
                             {specialization.name}
                           </button>
@@ -699,13 +884,12 @@ const Register = () => {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-4 px-6 rounded-xl font-semibold text-white transition-all ${
-              loading
-                ? 'bg-gray-400 cursor-not-allowed'
-                : activeStep === 'find'
+            className={`w-full py-4 px-6 rounded-xl font-semibold text-white transition-all ${loading
+              ? 'bg-gray-400 cursor-not-allowed'
+              : activeStep === 'find'
                 ? 'bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl'
                 : 'bg-green-600 hover:bg-green-700 shadow-lg hover:shadow-xl'
-            }`}
+              }`}
           >
             {loading ? (
               <span className="flex items-center justify-center">
@@ -730,6 +914,20 @@ const Register = () => {
             </p>
           </div>
         </form>
+
+        {/* Messages */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+            <p className="text-red-700">{error}</p>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
+            <p className="text-green-700">{successMessage}</p>
+          </div>
+        )}
+
       </div>
     </div>
   );

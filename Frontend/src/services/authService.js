@@ -31,9 +31,13 @@ const authService = {
             if (response.data.access) {
                 localStorage.setItem('access_token', response.data.access);
                 localStorage.setItem('refresh_token', response.data.refresh);
-                // Fetch user details after login
-                const userResponse = await api.get('/auth/me/');
-                localStorage.setItem('user', JSON.stringify(userResponse.data));
+                 // Fetch user details after login
+                try {
+                    const userResponse = await api.get('/auth/me/');
+                    localStorage.setItem('user', JSON.stringify(userResponse.data));
+                } catch (err) {
+                    console.error('Error fetching user details:', err);
+                }
             }
             
             return response.data;
@@ -48,12 +52,18 @@ const authService = {
         localStorage.removeItem('user');
     },
 
-    getCurrentUser: () => {
-        return JSON.parse(localStorage.getItem('user'));
+   getCurrentUser: () => {
+        const userStr = localStorage.getItem('user');
+        return userStr ? JSON.parse(userStr) : null;
     },
 
     isAuthenticated: () => {
         return !!localStorage.getItem('access_token');
+    },
+
+    getUserType: () => {
+        const user = authService.getCurrentUser();
+        return user ? user.user_type : null;
     }
 };
 
