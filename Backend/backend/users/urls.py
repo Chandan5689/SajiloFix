@@ -1,11 +1,43 @@
+# from django.urls import path
+# from django.views.decorators.csrf import csrf_exempt
+# from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+# from .views import  CurrentUserView, SpecialitiesListView, SpecializationsListView, UploadCertificatesView, UploadCitizenshipView, VerifyPhoneView,UpdateUserTypeView
+
+# urlpatterns = [
+   
+#     path('me/', csrf_exempt(CurrentUserView.as_view()), name='current-user'),
+#     path('verify-phone/', csrf_exempt(VerifyPhoneView.as_view()), name='verify-phone'),
+#     path('update-user-type/', csrf_exempt(UpdateUserTypeView.as_view()), name='update-user-type'),
+#     path('upload-citizenship/', UploadCitizenshipView.as_view(), name='upload-citizenship'),
+#     path('upload-certificates/', UploadCertificatesView.as_view(), name='upload-certificates'),
+#     path('specialities/', SpecialitiesListView.as_view(), name='specialities-list'),
+#     path('specializations/', SpecializationsListView.as_view(), name='specializations-list'),
+# ]
+
+
+
 from django.urls import path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from .views import RegisterView, SpecialitiesListView, SpecializationsListView
+from .views import (
+    CurrentUserView,
+    VerifyPhoneView,
+    UpdateUserTypeView,
+    UploadCitizenshipView,
+    UploadCertificatesView,
+    SpecialitiesListView,
+    SpecializationsListView
+)
+from .views import RegistrationStatusView
 
 urlpatterns = [
-    path('register/', RegisterView.as_view(), name='register'),
-    path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # User endpoints
+    path('me/', CurrentUserView.as_view(), name='current-user'),
+    path('verify-phone/', VerifyPhoneView.as_view(), name='verify-phone'),
+    path('update-user-type/', UpdateUserTypeView.as_view(), name='update-user-type'),
+    path('upload-citizenship/', UploadCitizenshipView.as_view(), name='upload-citizenship'),
+    path('upload-certificates/', UploadCertificatesView.as_view(), name='upload-certificates'),
+    path('registration-status/', RegistrationStatusView.as_view(), name='registration-status'),
+    
+    # Lookup endpoints
     path('specialities/', SpecialitiesListView.as_view(), name='specialities-list'),
     path('specializations/', SpecializationsListView.as_view(), name='specializations-list'),
 ]

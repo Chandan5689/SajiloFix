@@ -13,41 +13,61 @@ def user_certificate_path(instance, filename):
     """Generate file path for certificates"""
     return os.path.join('certificates', f'user_{instance.user.id}', filename)
 
+def user_citizenship_path(instance, filename):
+    """Generate file path for citizenship documents"""
+    ext = filename.split('.')[-1]
+    filename = f'citizenship_{instance.id}.{ext}'
+    return os.path.join('citizenship', filename)
+
 class User(AbstractUser):
     USER_TYPE_CHOICES = (
         ('find', 'Find Services'),
         ('offer', 'Offer Services'),
     )
     
-     # Phone number validator for exactly 10 digits
+    # Phone number validator for exactly 10 digits
     phone_regex = RegexValidator(
-        regex=r'^(?:\+977|977)?(97|98)\d{8}$',
-    message=(
-        "Enter a valid Nepal mobile number. "
-        "Examples: 9812345678, 9712345678, +9779812345678"
-    )
+        regex=r'^(97|98)\d{8}$',
+        message=(
+            "Enter a valid Nepal mobile number. "
+            "Examples: 9812345678, 9712345678, +9779812345678"
+        )
     )
     # Basic Info
     email = models.EmailField(unique=True)
     phone_number = models.CharField(
-        max_length=14,
+        max_length=10,
         unique=True,
         validators=[phone_regex],
-        help_text="Enter 10 digit phone number (e.g., 9812345678)"
+        help_text="Enter 10 digit phone number (e.g., 9812345678)",
+        blank=True,
+        null=True
     )
     user_type = models.CharField(max_length=10, choices=USER_TYPE_CHOICES, default='find')
+
+    #Clerk Integration
+    clerk_user_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
+    phone_verified = models.BooleanField(default=False)
+    firebase_phone_uid = models.CharField(max_length=255, blank=True, null=True)
+    registration_completed = models.BooleanField(default=False, help_text="Set to True only after phone verification is complete")
     
     # Profile Picture
     profile_picture = models.ImageField(
         upload_to=user_profile_picture_path, 
-        blank=False, 
-        null=False,
-        default='profile_pictures/default.jpg'
+        blank=True, 
+        null=True,
+        help_text="Profile picture of the user"
     )
-    
+    # Location field for all users
+    location = models.CharField(
+        max_length=255, 
+        blank=True, 
+        null=True,
+        help_text="Current location/address"
+    )
     # Address Information
-    address = models.CharField(max_length=255, blank=False, null=False,default='')
-    city = models.CharField(max_length=100, blank=False, null=False,default='')
+    address = models.CharField(max_length=255, blank=True, null=True)
+    city = models.CharField(max_length=100, blank=True, null=True)
     
     # Professional Bio
     bio = models.TextField(blank=True, null=True)
@@ -55,12 +75,37 @@ class User(AbstractUser):
     # Business Information (for service providers)
     business_name = models.CharField(max_length=255, blank=True, null=True)
     years_of_experience = models.IntegerField(default=0, blank=True, null=True)
-    service_area = models.CharField(max_length=255, blank=False, null=False,default='')
+    service_area = models.CharField(max_length=255, blank=True, null=True)
+
+
+    # Citizenship/National ID (for service providers)
+    citizenship_front = models.ImageField(
+        upload_to=user_citizenship_path,
+        blank=True,
+        null=True,
+        help_text="Front side of citizenship or national ID card"
+    )
+    citizenship_back = models.ImageField(
+        upload_to=user_citizenship_path,
+        blank=True,
+        null=True,
+        help_text="Back side of citizenship or national ID card"
+    )
+    citizenship_number = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Citizenship or national ID number"
+    )
+    citizenship_verified = models.BooleanField(default=False)
+    
     
     # Status
     is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    
     
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
