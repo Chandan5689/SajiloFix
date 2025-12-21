@@ -889,3 +889,737 @@ const Register = () => {
 };
 
 export default Register;
+
+
+
+
+
+
+
+// Navbar.jsx
+
+import React, { useEffect, useState } from 'react'
+import { FaChevronDown } from "react-icons/fa";
+import { Link, NavLink, useLocation } from 'react-router-dom';
+function Navbar() {
+    const [isAuthenticated, setIsAuthenticated] = useState
+        (false);
+    const location = useLocation();
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+    useEffect(() => {
+        setIsMenuOpen(false);
+    }, [location])
+
+    const navLinks = [
+        { name: 'Services', path: '/services' },
+        { name: 'How It Works', path: '/howitworks' },
+        { name: 'About', path: '/about' },
+        { name: 'Contact', path: '/contact' },
+    ]
+    return (
+
+        <div className='bg-gray-50'>
+            <header className='bg-white sticky top-0 shadow-md z-50'>
+                <div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'>
+                    <div className='flex justify-between items-center h-16'>
+                        <div className='flex items-center'>
+                            <Link to="/">
+                                <h1 className="text-2xl font-bold text-green-600 cursor-pointer hover:text-green-700 transition-colors duration-300 font-['Pacifico,sans-serif,cursive']">
+                                    SajiloFix
+                                </h1>
+                            </Link>
+
+                        </div>
+
+                        {/* Desktop navigation */}
+                        <nav className='hidden md:flex    space-x-8'>
+                            {navLinks.map((link) => (
+                                <NavLink to={link.path} key={link.name} className={`text-gray-700 hover:text-green-600 font-medium cursor-pointer ${location.pathname === link.path ? 'text-green-600' : 'text-gray-700'}`} >
+                                    {link.name}
+                                </NavLink>
+                            ))}
+                        </nav>
+                        <div className=' hidden md:flex items-center space-x-4'>
+                            {isAuthenticated ? (
+                                <div className='relative'>
+                                    <button
+
+                                        className="flex items-center space-x-3 text-gray-700 hover:text-green-600 cursor-pointer"
+                                    >
+                                        <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                            <span>Avatar</span>
+                                        </div>
+                                        <div className="hidden md:block text-left">
+                                            <p className="text-sm font-medium text-gray-900">user.name</p>
+                                            <p className="text-xs text-gray-600">user.email</p>
+                                        </div>
+                                        <FaChevronDown className='text-xs' />
+                                    </button>
+                                </div>) : (
+
+                                <div className='flex space-x-6'>
+                                    <button
+
+                                        className="text-gray-700 hover:text-green-600 font-medium cursor-pointer whitespace-nowrap"
+                                    >
+                                        <Link to="/login">
+                                            Login
+                                        </Link>
+                                    </button>
+                                    <button
+
+                                        className="bg-green-600 text-white px-6 py-2 font-medium hover:bg-green-700 transition-colors cursor-pointer whitespace-nowrap rounded-xl"
+                                    >
+                                        <Link to="/register">
+                                            Sign Up
+                                        </Link>
+                                    </button>
+                                </div>
+                            )}
+
+
+                        </div>
+
+                        {/* Mobile menu button toggle */}
+                        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className='md:hidden text-gray-500 focus:outline-none cursor-pointer'>
+                            <svg
+                                className={`w-6 h-6 text-gray-900`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg"
+                            >
+                                {isMenuOpen ? (
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M6 18L18 6M6 6l12 12"
+                                    />
+                                ) : (
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M4 6h16M4 12h16M4 18h16"
+                                    />
+                                )}
+                            </svg>
+                        </button>
+                    </div>
+                    {/* Mobile navigation menu */}
+                    {isMenuOpen && (
+                        <div className='flex flex-col md:hidden transition-all duration-500 ease-in py-4'>
+                            <div className='flex flex-col space-y-8'>
+                                {navLinks.map((link) => (
+                                    <NavLink to={link.path} key={link.name} className={`text-gray-700 hover:text-green-600 font-medium cursor-pointer ${location.pathname === link.path ? 'text-green-600' : 'text-gray-700'}`}>
+                                        {link.name}
+                                    </NavLink>
+                                ))}
+                            </div>
+                            <div className=' flex flex-col space-y-4 pb-4'>
+                                {isAuthenticated ? (
+                                    <div className='relative'>
+                                        <button
+
+                                            className="flex items-center space-x-3 text-gray-700 hover:text-green-600 cursor-pointer"
+                                        >
+                                            <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                                <span>Avatar</span>
+                                            </div>
+                                            <div className="hidden md:block text-left">
+                                                <p className="text-sm font-medium text-gray-900">user.name</p>
+                                                <p className="text-xs text-gray-600">user.email</p>
+                                            </div>
+                                            <FaChevronDown className='text-xs' />
+                                        </button>
+                                    </div>) : (
+
+                                    <div className='flex flex-col space-y-6'>
+                                        <button
+
+                                            className="text-gray-700 hover:text-green-600 font-medium cursor-pointer whitespace-nowrap"
+                                        >
+                                            <Link to="/login">
+                                                Login
+                                            </Link>
+                                        </button>
+                                        <button
+
+                                            className="bg-green-600 text-white px-6 py-2 font-medium hover:bg-green-700 transition-colors cursor-pointer whitespace-nowrap rounded-xl"
+                                        >
+                                            <Link to="/register">
+                                                Sign Up
+                                            </Link>
+                                        </button>
+                                    </div>
+                                )}
+
+                            </div>
+                        </div>
+
+                    )}
+                </div>
+            </header>
+        </div>
+
+    )
+}
+
+export default Navbar
+
+
+
+
+"""
+class RegisterSerializer(serializers.ModelSerializer):
+    # Serializer for user registration
+    email = serializers.EmailField(
+        required=True,
+        validators=[UniqueValidator(queryset=User.objects.all())]
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        validators=[validate_password],
+        style={'input_type': 'password'}
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={'input_type': 'password'}
+    )
+    first_name = serializers.CharField(required=True)
+    last_name = serializers.CharField(required=True)
+    phone_number = serializers.CharField(required=True,max_length=14,
+        min_length=10,
+        validators=[
+            RegexValidator(
+                regex=r'^98\d{8}|^97\d{8}$',
+                message="Phone number must be 10 digits starting with 98 or 97 (e.g., 9812345678)"
+            )]
+    )
+    user_type = serializers.ChoiceField(choices=['find', 'offer'], required=True)
+    
+    # Optional fields for service providers
+    business_name = serializers.CharField(required=False, allow_blank=True)
+    years_of_experience = serializers.IntegerField(required=False, allow_null=True)
+    service_area = serializers.CharField(required=False, allow_blank=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
+    bio = serializers.CharField(required=False, allow_blank=True)
+    profile_picture = serializers.ImageField(required=True, allow_null=False)
+    
+    # Specialities and Specializations (IDs) - now handled as lists
+    specialities = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        default=list
+        
+    )
+    specializations = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        default=list
+        
+    )
+
+     # Certificates - handled as file list
+    certificates = serializers.ListField(
+        child=serializers.FileField(),
+        required=False,
+        allow_empty=True,
+        write_only=True
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            'email', 'password', 'confirm_password', 'first_name', 'last_name',
+            'phone_number', 'user_type', 'business_name', 'years_of_experience',
+            'service_area', 'address', 'city', 'bio', 'profile_picture',
+            'specialities', 'specializations','certificates'
+        )
+
+    def to_internal_value(self, data):
+        
+        # Handle FormData array format like specialities[0], specialities[1]
+        
+        # Convert FormData array format to Python lists
+        if hasattr(data, 'getlist'):
+            # DRF request.data for FormData
+            specialities = []
+            specializations = []
+            certificates = []
+            
+            # Collect all specialities[*] keys
+            for key in data.keys():
+                if key.startswith('specialities['):
+                    try:
+                        specialities.append(int(data[key]))
+                    except (ValueError, TypeError):
+                        pass
+                elif key.startswith('specializations['):
+                    try:
+                        specializations.append(int(data[key]))
+                    except (ValueError, TypeError):
+                        pass
+                elif key.startswith('certificates['):
+                    # Get certificate file
+                    cert_file = data.get(key)
+                    if cert_file:
+                        certificates.append(cert_file)
+            
+            # Create a mutable copy
+            mutable_data = data.copy()
+            
+            # Remove individual array items
+            keys_to_remove = [k for k in mutable_data.keys() if k.startswith('specialities[') or k.startswith('specializations[') or k.startswith('certificates[')]
+            for key in keys_to_remove:
+                mutable_data.pop(key)
+            
+            # Add lists
+            if specialities:
+                mutable_data.setlist('specialities', specialities)
+            if specializations:
+                mutable_data.setlist('specializations', specializations)
+            if certificates:
+                mutable_data.setlist('certificates', certificates)
+
+            data = mutable_data
+        
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['confirm_password']:
+            raise serializers.ValidationError(
+                {"password": "Password fields didn't match."}
+            )
+        
+        phone_number = attrs.get('phone_number')
+        if User.objects.filter(phone_number=phone_number).exists():
+            raise serializers.ValidationError(
+                {"phone_number": "This phone number is already registered."}
+            )
+        
+        
+        # If user is offering services, validate specialities
+        if attrs.get('user_type') == 'offer':
+            specialities = attrs.get('specialities', [])
+            if not specialities or len(specialities) == 0:
+                raise serializers.ValidationError(
+                    {"specialities": "Service providers must select at least one speciality."}
+                )
+        
+        if attrs.get('user_type') == 'find':
+            attrs['specialities'] = []
+            attrs['specializations'] = []
+        
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('confirm_password')
+        
+        # Extract specialities and specializations
+        speciality_ids = validated_data.pop('specialities', [])
+        specialization_ids = validated_data.pop('specializations', [])
+        certificate_files = validated_data.pop('certificates', [])
+        
+        # Create username from email
+        username = validated_data['email'].split('@')[0]
+        base_username = username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}{counter}"
+            counter += 1
+        
+        # Create user
+        user = User.objects.create_user(
+            username=username,
+            email=validated_data['email'],
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
+            phone_number=validated_data['phone_number'],
+            user_type=validated_data['user_type'],
+            password=validated_data['password'],
+            business_name=validated_data.get('business_name', ''),
+            years_of_experience=validated_data.get('years_of_experience', 0),
+            service_area=validated_data.get('service_area', ''),
+            address=validated_data.get('address', ''),
+            city=validated_data.get('city', ''),
+            bio=validated_data.get('bio', ''),
+            profile_picture=validated_data.get('profile_picture', None)
+        )
+        
+        # Add specialities
+        for spec_id in speciality_ids:
+            try:
+                speciality = Speciality.objects.get(id=spec_id)
+                UserSpeciality.objects.create(user=user, speciality=speciality)
+            except Speciality.DoesNotExist:
+                pass
+        
+        # Add specializations
+        for spec_id in specialization_ids:
+            try:
+                specialization = Specialization.objects.get(id=spec_id)
+                UserSpecialization.objects.create(user=user, specialization=specialization)
+            except Specialization.DoesNotExist:
+                pass
+
+        # Add certificates
+        for cert_file in certificate_files:
+            Certificate.objects.create(
+                user=user,
+                name=cert_file.name,
+                file=cert_file
+            )
+        
+        return user
+"""
+
+
+
+
+
+"""
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = (AllowAny,)
+    serializer_class = RegisterSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        
+        # Get user data with context for absolute URLs
+        user_serializer = UserSerializer(user, context={'request': request})
+        
+        return Response({
+            'user': user_serializer.data,
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            },
+            'message': 'User registered successfully'
+        }, status=status.HTTP_201_CREATED)
+"""
+
+
+
+//PhoneVerification.jsx
+
+import React, { useState, useRef, useEffect } from 'react';
+import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+import { auth } from '../../config/firebase';
+import { useFirebaseAuth } from '../../context/FirebaseAuthContext';
+import api from '../../api/axios';
+
+function PhoneVerification({ userType, location, onComplete }) {
+    const { getIdToken } = useFirebaseAuth();
+    const [phoneNumber, setPhoneNumber] = useState('');
+    const [otp, setOtp] = useState('');
+    const [step, setStep] = useState(1); // 1: Enter phone, 2: Verify OTP
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [verificationId, setVerificationId] = useState(null);
+
+    // reCAPTCHA container ref and setup on mount
+    const recaptchaRef = useRef(null);
+
+    const setupRecaptcha = () => {
+        if (typeof window === 'undefined') return;
+        const containerId = 'recaptcha-container';
+        if (!document.getElementById(containerId)) return;
+
+        if (!window.recaptchaVerifier) {
+            try {
+                // For this Firebase SDK version the constructor expects the Auth instance
+                // as the first argument: `new RecaptchaVerifier(auth, container, params)`.
+                window.recaptchaVerifier = new RecaptchaVerifier(
+                    auth,
+                    containerId,
+                    {
+                        size: 'invisible',
+                        callback: () => {},
+                    }
+                );
+            } catch (initErr) {
+                console.error('RecaptchaVerifier init failed:', initErr);
+                // fallback: try container-only signature
+                try {
+                    window.recaptchaVerifier = new RecaptchaVerifier(
+                        containerId,
+                        {
+                            size: 'invisible',
+                            callback: () => {},
+                        }
+                    );
+                } catch (fallbackErr) {
+                    console.error('RecaptchaVerifier fallback init failed:', fallbackErr);
+                }
+            }
+        }
+    };
+
+    useEffect(() => {
+        setupRecaptcha();
+
+        return () => {
+            if (window.recaptchaVerifier) {
+                try {
+                    window.recaptchaVerifier.clear();
+                } catch (e) {
+                    // ignore clear errors
+                }
+                window.recaptchaVerifier = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Step 1: Send OTP
+    const handleSendOTP = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+
+        // Validate phone number (accept 98 or 97)
+        if (!/^(98|97)\d{8}$/.test(phoneNumber)) {
+            setError('Phone number must be 10 digits starting with 98 or 97');
+            setLoading(false);
+            return;
+        }
+
+        try {
+            setupRecaptcha();
+            const appVerifier = window.recaptchaVerifier;
+            const phoneNumberWithCountryCode = `+977${phoneNumber}`;
+
+            const confirmationResult = await signInWithPhoneNumber(
+                auth,
+                phoneNumberWithCountryCode,
+                appVerifier
+            );
+
+            setVerificationId(confirmationResult);
+            setStep(2);
+            setError('');
+        } catch (err) {
+            console.error('Error sending OTP:', err);
+            setError(err.message || 'Failed to send OTP. Please try again.');
+
+            // Reset reCAPTCHA safely
+            if (window.recaptchaVerifier) {
+                try {
+                    window.recaptchaVerifier.clear();
+                } catch (e) {
+                    // ignore clear errors
+                }
+                window.recaptchaVerifier = null;
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Step 2: Verify OTP
+    const handleVerifyOTP = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+
+        try {
+            // Verify OTP with Firebase
+            const result = await verificationId.confirm(otp);
+            const firebaseUser = result.user;
+
+            // Get Firebase ID token
+            const idToken = await getIdToken();
+
+            // Send to Django backend
+            await api.post(
+                'auth/verify-phone/',
+                {
+                    phone_number: phoneNumber,
+                    firebase_uid: firebaseUser.uid,
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${idToken}`,
+                    },
+                }
+            );
+
+            // Update user type and location in Django
+            await api.post(
+                'auth/update-user-type/',
+                {
+                    user_type: userType,
+                    location: location,
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${idToken}`,
+                    },
+                }
+            );
+
+            // Success! Call completion callback
+            onComplete();
+        } catch (err) {
+            console.error('Error verifying OTP:', err);
+            setError(err.response?.data?.error || err.message || 'Invalid OTP. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-linear-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4">
+            <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8">
+                <div className="text-center mb-8">
+                    <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span className="text-4xl">📱</span>
+                    </div>
+                    <h2 className="text-3xl font-bold text-gray-900 mb-2">
+                        Verify Phone Number
+                    </h2>
+                    <p className="text-gray-600">
+                        We'll send you a verification code
+                    </p>
+                </div>
+
+                {error && (
+                    <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+                        <p className="text-red-700 text-sm">{error}</p>
+                    </div>
+                )}
+
+                {step === 1 && (
+                    <form onSubmit={handleSendOTP} className="space-y-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Phone Number (Nepal)
+                            </label>
+                            <div className="flex">
+                                <span className="inline-flex items-center px-4 bg-gray-100 border border-r-0 border-gray-300 rounded-l-lg text-gray-600">
+                                    +977
+                                </span>
+                                <input
+                                    type="tel"
+                                    value={phoneNumber}
+                                    onChange={(e) => setPhoneNumber(e.target.value)}
+                                    placeholder="9812345678"
+                                    maxLength="10"
+                                    className="flex-1 px-4 py-3 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    required
+                                />
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Enter 10 digits starting with 98
+                            </p>
+                        </div>
+
+                        <div id="recaptcha-container" ref={recaptchaRef}></div>
+
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                        >
+                            {loading ? (
+                                <span className="flex items-center justify-center">
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Sending Code...
+                                </span>
+                            ) : (
+                                'Send Verification Code'
+                            )}
+                        </button>
+                    </form>
+                )}
+
+                {step === 2 && (
+                    <form onSubmit={handleVerifyOTP} className="space-y-6">
+                        <div className="text-center mb-6">
+                            <p className="text-gray-600">
+                                We sent a 6-digit code to
+                            </p>
+                            <p className="text-lg font-semibold text-gray-900 mt-1">
+                                +977 {phoneNumber}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => setStep(1)}
+                                className="text-blue-600 text-sm mt-2 hover:underline"
+                            >
+                                Change number
+                            </button>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2 text-center">
+                                Enter Verification Code
+                            </label>
+                            <input
+                                type="text"
+                                value={otp}
+                                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                                placeholder="000000"
+                                maxLength="6"
+                                className="w-full px-4 py-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-center text-3xl tracking-widest font-semibold"
+                                required
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={loading || otp.length !== 6}
+                            className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+                        >
+                            {loading ? (
+                                <span className="flex items-center justify-center">
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Verifying...
+                                </span>
+                            ) : (
+                                'Verify & Continue'
+                            )}
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleSendOTP}
+                            className="w-full text-blue-600 hover:text-blue-700 text-sm font-medium"
+                            disabled={loading}
+                        >
+                            Resend Code
+                        </button>
+                    </form>
+                )}
+
+                <div className="mt-6 text-center">
+                    <p className="text-xs text-gray-500">
+                        By continuing, you agree to our Terms of Service and Privacy Policy
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export default PhoneVerification;

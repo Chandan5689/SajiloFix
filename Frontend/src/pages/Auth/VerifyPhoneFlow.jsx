@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import PhoneVerification from './PhoneVerification';
+import LocationSelector from '../../components/LocationSelector';
 import api from '../../api/axios';
 
 function VerifyPhoneFlow() {
@@ -101,24 +102,42 @@ function VerifyPhoneFlow() {
                 <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8">
                     <div className="text-center mb-8">
                         <h2 className="text-3xl font-bold text-gray-900 mb-2">
-                            Where are you located?
+                            📍 Where are you located?
                         </h2>
-                        <p className="text-gray-600">
-                            Select your city to continue
+                        <p className="text-gray-600 mb-6">
+                            Help us find nearby service providers in your area
                         </p>
                     </div>
 
-                    <div className="space-y-3">
-                        {['Kathmandu', 'Pokhara', 'Lalitpur', 'Bhaktapur', 'Biratnagar', 'Bharatpur', 'Other'].map((city) => (
-                            <button
-                                key={city}
-                                onClick={() => setLocation(city)}
-                                className="w-full py-3 px-6 border-2 border-blue-600 rounded-xl hover:bg-blue-50 transition-all text-left font-medium"
-                            >
-                                📍 {city}
-                            </button>
-                        ))}
-                    </div>
+                    <form onSubmit={(e) => {
+                        e.preventDefault();
+                        if (location) {
+                            // Location is set, continue to phone verification
+                        }
+                    }} className="space-y-6">
+                        <LocationSelector 
+                            value={location}
+                            onChange={setLocation}
+                            error=""
+                        />
+
+                        <button
+                            type="button"
+                            onClick={() => location && handlePhoneVerified?.()}
+                            disabled={!location}
+                            className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-semibold"
+                        >
+                            Continue to Phone Verification
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setUserType(null)}
+                            className="w-full text-gray-600 hover:text-gray-700 font-medium"
+                        >
+                            ← Back to User Type Selection
+                        </button>
+                    </form>
                 </div>
             </div>
         );

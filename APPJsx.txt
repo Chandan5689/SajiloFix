@@ -1,0 +1,163 @@
+import { useState, useEffect } from 'react'
+import './App.css'
+import { BrowserRouter as Router, Route, Routes, Navigate, useNavigate } from 'react-router-dom';
+import { FirebaseAuthProvider, useFirebaseAuth } from './context/FirebaseAuthContext';
+import Navbar from './components/Navbar'
+import Register from './pages/Auth/Register'
+import HomePage from './pages/HomePage/HomePage'
+import Footer from './components/Footer'
+import About from './pages/Public/About'
+import Contact from './pages/Public/Contact'
+import HowItWorksPage from './pages/Public/HowItWorksPage'
+import Service from './pages/Services/Service'
+import BookingPage from './pages/Services/BookingPage'
+import UserDashboard from './pages/Dashboard/User/UserDashboard'
+import MyBookings from './pages/Dashboard/User/MyBookings'
+import UserMyProfile from './pages/Dashboard/User/UserMyProfile'
+import UserPayments from './pages/Dashboard/User/UserPayments'
+import ProviderDashboard from './pages/Dashboard/Provider/ProviderDashboard'
+import ProviderMyBookings from './pages/Dashboard/Provider/ProviderMyBookings'
+import ProviderMyServices from './pages/Dashboard/Provider/ProviderMyServices/ProviderMyServices'
+import CustomerReviews from './pages/Dashboard/Provider/Reviews/CustomerReviews'
+import ProviderEarnings from './pages/Dashboard/Provider/Earnings/ProviderEarnings'
+import MyProfile from './pages/Dashboard/Provider/ProviderMyProfile/MyProfile'
+import Availability from './pages/Dashboard/Provider/Availability/Availability'
+import Login from './pages/Auth/Login/Login'
+import VerifyPhoneFlow from './pages/Auth/VerifyPhoneFlow';
+import CompleteProviderProfile from './pages/Auth/CompleteProviderProfile';
+import api from './api/axios';
+
+// Protected Route Component (Firebase + Django registration check)
+function ProtectedRoute({ children }) {
+  const { isAuthenticated, getIdToken, loading } = useFirebaseAuth();
+  const navigate = useNavigate();
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    const checkBackendUser = async () => {
+      if (!isAuthenticated) {
+        setChecking(false);
+        return;
+      }
+      try {
+        const token = await getIdToken();
+        if (!token) {
+          setChecking(false);
+          return;
+        }
+        
+        const response = await api.get('/auth/me/', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        // If backend says registration is not complete, send to phone/role flow
+        if (response.data?.registration_complete === false || response.data?.requires_phone_verification) {
+          navigate('/verify-phone-flow');
+          return;
+        }
+      } catch (err) {
+        console.error('Error checking backend user in ProtectedRoute:', err);
+        // If 401, user needs to login
+        if (err.response?.status === 401) {
+          navigate('/login');
+        }
+      } finally {
+        setChecking(false);
+      }
+    };
+
+    if (!loading) {
+      checkBackendUser();
+    }
+  }, [isAuthenticated, getIdToken, navigate, loading]);
+
+  if (loading || checking) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function AppContent() {
+  return (
+    <Router>
+      <div className='App'>
+        <Navbar />
+        <main>
+          <Routes>
+            {/* Public Routes */}
+            <Route path='/' element={<HomePage />} />
+            <Route path='/about' element={<About />} />
+            <Route path='/contact' element={<Contact />} />
+            <Route path='/howitworks' element={<HowItWorksPage />} />
+            <Route path='/services' element={<ProtectedRoute><Service /></ProtectedRoute>} />
+
+            {/* Auth Routes */}
+            <Route path='/login' element={<Login />} />
+            <Route path='/register' element={<Register />} />
+
+            {/* Protected Auth Flow Routes */}
+            <Route
+              path="/verify-phone-flow"
+              element={
+                <ProtectedRoute>
+                  <VerifyPhoneFlow />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/complete-provider-profile"
+              element={
+                <ProtectedRoute>
+                  <CompleteProviderProfile />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route path="/provider/:id" element={<BookingPage />} />
+
+            {/* Protected Dashboard Routes */}
+            <Route path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <UserDashboard />
+                </ProtectedRoute>}
+            />
+            <Route path="/user/my-bookings" element={<ProtectedRoute><MyBookings /></ProtectedRoute>} />
+            <Route path='/user/my-profile' element={<ProtectedRoute><UserMyProfile /></ProtectedRoute>} />
+            <Route path='/user/my-payments' element={<ProtectedRoute><UserPayments /></ProtectedRoute>} />
+
+            <Route path='/provider/dashboard' element={
+              <ProtectedRoute>
+                <ProviderDashboard />
+              </ProtectedRoute>} />
+            <Route path='/provider/my-bookings' element={<ProtectedRoute><ProviderMyBookings /></ProtectedRoute>} />
+            <Route path='/provider/my-services' element={<ProtectedRoute><ProviderMyServices /></ProtectedRoute>} />
+            <Route path='/provider/reviews' element={<ProtectedRoute><CustomerReviews /></ProtectedRoute>} />
+            <Route path='/provider/earnings' element={<ProtectedRoute><ProviderEarnings /></ProtectedRoute>} />
+            <Route path='/provider/my-profile' element={<ProtectedRoute><MyProfile /></ProtectedRoute>} />
+            <Route path='/provider/availability' element={<ProtectedRoute><Availability /></ProtectedRoute>} />
+
+          </Routes>
+        </main>
+        <Footer />
+      </div>
+    </Router>
+  );
+}
+
+function App() {
+  return (
+    <FirebaseAuthProvider>
+      <AppContent />
+    </FirebaseAuthProvider>
+  );
+}
+
+export default App

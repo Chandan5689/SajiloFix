@@ -1,0 +1,310 @@
+from rest_framework import generics, status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+# from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.contrib.auth import get_user_model
+from .serializers import CertificateSerializer, UserSerializer, SpecialitySerializer, SpecializationSerializer
+from .models import Certificate, Speciality, Specialization, UserSpeciality, UserSpecialization
+from .authentication import FirebaseAuthentication
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+
+User = get_user_model()
+
+
+
+class CurrentUserView(generics.RetrieveAPIView):
+    """Get current logged-in user details - only accessible after phone verification"""
+    # perform auth manually to provide clear 401 responses instead of 403
+    permission_classes = (AllowAny,)
+    serializer_class = UserSerializer
+
+    def get(self, request, *args, **kwargs):
+        try:
+            print(f"[CurrentUserView] GET received. PATH={request.path} META_AUTH={request.META.get('HTTP_AUTHORIZATION')}")
+        except Exception:
+            pass
+
+        auth_result = FirebaseAuthentication().authenticate(request)
+        if not auth_result:
+            return Response(
+                {'error': 'Authentication credentials were not provided or invalid.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        user, _token = auth_result
+
+        # A user is fully registered only if phone is verified and user_type is set
+        registration_complete = bool(user.phone_verified and user.user_type in ['find', 'offer'])
+
+        if not registration_complete:
+            # Return a 200 with flags so frontend can redirect to verification/registration flow
+            return Response(
+                {
+                    'requires_phone_verification': not user.phone_verified,
+                    'phone_verified': user.phone_verified,
+                    'user_type': user.user_type,
+                    'registration_complete': False,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        serializer = self.get_serializer(user, context={'request': request})
+        data = serializer.data
+        data['registration_complete'] = True
+        return Response(data)
+    
+class VerifyPhoneView(APIView):
+    # perform auth manually to avoid CSRF/permission middleware blocking token-only requests
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        try:
+            print(f"[VerifyPhoneView] POST received. PATH={request.path} META_AUTH={request.META.get('HTTP_AUTHORIZATION')}")
+        except Exception:
+            pass
+        # Authenticate token manually
+        auth_result = FirebaseAuthentication().authenticate(request)
+        try:
+            print(f"[VerifyPhoneView] auth_result={bool(auth_result)}")
+            if auth_result:
+                user_debug, _t = auth_result
+                try:
+                    print(f"[VerifyPhoneView] authenticated user id={getattr(user_debug,'id',None)} phone_verified={getattr(user_debug,'phone_verified',None)}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        if not auth_result:
+            return Response({'error': 'Authentication credentials were not provided or invalid.'}, status=status.HTTP_401_UNAUTHORIZED)
+        request.user, _token = auth_result
+
+        phone_number = request.data.get('phone_number')
+        firebase_uid = request.data.get('firebase_uid')
+
+        if not phone_number:
+            return Response(
+                {'error': 'Phone number is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate phone number format (10 digits starting with 98 or 97)
+        if not ((phone_number.startswith('98') or phone_number.startswith('97')) and len(phone_number) == 10):
+            return Response(
+                {'error': 'Invalid phone number format. Must be 10 digits starting with 98 or 97'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check if phone number already exists
+        if User.objects.filter(phone_number=phone_number).exclude(id=request.user.id).exists():
+            return Response(
+                {'error':'Phone number already registered'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update User
+        user = request.user
+        user.phone_number = phone_number
+        user.phone_verified = True
+        user.firebase_phone_uid = firebase_uid
+        user.save()
+
+        return Response({
+            'message': 'Phone number verified successfully',
+            'user': UserSerializer(user,context={'request': request}).data
+        })
+    
+
+class UserProfileView(generics.RetrieveUpdateAPIView):
+    """Get or update the current authenticated user's profile."""
+    serializer_class = UserSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_object(self):
+        # This ensures only the logged-in user's profile is retrieved/updated
+        return self.request.user
+    
+
+class UpdateUserTypeView(APIView):
+    # perform auth manually to avoid CSRF/permission middleware blocking token-only requests
+    permission_classes = [AllowAny]
+
+    def post(self,request):
+        auth_result = FirebaseAuthentication().authenticate(request)
+        if not auth_result:
+            return Response({'error': 'Authentication credentials were not provided or invalid.'}, status=status.HTTP_401_UNAUTHORIZED)
+        request.user, _token = auth_result
+
+        
+        user_type = request.data.get('user_type')
+
+        if user_type not in ['find', 'offer']:
+            return Response(
+                {'error':'Invalid user type'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = request.user
+        user.user_type = user_type
+
+        # Location for all users
+        user.location = request.data.get('location','')
+
+        # If changing to service provider, get additional info
+        if user_type == 'offer':
+            # Validate required fields for providers
+            required_fields = ['years_of_experience', 'service_area', 'city', 'address']
+            missing_fields = [field for field in required_fields if not request.data.get(field)]
+
+            if missing_fields:
+                return Response(
+                    {'error':f'Missing required fields: {",".join(missing_fields)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Optional fields
+            user.business_name = request.data.get('business_name','')
+            user.bio = request.data.get('bio', '')
+
+            # required fields
+            user.years_of_experience = request.data.get('years_of_experience', 0)
+            user.service_area = request.data.get('service_area', '')
+            user.city = request.data.get('city', '')
+            user.address = request.data.get('address', '')
+            
+
+            # Handle specialities
+            speciality_ids = request.data.get('specialities', [])
+            if not speciality_ids:
+                return Response(
+                    {'error': 'At least one speciality is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            UserSpeciality.objects.filter(user=user).delete()
+            for spec_id in speciality_ids:
+                try:
+                    speciality = Speciality.objects.get(id=spec_id)
+                    UserSpeciality.objects.create(user=user, speciality=speciality)
+                except Speciality.DoesNotExist:
+                    pass
+
+            # Handle specializations
+            specialization_ids = request.data.get('specializations',[])
+            if specialization_ids:
+                UserSpecialization.objects.filter(user=user).delete()
+                for spec_id in specialization_ids:
+                    try:
+                        specialization = Specialization.objects.get(id=spec_id)
+                        UserSpecialization.objects.create(user=user,specialization=specialization)
+                    except Specialization.DoesNotExist:
+                        pass
+
+        user.save()
+
+        return Response({
+            'message':'User type updated successfully',
+            'user': UserSerializer(user, context= {'request': request}).data
+        })
+            
+
+class UploadCitizenshipView(APIView):
+    """Upload citizenship/national ID documents"""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        user = request.user
+
+        citizenship_front = request.FILES.get('citizenship_front')
+        citizenship_back = request.FILES.get('citizenship_back')
+        citizenship_number = request.data.get('citizenship_number')
+
+        if not citizenship_front or not citizenship_back:
+            return Response(
+                {'error':'Both front and back images of citizenship are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate file size (max 5MB each)
+        for file in [citizenship_front, citizenship_back]:
+            if file.size > 5 * 1024 * 1024:
+                return Response(
+                    {'error':f'{file.name} is too large. Maximum size is 5MB'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Update User
+        user.citizenship_front = citizenship_front
+        user.citizenship_back = citizenship_back
+        user.citizenship_number = citizenship_number or ''
+        user.save()
+
+        return Response({
+            'message': 'Citizenship documents uploaded successfully',
+            'user': UserSerializer(user, context={'request': request}).data
+        })
+
+
+class UploadCertificatesView(APIView):
+    """Upload multiple certificates"""
+    authentication_classes = [FirebaseAuthentication]
+    parser_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        user = request.user
+        files = request.FILES.getlist('certificates')
+
+        if not files:
+            return Response(
+                {'error':'No files provides'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        uploaded_certificates = []
+
+        for file in files:
+            if file.size > 10*1024*1024:
+                return Response(
+                    {'error': f'{file.name} is too large. Maximum size is 10MB'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Create certificate
+            certificate = Certificate.objects.create(
+                user=user,
+                name=file.name,
+                file=file
+            )
+            uploaded_certificates.append(certificate)
+
+        return Response({
+            'message': f'{len(uploaded_certificates)} certificate(s) uploaded successfully',
+            'certificates': CertificateSerializer(
+                uploaded_certificates, 
+                many=True, 
+                context={'request': request}
+            ).data
+        })
+
+
+
+class SpecialitiesListView(generics.ListAPIView):
+    """Get all available specialities"""
+    queryset = Speciality.objects.all()
+    serializer_class = SpecialitySerializer
+    permission_classes = (AllowAny,)
+
+
+class SpecializationsListView(generics.ListAPIView):
+    """Get all specializations, optionally filtered by speciality"""
+    serializer_class = SpecializationSerializer
+    permission_classes = (AllowAny,)
+    
+    def get_queryset(self):
+        queryset = Specialization.objects.all().select_related('speciality')
+        speciality_id = self.request.query_params.get('speciality_id', None)
+        if speciality_id:
+            queryset = queryset.filter(speciality_id=speciality_id)
+        return queryset

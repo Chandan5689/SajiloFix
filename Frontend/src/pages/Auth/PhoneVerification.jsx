@@ -332,11 +332,21 @@ function PhoneVerification({ userType, location, onComplete, signUpData, complet
 
             // 5. Update user type and location in Django
             console.log('💾 Saving user type and location...');
+            const locationPayload = typeof location === 'object' ? location : null;
             const updateTypeResponse = await api.post(
                 '/auth/update-user-type/',
                 {
                     user_type: userType,
-                    location: location,
+                    // Support both structured location object and simple string
+                    location: typeof location === 'object' ? (location.formatted || '') : (location || ''),
+                    address: typeof location === 'object' ? (location.street || '') : '',
+                    city: typeof location === 'object' ? (location.city || '') : '',
+                    district: typeof location === 'object' ? (location.district || '') : '',
+                    postal_code: typeof location === 'object' ? (location.postal_code || '') : '',
+                    latitude: typeof location === 'object' ? (location.latitude ?? null) : null,
+                    longitude: typeof location === 'object' ? (location.longitude ?? null) : null,
+                    // Send the full structured payload for backend auditing/future use
+                    location_payload: locationPayload,
                 },
                 {
                     headers: {

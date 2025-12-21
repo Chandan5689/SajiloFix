@@ -1,5 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from rest_framework.validators import UniqueValidator
+from django.core.validators import RegexValidator
 from .models import Speciality, Specialization, UserSpeciality, UserSpecialization, Certificate
 
 User = get_user_model()
@@ -39,6 +42,8 @@ class CertificateSerializer(serializers.ModelSerializer):
         return None
 
 
+
+
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model - used for profile display and updates"""
     specialities = serializers.SerializerMethodField()
@@ -53,14 +58,14 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'email', 'username', 'first_name', 'last_name', 'full_name',
-            'phone_number', 'user_type', 'profile_picture', 'profile_picture_url',
-            'location', 'address', 'city', 'district', 'postal_code', 'latitude', 'longitude', 'bio', 'business_name', 'years_of_experience',
+            'phone_number', 'user_type', 'profile_picture', 'profile_picture_url','location',
+            'address', 'city', 'bio', 'business_name', 'years_of_experience',
             'service_area', 'is_verified', 'phone_verified', 
             'citizenship_front', 'citizenship_back', 'citizenship_front_url', 
             'citizenship_back_url', 'citizenship_number', 'citizenship_verified',
             'specialities', 'specializations', 'certificates', 'created_at', 'updated_at'
         )
-        read_only_fields = ('id', 'username', 'email', 'is_verified', 'phone_verified','citizenship_verified', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'username', 'email', 'is_verified', 'phone_verified', 'citizenship_verified', 'created_at', 'updated_at')
     
     def get_full_name(self, obj):
         """Return full name of the user"""
@@ -74,14 +79,14 @@ class UserSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.profile_picture.url)
         return None
     
-    def get_citizenship_front_url(self, obj):
+    def get_citizenship_front_url(self,obj):
         """Return absolute URL for citizenship front"""
         if obj.citizenship_front:
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.citizenship_front.url)
         return None
-    
+
     def get_citizenship_back_url(self, obj):
         """Return absolute URL for citizenship back"""
         if obj.citizenship_back:
@@ -89,7 +94,8 @@ class UserSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.citizenship_back.url)
         return None
-    
+
+
     def get_specialities(self, obj):
         """Get all specialities for the user"""
         user_specialities = UserSpeciality.objects.filter(user=obj).select_related('speciality')

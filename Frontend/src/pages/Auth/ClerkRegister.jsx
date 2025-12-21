@@ -3,6 +3,7 @@ import { useSignUp } from '@clerk/clerk-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import PhoneVerification from './PhoneVerification';
+import LocationSelector from '../../components/LocationSelector';
 
 function ClerkRegister() {
     const { isLoaded, signUp, setActive } = useSignUp();
@@ -39,7 +40,8 @@ function ClerkRegister() {
         if (!firstName.trim()) errors.firstName = 'First name is required';
         if (!lastName.trim()) errors.lastName = 'Last name is required';
         if (!email.trim()) errors.email = 'Email is required';
-        if (!location.trim()) errors.location = 'Location is required';
+        const locationText = typeof location === 'string' ? location : (location?.formatted || '');
+        if (!locationText.trim()) errors.location = 'Location is required';
         if (!password) errors.password = 'Password is required';
         if (password.length < 8) errors.password = 'Password must be at least 8 characters';
         if (!confirmPassword) errors.confirmPassword = 'Please confirm password';
@@ -134,7 +136,8 @@ function ClerkRegister() {
                     email,
                     firstName,
                     lastName,
-                    clerkUserId: completedSignUp?.createdUserId
+                    clerkUserId: completedSignUp?.createdUserId,
+                    locationPayload: location,
                 }}
             />
         );
@@ -275,27 +278,17 @@ function ClerkRegister() {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Location *
-                            </label>
-                            <input
-                                type="text"
+                            <LocationSelector 
                                 value={location}
-                                onChange={(e) => {
-                                    setLocation(e.target.value);
+                                onChange={(value) => {
+                                    setLocation(value);
                                     if (fieldErrors.location) {
                                         setFieldErrors({...fieldErrors, location: ''});
                                     }
                                 }}
-                                placeholder="e.g., Kathmandu"
-                                className={`w-full px-4 py-3 border ${
-                                    fieldErrors.location ? 'border-red-500' : 'border-gray-300'
-                                } rounded-lg focus:ring-2 focus:ring-blue-500`}
-                                required
+                                error={fieldErrors.location}
+                                disabled={loading}
                             />
-                            {fieldErrors.location && (
-                                <p className="text-red-500 text-xs mt-1">{fieldErrors.location}</p>
-                            )}
                         </div>
 
                         <div>
