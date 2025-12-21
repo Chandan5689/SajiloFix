@@ -3,3 +3,4 @@
 db.sqlite3
 
 firebase-service-account.json
+.env
