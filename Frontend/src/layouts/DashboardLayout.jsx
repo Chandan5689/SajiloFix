@@ -7,7 +7,7 @@ import { FiUserPlus } from "react-icons/fi";
 import { BiLogOut } from "react-icons/bi";
 
 const sidebarItems = [
-  { label: "Dashboard", icon: <MdOutlineDashboard  />, key: "dashboard", link:"/user/dashboard" },
+  { label: "Dashboard", icon: <MdOutlineDashboard  />, key: "dashboard", link:"/dashboard" },
   { label: "Book New Service", icon: <FiPlusCircle  />, key: "book", link:"/services" },
   { label: "My Bookings", icon: <IoCalendarClearOutline  />, key: "my-bookings", link:"/user/my-bookings" },
   { label: "My Profile", icon: <FiUserPlus  />, key: "my-profile", link:"/user/my-profile" },

@@ -1,179 +1,117 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
-from rest_framework.validators import UniqueValidator
 from .models import Speciality, Specialization, UserSpeciality, UserSpecialization, Certificate
 
 User = get_user_model()
 
 
 class SpecialitySerializer(serializers.ModelSerializer):
+    """Serializer for Speciality model"""
     class Meta:
         model = Speciality
-        fields = ['id', 'name', 'slug']
+        fields = ['id', 'name', 'slug', 'description']
 
 
 class SpecializationSerializer(serializers.ModelSerializer):
+    """Serializer for Specialization model"""
     speciality_name = serializers.CharField(source='speciality.name', read_only=True)
+    speciality = serializers.IntegerField(source='speciality.id', read_only=True)
     
     class Meta:
         model = Specialization
-        fields = ['id', 'name', 'speciality_name']
+        fields = ['id', 'name', 'speciality', 'speciality_name']
 
 
 class CertificateSerializer(serializers.ModelSerializer):
+    """Serializer for Certificate model"""
+    file_url = serializers.SerializerMethodField()
+    
     class Meta:
         model = Certificate
-        fields = ['id', 'name', 'file', 'uploaded_at']
+        fields = ['id', 'name', 'file', 'file_url', 'uploaded_at']
         read_only_fields = ['uploaded_at']
-
-
-class RegisterSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(
-        required=True,
-        validators=[UniqueValidator(queryset=User.objects.all())]
-    )
-    password = serializers.CharField(
-        write_only=True,
-        required=True,
-        validators=[validate_password],
-        style={'input_type': 'password'}
-    )
-    confirm_password = serializers.CharField(
-        write_only=True,
-        required=True,
-        style={'input_type': 'password'}
-    )
-    first_name = serializers.CharField(required=True)
-    last_name = serializers.CharField(required=True)
-    phone_number = serializers.CharField(required=True)
-    user_type = serializers.ChoiceField(choices=['find', 'offer'], required=True)
     
-    # Optional fields for service providers
-    business_name = serializers.CharField(required=False, allow_blank=True)
-    years_of_experience = serializers.IntegerField(required=False, allow_null=True)
-    service_area = serializers.CharField(required=False, allow_blank=True)
-    address = serializers.CharField(required=False, allow_blank=True)
-    city = serializers.CharField(required=False, allow_blank=True)
-    bio = serializers.CharField(required=False, allow_blank=True)
-    profile_picture = serializers.ImageField(required=True, allow_null=False)
-    
-    # Specialities and Specializations (IDs)
-    specialities = serializers.ListField(
-        child=serializers.IntegerField(),
-        required=False,
-        allow_empty=True
-    )
-    specializations = serializers.ListField(
-        child=serializers.IntegerField(),
-        required=False,
-        allow_empty=True
-    )
-
-    class Meta:
-        model = User
-        fields = (
-            'email', 'password', 'confirm_password', 'first_name', 'last_name',
-            'phone_number', 'user_type', 'business_name', 'years_of_experience',
-            'service_area', 'address', 'city', 'bio', 'profile_picture',
-            'specialities', 'specializations'
-        )
-
-    def validate(self, attrs):
-        if attrs['password'] != attrs['confirm_password']:
-            raise serializers.ValidationError(
-                {"password": "Password fields didn't match."}
-            )
-        
-        # If user is offering services, validate specialities
-        if attrs.get('user_type') == 'offer':
-            specialities = attrs.get('specialities', [])
-            if not specialities:
-                raise serializers.ValidationError(
-                    {"specialities": "Service providers must select at least one speciality."}
-                )
-        
-        return attrs
-
-    def create(self, validated_data):
-        validated_data.pop('confirm_password')
-        
-        # Extract specialities and specializations
-        speciality_ids = validated_data.pop('specialities', [])
-        specialization_ids = validated_data.pop('specializations', [])
-        
-        # Create username from email
-        username = validated_data['email'].split('@')[0]
-        base_username = username
-        counter = 1
-        while User.objects.filter(username=username).exists():
-            username = f"{base_username}{counter}"
-            counter += 1
-        
-        # Create user
-        user = User.objects.create_user(
-            username=username,
-            email=validated_data['email'],
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
-            phone_number=validated_data['phone_number'],
-            user_type=validated_data['user_type'],
-            password=validated_data['password'],
-            business_name=validated_data.get('business_name', ''),
-            years_of_experience=validated_data.get('years_of_experience', 0),
-            service_area=validated_data.get('service_area', ''),
-            address=validated_data.get('address', ''),
-            city=validated_data.get('city', ''),
-            bio=validated_data.get('bio', ''),
-            profile_picture=validated_data.get('profile_picture', None)
-        )
-        
-        # Add specialities
-        for spec_id in speciality_ids:
-            try:
-                speciality = Speciality.objects.get(id=spec_id)
-                UserSpeciality.objects.create(user=user, speciality=speciality)
-            except Speciality.DoesNotExist:
-                pass
-        
-        # Add specializations
-        for spec_id in specialization_ids:
-            try:
-                specialization = Specialization.objects.get(id=spec_id)
-                UserSpecialization.objects.create(user=user, specialization=specialization)
-            except Specialization.DoesNotExist:
-                pass
-        
-        return user
+    def get_file_url(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+        return None
 
 
 class UserSerializer(serializers.ModelSerializer):
+    """Serializer for User model - used for profile display and updates"""
     specialities = serializers.SerializerMethodField()
     specializations = serializers.SerializerMethodField()
     certificates = CertificateSerializer(many=True, read_only=True)
     profile_picture_url = serializers.SerializerMethodField()
+    citizenship_front_url = serializers.SerializerMethodField()
+    citizenship_back_url = serializers.SerializerMethodField()
+    full_name = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = (
-            'id', 'email', 'first_name', 'last_name', 'phone_number', 'user_type',
-            'profile_picture', 'profile_picture_url', 'address', 'city', 'bio',
-            'business_name', 'years_of_experience', 'service_area', 'is_verified',
-            'specialities', 'specializations', 'certificates', 'created_at'
+            'id', 'email', 'username', 'first_name', 'last_name', 'full_name',
+            'phone_number', 'user_type', 'profile_picture', 'profile_picture_url',
+            'location', 'address', 'city', 'bio', 'business_name', 'years_of_experience',
+            'service_area', 'is_verified', 'phone_verified', 
+            'citizenship_front', 'citizenship_back', 'citizenship_front_url', 
+            'citizenship_back_url', 'citizenship_number', 'citizenship_verified',
+            'specialities', 'specializations', 'certificates', 'created_at', 'updated_at'
         )
-        read_only_fields = ('id', 'is_verified', 'created_at')
+        read_only_fields = ('id', 'username', 'email', 'is_verified', 'phone_verified','citizenship_verified', 'created_at', 'updated_at')
+    
+    def get_full_name(self, obj):
+        """Return full name of the user"""
+        return f"{obj.first_name} {obj.last_name}".strip()
     
     def get_profile_picture_url(self, obj):
+        """Return absolute URL for profile picture"""
         if obj.profile_picture:
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.profile_picture.url)
         return None
     
+    def get_citizenship_front_url(self, obj):
+        """Return absolute URL for citizenship front"""
+        if obj.citizenship_front:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.citizenship_front.url)
+        return None
+    
+    def get_citizenship_back_url(self, obj):
+        """Return absolute URL for citizenship back"""
+        if obj.citizenship_back:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.citizenship_back.url)
+        return None
+    
     def get_specialities(self, obj):
+        """Get all specialities for the user"""
         user_specialities = UserSpeciality.objects.filter(user=obj).select_related('speciality')
-        return [{'id': us.speciality.id, 'name': us.speciality.name} for us in user_specialities]
+        return [
+            {
+                'id': us.speciality.id,
+                'name': us.speciality.name,
+                'slug': us.speciality.slug
+            }
+            for us in user_specialities
+        ]
     
     def get_specializations(self, obj):
-        user_specializations = UserSpecialization.objects.filter(user=obj).select_related('specialization')
-        return [{'id': us.specialization.id, 'name': us.specialization.name} for us in user_specializations]
+        """Get all specializations for the user"""
+        user_specializations = UserSpecialization.objects.filter(user=obj).select_related(
+            'specialization', 'specialization__speciality'
+        )
+        return [
+            {
+                'id': us.specialization.id,
+                'name': us.specialization.name,
+                'speciality': us.specialization.speciality.name
+            }
+            for us in user_specializations
+        ]
