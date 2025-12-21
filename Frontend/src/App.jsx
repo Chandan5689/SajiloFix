@@ -38,6 +38,10 @@ import ClerkRegister from './pages/Auth/ClerkRegister';
 import SSOCallback from './pages/Auth/SSOCallback';
 
 
+import React from 'react';
+// import SajilofixChatbot from './components/chatbot/SajilofixChatbot';
+import Chatbot from './components/Chatbot';
+
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -55,10 +59,19 @@ function ProtectedRoute({ children }) {
 
 function App() {
     return (
+        
         <ClerkProvider publishableKey={clerkPubKey}>
             <Router>
                 <div className='App'>
+                     
                     <Navbar />
+                    <div>
+        <h1 className="text-3xl font-bold text-center mt-10">
+          Welcome to SajiloFix
+        </h1>
+        {/* Your other components */}
+      </div>
+                    <Chatbot />
                     <main>
                         <Routes>
                             {/* Public Routes */}
