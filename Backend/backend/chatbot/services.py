@@ -64,7 +64,7 @@ class GeminiChatService:
     def __init__(self):
         # Get API key from environment
         # api_key = os.getenv('GEMINI_API_KEY')
-        api_key = 'AIzaSyAe7osBSv-Mo2TvQQVCmXshSlHBwdErp4M' 
+        api_key = 'AIzaSyC5_izCYT3gq4Im0w1IMUTk5qUH30_OuqI' 
     
         if not api_key:
             # Do not raise here; allow application to run without Gemini configured.

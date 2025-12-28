@@ -19,18 +19,21 @@
 from django.urls import path
 from .views import (
     CurrentUserView,
+    UpdateUserProfileView,
     VerifyPhoneView,
     UpdateUserTypeView,
     UploadCitizenshipView,
     UploadCertificatesView,
     SpecialitiesListView,
-    SpecializationsListView
+    SpecializationsListView,
+    LocationsListView
 )
 from .views import RegistrationStatusView
 
 urlpatterns = [
     # User endpoints
     path('me/', CurrentUserView.as_view(), name='current-user'),
+    path('me/update/', UpdateUserProfileView.as_view(), name='update-user-profile'),
     path('verify-phone/', VerifyPhoneView.as_view(), name='verify-phone'),
     path('update-user-type/', UpdateUserTypeView.as_view(), name='update-user-type'),
     path('upload-citizenship/', UploadCitizenshipView.as_view(), name='upload-citizenship'),
@@ -40,4 +43,5 @@ urlpatterns = [
     # Lookup endpoints
     path('specialities/', SpecialitiesListView.as_view(), name='specialities-list'),
     path('specializations/', SpecializationsListView.as_view(), name='specializations-list'),
+    path('locations/', LocationsListView.as_view(), name='locations-list'),
 ]

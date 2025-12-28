@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'users',
     'chatbot',
+    'bookings',
     
     
 ]
