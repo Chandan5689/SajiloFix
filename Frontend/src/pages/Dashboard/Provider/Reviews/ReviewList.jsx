@@ -1,9 +1,38 @@
-import React from 'react';
+import React, { useState } from 'react';
 import StarRating from './StarRating';
 import { FaUser } from 'react-icons/fa';
+import bookingsService from '../../../../services/bookingsService';
 
-const ReviewList = ({ reviews }) => {
+const ReviewList = ({ reviews, loading = false }) => {
+    const [responding, setResponding] = useState({}); // { [id]: boolean }
+    const [responses, setResponses] = useState({});   // { [id]: string }
+    const [errors, setErrors] = useState({});         // { [id]: string }
 
+    const handleChange = (id, value) => {
+        setResponses(prev => ({ ...prev, [id]: value }));
+    };
+
+    const handleRespond = async (id) => {
+        setErrors(prev => ({ ...prev, [id]: null }));
+        setResponding(prev => ({ ...prev, [id]: true }));
+        try {
+            const text = (responses[id] || '').trim();
+            if (!text) {
+                setErrors(prev => ({ ...prev, [id]: 'Response cannot be empty.' }));
+                return;
+            }
+            await bookingsService.respondToReview(id, text);
+            // Optimistically update local review provider_response
+            const idx = reviews.findIndex(r => r.id === id);
+            if (idx !== -1) {
+                reviews[idx].provider_response = text;
+            }
+        } catch (err) {
+            setErrors(prev => ({ ...prev, [id]: err.error || err.message || 'Failed to respond' }));
+        } finally {
+            setResponding(prev => ({ ...prev, [id]: false }));
+        }
+    };
 
     return (
         <div className="bg-white rounded-lg shadow-xl p-6">
@@ -13,7 +42,9 @@ const ReviewList = ({ reviews }) => {
             </div>
 
             <div className="space-y-6">
-                {reviews.length === 0 ? (
+                {loading ? (
+                    <div className="text-center text-gray-600 py-6">Loading...</div>
+                ) : reviews.length === 0 ? (
                     <div>
                         <p>No reviews found for this filter</p>
                     </div>
@@ -27,31 +58,57 @@ const ReviewList = ({ reviews }) => {
                                         <FaUser className='' />
                                     </div>
                                     <div className='ml-2'>
-                                        <h3 className="font-semibold text-gray-900">{review.name}</h3>
+                                        <h3 className="font-semibold text-gray-900">{review.customer_name || review.customer?.full_name || 'Customer'}</h3>
                                         <div className="flex items-center space-x-2 mt-1">
                                             <StarRating rating={review.rating} />
-                                            <span className="text-sm text-gray-500">{review.date}</span>
+                                            <span className="text-sm text-gray-500">{review.created_at ? new Date(review.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''}</span>
                                         </div>
                                     </div>
 
                                 </div>
                                 <span className="inline-block bg-gray-100 text-gray-700 text-sm px-3 py-1 mt-3 sm:mt-0 rounded-full">
-                                    {review.service}
+                                    {review.service_title || review.booking?.service_title || 'Service'}
                                 </span>
                             </div>
 
-                            <p className="text-gray-700 mt-3 mb-4">{review.content}</p>
+                            <p className="text-gray-700 mt-3 mb-1 font-semibold">{review.title || 'No title'}</p>
+                            {review.comment && (
+                                <p className="text-gray-700 mb-4">{review.comment}</p>
+                            )}
 
-                            <div className="flex justify-between items-center">
-                                <div className="flex items-center space-x-4">
-                                    <button className="flex items-center space-x-1 text-sm text-gray-600 hover:text-gray-900">
-                                        <span>✔️</span>
-                                        <span>{review.helpful} people found this helpful</span>
-                                    </button>
+                            {/* Provider response UI */}
+                            {review.provider_response ? (
+                                <div className="mt-4 bg-green-50 border border-green-200 rounded p-3 text-sm text-green-700">
+                                    <p className="font-semibold mb-1">Your Response</p>
+                                    <p>{review.provider_response}</p>
                                 </div>
-
-
-                            </div>
+                            ) : (
+                                <div className="mt-4">
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Respond to this review</label>
+                                    <textarea
+                                        value={responses[review.id] || ''}
+                                        onChange={(e) => handleChange(review.id, e.target.value)}
+                                        rows={3}
+                                        placeholder="Thank you for your feedback..."
+                                        className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-green-600"
+                                    />
+                                    {errors[review.id] && (
+                                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                                            {errors[review.id]}
+                                        </div>
+                                    )}
+                                    <div className="mt-2 flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRespond(review.id)}
+                                            disabled={!!responding[review.id]}
+                                            className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300"
+                                        >
+                                            {responding[review.id] ? 'Submitting...' : 'Submit Response'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ))
                 )}

@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useClerk } from "@clerk/clerk-react";
 import { MdOutlineDashboard } from "react-icons/md";
 import { FiPlusCircle } from "react-icons/fi";
 import { IoCalendarClearOutline, IoWalletOutline } from "react-icons/io5";
 import { FiUserPlus } from "react-icons/fi";
 import { BiLogOut } from "react-icons/bi";
+import { AiOutlineStar } from "react-icons/ai";
 
 const sidebarItems = [
   { label: "Dashboard", icon: <MdOutlineDashboard  />, key: "dashboard", link:"/dashboard" },
   { label: "Book New Service", icon: <FiPlusCircle  />, key: "book", link:"/services" },
   { label: "My Bookings", icon: <IoCalendarClearOutline  />, key: "my-bookings", link:"/user/my-bookings" },
+  { label: "My Reviews", icon: <AiOutlineStar  />, key: "my-reviews", link:"/user/my-reviews" },
   { label: "My Profile", icon: <FiUserPlus  />, key: "my-profile", link:"/user/my-profile" },
   { label: "Payments", icon: <IoWalletOutline  />, key: "my-payments", link:"/user/my-payments" }, 
   { label: "Logout", icon: <BiLogOut  />, key: "logout", isLogout: true },
@@ -19,11 +22,38 @@ export default function DashboardLayout({
   activeMenuKey,
   onMenuChange,
   children,
+  userData = null,
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile slide-in
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // desktop collapse
+  const { signOut } = useClerk();
+  const navigate = useNavigate();
 
-  // Prevent scrolling when sidebar open on mobile
+  // Get user display name and initials
+  const userName = userData?.first_name && userData?.last_name
+    ? `${userData.first_name} ${userData.last_name}`
+    : userData?.email?.split('@')[0] || 'User';
+
+  const getInitials = (name) => {
+    return name
+      .split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  const userInitials = getInitials(userName);
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
   useEffect(() => {
     if (sidebarOpen) {
       document.body.style.overflow = "hidden";
@@ -54,12 +84,20 @@ export default function DashboardLayout({
         {/* Sidebar Header (User Info + Collapse toggle on desktop) */}
         <div className="flex items-center justify-between px-4 py-5 border-b border-gray-200">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-lg">
-              JD
-            </div>
+            {userData?.profile_picture ? (
+              <img
+                src={userData.profile_picture}
+                alt={userName}
+                className="w-10 h-10 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-lg">
+                {userInitials}
+              </div>
+            )}
             {!sidebarCollapsed && (
               <div className="flex flex-col"> 
-                <span className="font-semibold">John Doe</span>
+                <span className="font-semibold">{userName}</span>
                 <span className="text-gray-500 text-sm">Customer</span>
               </div>
             )}
@@ -101,21 +139,35 @@ export default function DashboardLayout({
         <nav className="flex flex-col grow px-2 py-4 space-y-1 overflow-y-auto">
           {sidebarItems.map(({ label, icon, key, isLogout }) => {
             const active = activeMenuKey === key;
+            
+            if (isLogout) {
+              return (
+                <button
+                  key={key}
+                  onClick={handleLogout}
+                  title={sidebarCollapsed ? label : undefined}
+                  className={`flex items-center cursor-pointer gap-4 rounded-md px-4 py-3 select-none truncate transition-colors text-red-600 hover:bg-red-100 ${
+                    sidebarCollapsed ? "justify-center px-0" : "justify-start"
+                  }`}
+                >
+                  {React.cloneElement(icon, { className: `h-6 w-6 ` })}
+                  {!sidebarCollapsed && <span>{label}</span>}
+                </button>
+              );
+            }
+            
             return (
               <Link
                 key={key}
-                to={isLogout ? "/" : sidebarItems.find(item => item.key === key).link}
+                to={sidebarItems.find(item => item.key === key).link}
                 onClick={() => {
                   onMenuChange(key);
-                  
                   setSidebarOpen(false); // close on mobile after click
                 }}
                 title={sidebarCollapsed ? label : undefined}
                 className={`flex items-center cursor-pointer gap-4 rounded-md px-4 py-3 select-none truncate transition-colors
                   ${
-                    isLogout
-                      ? "text-red-600 hover:bg-red-100"
-                      : active
+                    active
                       ? "bg-green-100 text-green-600 font-semibold"
                       : "text-gray-700 hover:bg-gray-100"
                   }

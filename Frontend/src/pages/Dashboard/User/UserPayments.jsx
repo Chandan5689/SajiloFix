@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     AiOutlineDownload,
     AiOutlineDollarCircle 
@@ -9,11 +9,14 @@ import { HiOutlineWrenchScrewdriver } from "react-icons/hi2";
 // import { SiKhalti, SiEsewa } from "react-icons/si";
 import { Modal } from "../../../components/Modal";
 import DashboardLayout from "../../../layouts/DashboardLayout";
+import { useUserProfile } from "../../../context/UserProfileContext";
 
 export default function UserPayments() {
     const [activeTab, setActiveTab] = useState("Payment History");
     const [selectedPayment, setSelectedPayment] = useState(null);
     const [activeMenuKey, setActiveMenuKey] = useState("my-payments");
+    const { userProfile: userData } = useUserProfile();
+
     const paymentSummary = [
         {
             title: "Total Paid",
@@ -142,7 +145,7 @@ Thank you for your payment!
 
     return (
 
-        <DashboardLayout activeMenuKey={activeMenuKey} onMenuChange={setActiveMenuKey}>
+        <DashboardLayout activeMenuKey={activeMenuKey} onMenuChange={setActiveMenuKey} userData={userData}>
 
 
             {/* Title */}

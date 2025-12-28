@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import UserDashboard from '../pages/Dashboard/User/UserDashboard';
 import ProviderDashboard from '../pages/Dashboard/Provider/ProviderDashboard';
+import { UserProfileProvider } from '../context/UserProfileContext';
 
 function DashboardRouter() {
     const { isLoaded, isSignedIn } = useUser();
@@ -50,11 +51,19 @@ function DashboardRouter() {
     }
 
     if (userType === 'offer') {
-        return <ProviderDashboard />;
+        return (
+            <UserProfileProvider>
+                <ProviderDashboard />
+            </UserProfileProvider>
+        );
     }
 
     if (userType === 'find') {
-        return <UserDashboard />;
+        return (
+            <UserProfileProvider>
+                <UserDashboard />
+            </UserProfileProvider>
+        );
     }
 
     // Fallback for unexpected type

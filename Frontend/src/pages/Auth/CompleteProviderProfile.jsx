@@ -431,8 +431,12 @@ function CompleteProviderProfile() {
                             <span className="bg-green-100 text-green-800 rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm">2</span>
                             Services & Expertise
                         </h3>
-
                         <div className="space-y-4">
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <p className="text-sm text-blue-800">
+                                    <strong>Tip:</strong> Add the specialities and specific specializations you are truly expert in. You can set prices and other service details later from your dashboard under <em>My Services</em>.
+                                </p>
+                            </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Main Specialities * (Select at least one)
