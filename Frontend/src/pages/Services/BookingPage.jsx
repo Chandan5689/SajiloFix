@@ -1197,6 +1197,9 @@ export default function BookingPage() {
                 {specialInstructions && (
                   <div className="flex justify-between"><span>Instructions:</span><span className="text-right">{specialInstructions}</span></div>
                 )}
+                {previewUrls.length > 0 && (
+                  <div className="flex justify-between"><span>Before photos:</span><span>{previewUrls.length} selected</span></div>
+                )}
                 {isEmergency && (
                   <p className="text-xs text-orange-700 font-semibold">🚨 Marked as emergency request</p>
                 )}
@@ -1236,7 +1239,7 @@ export default function BookingPage() {
 
       {/* Success Modal */}
       {showSuccessModal && createdBooking && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-gray-200 bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
             {/* Success Icon */}
             <div className="flex justify-center mb-4">

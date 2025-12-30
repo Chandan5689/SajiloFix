@@ -32,7 +32,12 @@ export default function MyReviews() {
         setReviews(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error("Error fetching reviews:", err);
-        setError(err.error || "Failed to load your reviews");
+        setError(
+          err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to load your reviews"
+        );
       } finally {
         setLoading(false);
       }
@@ -144,11 +149,11 @@ export default function MyReviews() {
                   <p className={`${bodyTextClass} ${isCompact ? "truncate" : ""} ${isCompact ? "mb-2" : "mb-4"}`}>{rev.comment}</p>
                 )}
                 <div className={`flex items-center justify-between ${metaTextClass} text-gray-500`}>
+                  <span>{rev.would_recommend ? "Recommended" : "Not recommended"}</span>
                   <span>
-                    {rev.would_recommend ? "Recommended" : "Not recommended"}
-                  </span>
-                  <span>
-                    {rev.created_at ? new Date(rev.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : ""}
+                    {rev.created_at
+                      ? new Date(rev.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                      : ""}
                   </span>
                 </div>
               </div>
@@ -156,9 +161,7 @@ export default function MyReviews() {
           ) : (
             <div className="col-span-full text-center p-10 bg-white rounded-lg shadow-md text-gray-500">
               <p>You haven't submitted any reviews yet.</p>
-              <p className="mt-2">
-                You can leave a review from your completed bookings.
-              </p>
+              <p className="mt-2">You can leave a review from your completed bookings.</p>
             </div>
           )}
         </div>

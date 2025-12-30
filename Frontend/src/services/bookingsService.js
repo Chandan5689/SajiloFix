@@ -230,6 +230,42 @@ const bookingsService = {
   },
 
   /**
+   * Customer approves completed booking (triggers payment release or auto-release)
+   * @param {number} bookingId
+   * @param {string} note - Optional approval note
+   * @returns {Promise} Updated booking
+   */
+  approveCompletion: async (bookingId, note = '') => {
+    try {
+      const response = await api.post(`/bookings/bookings/${bookingId}/approve-completion/`, {
+        note,
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
+   * Customer disputes booking completion
+   * @param {number} bookingId
+   * @param {string} reason - Dispute reason
+   * @param {string} note - Additional dispute note
+   * @returns {Promise} Updated booking
+   */
+  disputeBooking: async (bookingId, reason = '', note = '') => {
+    try {
+      const response = await api.post(`/bookings/bookings/${bookingId}/dispute/`, {
+        reason,
+        note,
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
    * Get provider earnings summary
    * @returns {Promise} Earnings data {total_earnings_nrs, total_paid_jobs}
    */

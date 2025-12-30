@@ -36,6 +36,12 @@ export default function ProviderMyBookings() {
     const [showDeclineModal, setShowDeclineModal] = useState(false);
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [uploadImageType, setUploadImageType] = useState("before_work");
+    const [showCompleteModal, setShowCompleteModal] = useState(false);
+    const [completeNote, setCompleteNote] = useState("");
+    const [completeFiles, setCompleteFiles] = useState([]);
+    const [completePreviews, setCompletePreviews] = useState([]);
+    const [completeError, setCompleteError] = useState(null);
+    const [completeLoading, setCompleteLoading] = useState(false);
 
     const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled", "declined"];
 
@@ -147,19 +153,67 @@ export default function ProviderMyBookings() {
     };
 
     // Handle Complete Work
-    const handleComplete = async (bookingId) => {
+    const resetCompleteState = () => {
+        setCompleteNote("");
+        setCompleteFiles([]);
+        setCompletePreviews([]);
+        setCompleteError(null);
+    };
+
+    const handleOpenCompleteModal = (booking) => {
+        setSelectedBooking(booking);
+        resetCompleteState();
+        setShowCompleteModal(true);
+    };
+
+    const handleCompleteFilesChange = (files) => {
+        const valid = files.filter((file) => file.type.startsWith('image/') && file.size <= 5 * 1024 * 1024);
+        if (valid.length !== files.length) {
+            setCompleteError('Only images up to 5MB are allowed');
+        } else {
+            setCompleteError(null);
+        }
+        setCompleteFiles((prev) => [...prev, ...valid]);
+        const previews = valid.map((file) => URL.createObjectURL(file));
+        setCompletePreviews((prev) => [...prev, ...previews]);
+    };
+
+    const handleRemoveCompleteFile = (index) => {
+        setCompleteFiles((prev) => prev.filter((_, i) => i !== index));
+        setCompletePreviews((prev) => prev.filter((_, i) => i !== index));
+        if (completeFiles.length <= 1) {
+            setCompleteError(null);
+        }
+    };
+
+    const handleCompleteSubmit = async () => {
+        if (!selectedBooking) return;
+        if (completeFiles.length === 0) {
+            setCompleteError('After photos are required to complete this job');
+            return;
+        }
         try {
-            setActionInProgress(bookingId);
-            const updated = await bookingsService.completeBooking(bookingId);
-            setBookings(bookings.map(b => b.id === updated.id ? updated : b));
-            if (selectedBooking?.id === bookingId) {
-                setSelectedBooking(updated);
+            setCompleteLoading(true);
+            setCompleteError(null);
+            // Complete booking first (sets provider_completed status)
+            const completed = await bookingsService.completeBooking(selectedBooking.id);
+            // Then upload after photos
+            await bookingsService.uploadBookingImages(completed.id, 'after', completeFiles, completeNote);
+            // Refresh booking to get final status
+            const updated = await bookingsService.getBookingDetail(completed.id);
+            // Explicitly set status to awaiting_customer if we just uploaded after photos
+            if (updated.status === 'provider_completed') {
+                updated.status = 'awaiting_customer';
             }
+            setBookings(bookings.map((b) => (b.id === updated.id ? updated : b)));
+            setSelectedBooking(updated);
+            setShowCompleteModal(false);
+            resetCompleteState();
         } catch (err) {
-            console.error("Error completing booking:", err);
-            alert("Failed to complete booking: " + (err.error || err.message));
+            console.error('Error completing booking:', err);
+            setCompleteError(err?.error || err?.message || 'Failed to complete booking');
         } finally {
-            setActionInProgress(null);
+            setCompleteLoading(false);
         }
     };
 
@@ -186,6 +240,85 @@ export default function ProviderMyBookings() {
         activeTab === "All"
             ? bookings
             : bookings.filter(b => b.status === activeTab);
+
+    // Helpers
+    const haversineDistanceKm = (lat1, lon1, lat2, lon2) => {
+        if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
+        const toRad = (d) => (d * Math.PI) / 180;
+        const R = 6371;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return Math.round(R * c * 10) / 10;
+    };
+
+    const timeSince = (dateStr) => {
+        if (!dateStr) return null;
+        const diffMs = Date.now() - new Date(dateStr).getTime();
+        if (Number.isNaN(diffMs)) return null;
+        const mins = Math.floor(diffMs / 60000);
+        if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+        const days = Math.floor(hours / 24);
+        return `${days} day${days === 1 ? '' : 's'} ago`;
+    };
+
+    // Derived fields for the selected booking (modal)
+    const serviceLat =
+        selectedBooking?.service_latitude ??
+        selectedBooking?.service_lat ??
+        selectedBooking?.latitude;
+    const serviceLng =
+        selectedBooking?.service_longitude ??
+        selectedBooking?.service_lng ??
+        selectedBooking?.longitude;
+    const providerLat =
+        selectedBooking?.provider_latitude ??
+        selectedBooking?.provider_lat ??
+        selectedBooking?.provider?.latitude;
+    const providerLng =
+        selectedBooking?.provider_longitude ??
+        selectedBooking?.provider_lng ??
+        selectedBooking?.provider?.longitude;
+    const distanceKm = haversineDistanceKm(
+        providerLat,
+        providerLng,
+        serviceLat,
+        serviceLng
+    );
+    const radiusKm = selectedBooking?.service_radius ?? selectedBooking?.radius;
+    const isHourly = selectedBooking?.service_price_type === 'hourly';
+    const estHours = selectedBooking?.estimated_hours;
+    const isEmergency = !!selectedBooking?.is_emergency;
+    const customerRating = selectedBooking?.customer_rating;
+    const customerBookings = selectedBooking?.customer_booking_count;
+    const bookingAge = timeSince(
+        selectedBooking?.created_at ??
+        selectedBooking?.requested_at ??
+        selectedBooking?.createdAt
+    );
+    const specialization =
+        selectedBooking?.service_specialization ??
+        selectedBooking?.service?.specialization?.name ??
+        selectedBooking?.specialization?.name;
+    const serviceTitle =
+        selectedBooking?.service_title ?? selectedBooking?.service?.title;
+    const priceType =
+        selectedBooking?.service_price_type ?? selectedBooking?.service?.price_type;
+    const mapLinkService =
+        serviceLat != null && serviceLng != null
+            ? `https://www.openstreetmap.org/?mlat=${serviceLat}&mlon=${serviceLng}#map=17/${serviceLat}/${serviceLng}`
+            : null;
+    const mapLinkProvider =
+        providerLat != null && providerLng != null
+            ? `https://www.openstreetmap.org/?mlat=${providerLat}&mlon=${providerLng}#map=17/${providerLat}/${providerLng}`
+            : null;
 
     if (loading) {
         return (
@@ -314,7 +447,7 @@ export default function ProviderMyBookings() {
                                 {booking.status === "in_progress" && (
                                     <button
                                         className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 transition"
-                                        onClick={() => handleComplete(booking.id)}
+                                        onClick={() => handleOpenCompleteModal(booking)}
                                         disabled={actionInProgress === booking.id}
                                     >
                                         Complete Job
@@ -389,9 +522,185 @@ export default function ProviderMyBookings() {
                 </Modal>
             )}
 
+            {showCompleteModal && selectedBooking && (
+                <Modal onClose={() => { setShowCompleteModal(false); resetCompleteState(); }}>
+                    <div className="p-6 max-w-2xl space-y-4">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <h3 className="text-xl font-semibold">Mark Job as Completed</h3>
+                                <p className="text-sm text-gray-600">Upload after-service photos (required) and add an optional note.</p>
+                            </div>
+                            <button
+                                className="text-gray-400 hover:text-gray-600"
+                                onClick={() => { setShowCompleteModal(false); resetCompleteState(); }}
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
+                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{selectedBooking.service_title}</span></p>
+                            <p className="flex justify-between"><span className="font-semibold">Customer:</span> <span>{selectedBooking.customer_name}</span></p>
+                            <p className="mt-2 text-orange-700 font-semibold text-xs">After photos are required to complete the job.</p>
+                        </div>
+
+                        {completeError && (
+                            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{completeError}</div>
+                        )}
+
+                        {selectedBooking.images?.filter((img) => img.image_type === 'after')?.length > 0 && (
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold text-gray-700">Existing after photos</p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {selectedBooking.images.filter((img) => img.image_type === 'after').map((img) => (
+                                        <img key={img.id} src={img.image_url} alt="after" className="h-24 w-full object-cover rounded border" />
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700">After-service photos (max 5)</label>
+                            <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-md cursor-pointer text-sm text-gray-600 ${completeFiles.length >= 5 ? 'opacity-60 cursor-not-allowed' : 'hover:border-green-500 hover:bg-green-50'}`}>
+                                <span className="font-medium text-gray-800">{completeFiles.length >= 5 ? 'Maximum 5 images reached' : 'Drop images here or click to browse'}</span>
+                                <span className="text-xs text-gray-500">JPG/PNG up to 5MB each</span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    className="hidden"
+                                    disabled={completeFiles.length >= 5 || completeLoading}
+                                    onChange={(e) => {
+                                        const files = Array.from(e.target.files || []);
+                                        const remaining = 5 - completeFiles.length;
+                                        const toAdd = files.slice(0, remaining);
+                                        if (files.length > remaining) {
+                                            setCompleteError(`Only ${remaining} more image(s) can be added (max 5).`);
+                                        }
+                                        handleCompleteFilesChange(toAdd);
+                                    }}
+                                />
+                            </label>
+                            {completePreviews.length > 0 && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {completePreviews.map((url, idx) => (
+                                        <div key={idx} className="relative group">
+                                            <img src={url} alt={`after-${idx}`} className="h-24 w-full object-cover rounded border" />
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveCompleteFile(idx)}
+                                                className="absolute top-1 right-1 bg-white/90 text-red-600 text-xs px-2 py-1 rounded shadow hidden group-hover:block"
+                                                disabled={completeLoading}
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <p className="text-xs text-gray-500">At least 1 after photo is required.</p>
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-sm font-semibold text-gray-700">Completion note (optional)</label>
+                            <textarea
+                                rows={3}
+                                value={completeNote}
+                                onChange={(e) => setCompleteNote(e.target.value)}
+                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                placeholder="Summarize the work done or any follow-up info"
+                                disabled={completeLoading}
+                            />
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button
+                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50"
+                                onClick={() => { setShowCompleteModal(false); resetCompleteState(); }}
+                                disabled={completeLoading}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                onClick={handleCompleteSubmit}
+                                disabled={completeLoading}
+                            >
+                                {completeLoading ? 'Completing...' : 'Submit & Complete'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
             {/* Modal for Booking Details */}
-            {selectedBooking && !showDeclineModal && !showUploadModal && (
+            {selectedBooking && !showDeclineModal && !showUploadModal && !showCompleteModal && (
                 <Modal onClose={() => setSelectedBooking(null)}>
+                    {/* Info bar with badges */}
+                    <div className="mb-4 flex flex-wrap gap-2">
+                        {isEmergency && (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-red-100 px-3 py-1 text-red-700 text-sm font-semibold">
+                                🚨 Emergency request
+                            </span>
+                        )}
+                        {customerRating ? (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-blue-700 text-sm">
+                                ⭐ {customerRating.toFixed(1)} ({customerBookings ?? '—'} bookings)
+                            </span>
+                        ) : (
+                            customerBookings != null && (
+                                <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-blue-700 text-sm">
+                                    📦 {customerBookings} booking{customerBookings === 1 ? '' : 's'}
+                                </span>
+                            )
+                        )}
+                        {distanceKm != null && (
+                            <span
+                                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm ${
+                                    radiusKm && distanceKm > radiusKm
+                                        ? 'bg-orange-100 text-orange-700'
+                                        : 'bg-green-100 text-green-700'
+                                }`}
+                            >
+                                📍 {distanceKm} km{' '}
+                                {radiusKm
+                                    ? distanceKm > radiusKm
+                                        ? `(outside ${radiusKm} km radius)`
+                                        : `(within ${radiusKm} km radius)`
+                                    : null}
+                            </span>
+                        )}
+                        {bookingAge && (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-purple-100 px-3 py-1 text-purple-700 text-sm">
+                                ⏳ Requested {bookingAge}
+                            </span>
+                        )}
+                        <span className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-gray-700 text-sm">
+                            ⏱️ Respond within 24h
+                        </span>
+                    </div>
+
+                    {/* Optional service/specialization chips */}
+                    {(serviceTitle || specialization || priceType) && (
+                        <div className="mb-4 flex flex-wrap gap-2 text-sm">
+                            {serviceTitle && (
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                                    🛠️ {serviceTitle}
+                                </span>
+                            )}
+                            {specialization && (
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                                    🎯 {specialization}
+                                </span>
+                            )}
+                            {priceType && (
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 capitalize">
+                                    💰 {priceType}
+                                </span>
+                            )}
+                        </div>
+                    )}
+
                     <div className="p-6 max-w-2xl">
                         <h3 className="text-xl font-semibold mb-4">Booking Details</h3>
                         <div className="space-y-4 text-sm">
@@ -471,6 +780,76 @@ export default function ProviderMyBookings() {
                             </div>
                         </div>
 
+                        {/* In your service/pricing area, add a duration hint for hourly services */}
+                        {isHourly && estHours ? (
+                            <p className="text-sm text-gray-700">
+                                Estimated duration:{' '}
+                                <span className="font-semibold">
+                                    {estHours} hour{estHours === 1 ? '' : 's'}
+                                </span>
+                            </p>
+                        ) : null}
+
+                        {/* Coordinates & map links (compact, only if coords exist) */}
+                        {(serviceLat != null || providerLat != null) && (
+                            <div className="mt-4 grid gap-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                                {serviceLat != null && serviceLng != null && (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-semibold">Service location:</span>
+                                        <span>
+                                            {serviceLat}, {serviceLng}
+                                        </span>
+                                        {mapLinkService && (
+                                            <a
+                                                className="text-blue-600 hover:underline"
+                                                href={mapLinkService}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                            >
+                                                View on map
+                                            </a>
+                                        )}
+                                    </div>
+                                )}
+                                {providerLat != null && providerLng != null && (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-semibold">Provider location:</span>
+                                        <span>
+                                            {providerLat}, {providerLng}
+                                        </span>
+                                        {mapLinkProvider && (
+                                            <a
+                                                className="text-blue-600 hover:underline"
+                                                href={mapLinkProvider}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                            >
+                                                View on map
+                                            </a>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Review block */}
+                        {selectedBooking?.review && (
+                            <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
+                                <div className="flex items-center justify-between">
+                                    <span className="font-semibold">Customer review</span>
+                                    <span className="text-gray-600">
+                                        {selectedBooking.review.customer_name ||
+                                            selectedBooking.review.customer?.full_name ||
+                                            "Customer"}
+                                    </span>
+                                </div>
+                                <div className="mt-1 text-yellow-600">
+                                    {"★".repeat(selectedBooking.review.rating).padEnd(5, "☆")}
+                                </div>
+                                <p className="mt-2 text-gray-700">{selectedBooking.review.comment}</p>
+                            </div>
+                        )}
+
                         {/* Action Buttons in Modal */}
                         <div className="flex gap-3 mt-6">
                             {selectedBooking.status === "pending" && (
@@ -511,7 +890,7 @@ export default function ProviderMyBookings() {
                                 <button
                                     className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700"
                                     onClick={() => {
-                                        handleComplete(selectedBooking.id);
+                                        handleOpenCompleteModal(selectedBooking);
                                     }}
                                     disabled={actionInProgress}
                                 >

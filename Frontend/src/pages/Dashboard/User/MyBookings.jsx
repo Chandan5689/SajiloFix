@@ -34,6 +34,13 @@ export default function MyBookingsPage() {
     const [cancelReason, setCancelReason] = useState("");
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [uploadImageType, setUploadImageType] = useState("problem_area");
+    const [showDecisionModal, setShowDecisionModal] = useState(false);
+    const [decisionType, setDecisionType] = useState("approve");
+    const [decisionNote, setDecisionNote] = useState("");
+    const [decisionFiles, setDecisionFiles] = useState([]);
+    const [decisionPreviews, setDecisionPreviews] = useState([]);
+    const [decisionError, setDecisionError] = useState(null);
+    const [decisionLoading, setDecisionLoading] = useState(false);
     const { addToast } = useToast();
     const { userProfile: userData } = useUserProfile();
 
@@ -50,6 +57,7 @@ export default function MyBookingsPage() {
     const [reviewSuccess, setReviewSuccess] = useState(null);
 
     const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled"];
+    const decisionEligibleStatuses = ["provider_completed", "awaiting_confirmation", "awaiting_customer"];
 
     // Fetch bookings on component mount
     useEffect(() => {
@@ -187,6 +195,87 @@ export default function MyBookingsPage() {
     const handleOpenUpload = (imageType) => {
         setUploadImageType(imageType);
         setShowUploadModal(true);
+    };
+
+    const resetDecisionState = () => {
+        setDecisionType("approve");
+        setDecisionNote("");
+        setDecisionFiles([]);
+        setDecisionPreviews([]);
+        setDecisionError(null);
+    };
+
+    const handleOpenDecisionModal = (type, booking) => {
+        setDecisionType(type);
+        setSelectedBooking(booking);
+        resetDecisionState();
+        setDecisionType(type);
+        // Always refresh booking status when opening modal to ensure we have latest state
+        bookingsService.getBookingDetail(booking.id)
+            .then(refreshed => {
+                setSelectedBooking(refreshed);
+                console.log(`[Decision Modal] Refreshed booking ${refreshed.id}, status: ${refreshed.status}`);
+            })
+            .catch(err => console.error('Failed to refresh booking:', err));
+        setShowDecisionModal(true);
+    };
+
+    const handleDecisionFilesChange = (files) => {
+        const remaining = 5 - decisionFiles.length;
+        const toAdd = files.slice(0, remaining);
+        const valid = toAdd.filter((file) => file.type.startsWith('image/') && file.size <= 5 * 1024 * 1024);
+        if (valid.length !== toAdd.length) {
+            setDecisionError('Only images up to 5MB are allowed');
+        } else {
+            setDecisionError(null);
+        }
+        setDecisionFiles((prev) => [...prev, ...valid]);
+        setDecisionPreviews((prev) => [...prev, ...valid.map((f) => URL.createObjectURL(f))]);
+    };
+
+    const handleRemoveDecisionFile = (index) => {
+        setDecisionFiles((prev) => prev.filter((_, i) => i !== index));
+        setDecisionPreviews((prev) => prev.filter((_, i) => i !== index));
+        if (decisionFiles.length <= 1) {
+            setDecisionError(null);
+        }
+    };
+
+    const handleDecisionSubmit = async () => {
+        if (!selectedBooking) return;
+        if (decisionType === 'dispute' && decisionFiles.length === 0) {
+            setDecisionError('After photos are required to dispute this completion');
+            return;
+        }
+        try {
+            setDecisionLoading(true);
+            setDecisionError(null);
+            // Upload customer photos as 'approval_photos' type (separate from provider 'after' images)
+            if (decisionFiles.length > 0) {
+                await bookingsService.uploadBookingImages(selectedBooking.id, 'approval_photos', decisionFiles, decisionNote);
+            }
+            // Refresh booking status before approving (in case it auto-transitioned)
+            const refreshed = await bookingsService.getBookingDetail(selectedBooking.id);
+            setSelectedBooking(refreshed);
+            const updated = decisionType === 'approve'
+                ? await bookingsService.approveCompletion(refreshed.id, decisionNote)
+                : await bookingsService.disputeBooking(refreshed.id, decisionNote, decisionNote);
+            setBookings(bookings.map((b) => (b.id === updated.id ? updated : b)));
+            setSelectedBooking(updated);
+            addToast(decisionType === 'approve' ? 'Booking approved successfully' : 'Dispute submitted', 'success');
+            setShowDecisionModal(false);
+            resetDecisionState();
+        } catch (err) {
+            console.error('Decision submit failed', err);
+            const errorMsg = err?.error || err?.message || 'Failed to submit';
+            // Log booking status for debugging
+            if (selectedBooking) {
+                console.error(`Booking ID: ${selectedBooking.id}, Status: ${selectedBooking.status}`);
+            }
+            setDecisionError(errorMsg);
+        } finally {
+            setDecisionLoading(false);
+        }
     };
 
     // Format date and time for display
@@ -405,8 +494,118 @@ export default function MyBookingsPage() {
                 </Modal>
             )}
 
+            {showDecisionModal && selectedBooking && (
+                <Modal onClose={() => { setShowDecisionModal(false); resetDecisionState(); }}>
+                    <div className="p-6 max-w-2xl space-y-4">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <h3 className="text-xl font-semibold">
+                                    {decisionType === 'approve' ? 'Approve completion' : 'Dispute completion'}
+                                </h3>
+                                <p className="text-sm text-gray-600">
+                                    {decisionType === 'approve'
+                                        ? 'You can approve even without photos. Optional after photos help with records.'
+                                        : 'Please add after photos to support your dispute.'}
+                                </p>
+                            </div>
+                            <button
+                                className="text-gray-400 hover:text-gray-600"
+                                onClick={() => { setShowDecisionModal(false); resetDecisionState(); }}
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
+                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{selectedBooking.service_title}</span></p>
+                            <p className="flex justify-between"><span className="font-semibold">Provider:</span> <span>{selectedBooking.provider_name}</span></p>
+                            {decisionType === 'dispute' && (
+                                <p className="mt-2 text-orange-700 font-semibold text-xs">After photos are required when disputing.</p>
+                            )}
+                        </div>
+
+                        {decisionError && (
+                            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{decisionError}</div>
+                        )}
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700">After photos (optional for approval, required for dispute)</label>
+                            <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-md cursor-pointer text-sm text-gray-600 ${decisionFiles.length >= 5 ? 'opacity-60 cursor-not-allowed' : 'hover:border-green-500 hover:bg-green-50'}`}>
+                                <span className="font-medium text-gray-800">{decisionFiles.length >= 5 ? 'Maximum 5 images reached' : 'Drop images here or click to browse'}</span>
+                                <span className="text-xs text-gray-500">JPG/PNG up to 5MB each • Max 5</span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    className="hidden"
+                                    disabled={decisionFiles.length >= 5 || decisionLoading}
+                                    onChange={(e) => {
+                                        const files = Array.from(e.target.files || []);
+                                        const remaining = 5 - decisionFiles.length;
+                                        const toAdd = files.slice(0, remaining);
+                                        if (files.length > remaining) {
+                                            setDecisionError(`Only ${remaining} more image(s) can be added (max 5).`);
+                                        }
+                                        handleDecisionFilesChange(toAdd);
+                                    }}
+                                />
+                            </label>
+                            {decisionPreviews.length > 0 && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {decisionPreviews.map((url, idx) => (
+                                        <div key={idx} className="relative group">
+                                            <img src={url} alt={`decision-${idx}`} className="h-24 w-full object-cover rounded border" />
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveDecisionFile(idx)}
+                                                className="absolute top-1 right-1 bg-white/90 text-red-600 text-xs px-2 py-1 rounded shadow hidden group-hover:block"
+                                                disabled={decisionLoading}
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {decisionType === 'dispute' && (
+                                <p className="text-xs text-gray-500">At least 1 after photo is required when disputing.</p>
+                            )}
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-sm font-semibold text-gray-700">Note {decisionType === 'dispute' ? '(recommended)' : '(optional)'}</label>
+                            <textarea
+                                rows={3}
+                                value={decisionNote}
+                                onChange={(e) => setDecisionNote(e.target.value)}
+                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                placeholder={decisionType === 'dispute' ? "Describe what's wrong and what you expect" : "Add any comments for the provider"}
+                                disabled={decisionLoading}
+                            />
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button
+                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50"
+                                onClick={() => { setShowDecisionModal(false); resetDecisionState(); }}
+                                disabled={decisionLoading}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                onClick={handleDecisionSubmit}
+                                disabled={decisionLoading}
+                            >
+                                {decisionLoading ? 'Submitting...' : decisionType === 'approve' ? 'Approve completion' : 'Submit dispute'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
             {/* Modal for booking details */}
-            {selectedBooking && !cancelingBookingId && !showUploadModal && (
+            {selectedBooking && !cancelingBookingId && !showUploadModal && !showDecisionModal && (
                 <Modal onClose={() => setSelectedBooking(null)}>
                     <div className="p-6 max-w-2xl">
                         <h3 className="text-xl font-semibold mb-4">Booking Details</h3>
@@ -466,6 +665,23 @@ export default function MyBookingsPage() {
                                         >
                                             <span className="text-lg">+</span>
                                             Add {selectedBooking.status === "in_progress" ? "Work" : "Problem Area"} Photos
+                                        </button>
+                                    </div>
+                                )}
+                                {/* Approve/Dispute completion */}
+                                {decisionEligibleStatuses.includes(selectedBooking.status) && (
+                                    <div className="col-span-2 flex gap-2">
+                                        <button
+                                            onClick={() => handleOpenDecisionModal('approve', selectedBooking)}
+                                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 transition"
+                                        >
+                                            Approve Completion
+                                        </button>
+                                        <button
+                                            onClick={() => handleOpenDecisionModal('dispute', selectedBooking)}
+                                            className="flex-1 px-4 py-2 border border-orange-500 text-orange-500 rounded-md text-sm font-semibold hover:bg-orange-50 transition"
+                                        >
+                                            Report Issue
                                         </button>
                                     </div>
                                 )}
@@ -546,7 +762,23 @@ export default function MyBookingsPage() {
                                         </div>
                                     )}
                                 </div>
-                                </div>
+                                {/* Review block */}
+                                {selectedBooking?.review && (
+                                    <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-semibold">Your review for</span>
+                                            <span className="text-gray-600">
+                                                {selectedBooking.review.provider_name ||
+                                                    selectedBooking.provider?.full_name ||
+                                                    "Provider"}
+                                            </span>
+                                        </div>
+                                        <div className="mt-1 text-yellow-600">
+                                            {"★".repeat(selectedBooking.review.rating).padEnd(5, "☆")}
+                                        </div>
+                                        <p className="mt-2 text-gray-700">{selectedBooking.review.comment}</p>
+                                    </div>
+                                )}
                             </div>
                             <button
                                 className="mt-6 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 w-full"
@@ -555,6 +787,7 @@ export default function MyBookingsPage() {
                                 Close
                             </button>
                         </div>
+                    </div>
                     </Modal>
                 )}
         </DashboardLayout>
