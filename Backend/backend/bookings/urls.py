@@ -17,6 +17,8 @@ from .views import (
     ScheduleBookingView,
     StartBookingView,
     CompleteBookingView,
+    ApproveCompletionView,
+    DisputeBookingView,
     ProviderMyServicesView,
     CreateServiceView,
     UpdateServiceView,
@@ -44,6 +46,8 @@ urlpatterns = [
     path('bookings/<int:booking_id>/schedule/', ScheduleBookingView.as_view(), name='booking-schedule'),
     path('bookings/<int:booking_id>/start/', StartBookingView.as_view(), name='booking-start'),
     path('bookings/<int:booking_id>/complete/', CompleteBookingView.as_view(), name='booking-complete'),
+    path('bookings/<int:booking_id>/approve-completion/', ApproveCompletionView.as_view(), name='booking-approve-completion'),
+    path('bookings/<int:booking_id>/dispute/', DisputeBookingView.as_view(), name='booking-dispute'),
 
     # Payments
     path('payments/my/', MyPaymentsView.as_view(), name='payments-my'),

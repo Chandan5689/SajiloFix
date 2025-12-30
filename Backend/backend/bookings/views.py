@@ -191,9 +191,51 @@ class CompleteBookingView(APIView):
 		final_price = request.data.get('final_price', None)
 		if final_price is not None:
 			booking.final_price = final_price
+		booking.status = 'provider_completed'
+		booking.provider_completed_at = timezone.now()
+		booking.completion_note = request.data.get('completion_note', '')
+		# Set customer review window (now set to 36 hours)
+		from datetime import timedelta
+		booking.customer_review_expires_at = timezone.now() + timedelta(hours=36)
+		booking.save()
+		return Response(BookingSerializer(booking).data)
+
+
+class ApproveCompletionView(APIView):
+	"""Customer approves provider's completed work"""
+	authentication_classes = [ClerkAuthentication]
+	permission_classes = [IsAuthenticated, IsServiceSeeker]
+
+	def post(self, request, booking_id):
+		booking = get_object_or_404(Booking, id=booking_id, customer=request.user)
+		if booking.status != 'awaiting_customer':
+			return Response({'error': 'Only bookings awaiting customer can be approved'}, status=status.HTTP_400_BAD_REQUEST)
 		booking.status = 'completed'
 		booking.completed_at = timezone.now()
+		booking.approval_note = request.data.get('note', '')
 		booking.save()
+		# Trigger payment release via service
+		from .services import PaymentService
+		PaymentService.release_payment(booking)
+		return Response(BookingSerializer(booking).data)
+
+
+class DisputeBookingView(APIView):
+	"""Customer disputes provider's completed work"""
+	authentication_classes = [ClerkAuthentication]
+	permission_classes = [IsAuthenticated, IsServiceSeeker]
+
+	def post(self, request, booking_id):
+		booking = get_object_or_404(Booking, id=booking_id, customer=request.user)
+		if booking.status != 'awaiting_customer':
+			return Response({'error': 'Only bookings awaiting customer can be disputed'}, status=status.HTTP_400_BAD_REQUEST)
+		booking.status = 'disputed'
+		booking.dispute_reason = request.data.get('reason', '')
+		booking.dispute_note = request.data.get('note', '')
+		booking.save()
+		# Hold payment via service (if payment exists)
+		from .services import PaymentService
+		PaymentService.hold_payment(booking, reason=booking.dispute_reason or "")
 		return Response(BookingSerializer(booking).data)
 
 
@@ -326,18 +368,28 @@ class UploadBookingImagesView(APIView):
 			return Response({'error': 'Not allowed'}, status=status.HTTP_403_FORBIDDEN)
 
 		image_type = request.data.get('image_type')
+		description = request.data.get('description', '')
 		files = request.FILES.getlist('images')
 		if not files:
 			return Response({'error': 'No images provided'}, status=status.HTTP_400_BAD_REQUEST)
 
 		created = []
 		for f in files:
-			img = BookingImage(booking=booking, image=f, image_type=image_type, uploaded_by=request.user)
+			img = BookingImage(booking=booking, image=f, image_type=image_type, uploaded_by=request.user, description=description)
 			try:
-				img.save()  # triggers validation
+				img.save()
 				created.append(img)
 			except Exception as e:
 				return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+		# Reload booking to get latest status
+		booking.refresh_from_db()
+		
+		# If provider uploaded 'after' images and booking is in provider_completed,
+		# transition to awaiting_customer
+		if request.user == booking.provider and image_type == 'after' and booking.status == 'provider_completed':
+			booking.status = 'awaiting_customer'
+			booking.save()
 
 		return Response(BookingImageSerializer(created, many=True, context={'request': request}).data)
 
@@ -395,6 +447,17 @@ class CreateReviewView(generics.CreateAPIView):
 			raise ValidationError('You have already reviewed this booking')
 
 		serializer.save(customer=self.request.user, provider=booking.provider, booking=booking)
+
+	def post(self, request, booking_id):
+		booking = get_object_or_404(Booking, id=booking_id)
+		serializer = ReviewSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		serializer.save(
+			customer=request.user,
+			provider=booking.provider,
+			booking=booking,
+		)
+		return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class MyProviderReviewsView(generics.ListAPIView):

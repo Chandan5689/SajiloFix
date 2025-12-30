@@ -156,13 +156,16 @@ class Booking(models.Model):
     """
     
     STATUS_CHOICES = [
-        ('pending', 'Pending'),           # Waiting for provider response
-        ('confirmed', 'Confirmed'),       # Provider accepted
-        ('scheduled', 'Scheduled'),       # Date/time set
-        ('in_progress', 'In Progress'),   # Work started
-        ('completed', 'Completed'),       # Work finished
-        ('cancelled', 'Cancelled'),       # Cancelled by either party
-        ('declined', 'Declined'),         # Provider declined
+        ('pending', 'Pending'),               # Waiting for provider response
+        ('confirmed', 'Confirmed'),           # Provider accepted
+        ('scheduled', 'Scheduled'),           # Date/time set
+        ('in_progress', 'In Progress'),       # Work started
+        ('provider_completed', 'Provider Completed'),  # Provider uploaded after-photos
+        ('awaiting_customer', 'Awaiting Customer'),    # Waiting for customer approval/dispute
+        ('completed', 'Completed'),           # Work finished, approved by customer
+        ('disputed', 'Disputed'),             # Customer disputed completion
+        ('cancelled', 'Cancelled'),           # Cancelled by either party
+        ('declined', 'Declined'),             # Provider declined
     ]
     
     # Core relationships
@@ -309,7 +312,43 @@ class Booking(models.Model):
         blank=True,
         help_text="When the service was completed"
     )
-    
+
+    provider_completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When provider marked job as completed (uploaded after-photos)"
+    )
+
+    customer_review_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When customer's review window expires for auto-approval"
+    )
+
+    completion_note = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Provider's completion note when marking job done"
+    )
+
+    dispute_reason = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Customer's dispute reason if disputing completion"
+    )
+
+    dispute_note = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Customer's additional details about dispute"
+    )
+
+    approval_note = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Customer's approval note"
+    )
+
     cancelled_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -378,7 +417,8 @@ class BookingImage(models.Model):
     IMAGE_TYPE_CHOICES = [
         ('before', 'Before Service'),      # Photos of damaged/broken items
         ('during', 'During Service'),      # Photos taken while working
-        ('after', 'After Service'),        # Photos of completed/repaired items
+        ('after', 'After Service'),        # Photos of completed/repaired items (provider)
+        ('approval_photos', 'Approval Photos'),  # Customer photos during approval/dispute
     ]
     
     booking = models.ForeignKey(
@@ -394,9 +434,9 @@ class BookingImage(models.Model):
     )
     
     image_type = models.CharField(
-        max_length=10,
+        max_length=50,
         choices=IMAGE_TYPE_CHOICES,
-        help_text="When this photo was taken (before/during/after)"
+        help_text="When this photo was taken (before/during/after/approval)"
     )
     
     uploaded_by = models.ForeignKey(
@@ -455,6 +495,7 @@ class BookingImage(models.Model):
                 'before': MAX_BEFORE_IMAGES,
                 'after': MAX_AFTER_IMAGES,
                 'during': MAX_DURING_IMAGES,
+                'approval_photos': 5,  # Allow up to 5 customer approval photos
             }
             
             max_allowed = limits.get(self.image_type, 5)

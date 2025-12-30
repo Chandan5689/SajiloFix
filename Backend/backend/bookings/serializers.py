@@ -99,24 +99,13 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class ReviewSerializer(serializers.ModelSerializer):
-    booking_id = serializers.IntegerField(source='booking.id', read_only=True)
-    customer_name = serializers.SerializerMethodField()
-    provider_name = serializers.SerializerMethodField()
+    customer_name = serializers.CharField(source="customer.full_name", read_only=True)
+    provider_name = serializers.CharField(source="provider.full_name", read_only=True)
 
     class Meta:
         model = Review
-        fields = [
-            'id', 'booking', 'booking_id', 'customer', 'provider', 'rating', 'title',
-            'comment', 'would_recommend', 'provider_response', 'responded_at',
-            'created_at', 'updated_at', 'customer_name', 'provider_name'
-        ]
-        read_only_fields = ['created_at', 'updated_at', 'responded_at', 'customer_name', 'provider_name']
-
-    def get_customer_name(self, obj):
-        return obj.customer.get_full_name() or obj.customer.email
-
-    def get_provider_name(self, obj):
-        return obj.provider.get_full_name() or obj.provider.email
+        fields = "__all__"
+        read_only_fields = ["id", "customer", "provider", "booking", "created_at", "updated_at"]
 
 
 class ProviderAvailabilitySerializer(serializers.ModelSerializer):
