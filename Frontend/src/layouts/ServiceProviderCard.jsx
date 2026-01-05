@@ -1,7 +1,8 @@
 import React from 'react'
 import { TiMessageTyping } from "react-icons/ti";
 import { FaCalendarAlt } from "react-icons/fa";
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
+import RatingBadge from '../components/RatingBadge';
 function ServiceProviderCard({ provider }) {
     const navigate = useNavigate();
     return (
@@ -30,23 +31,29 @@ function ServiceProviderCard({ provider }) {
                 <span>Service:</span>
                 <span className="text-center text-blue-600 font-medium">{provider.profession}</span>
             </div>
+            <div className="flex justify-center gap-1 text-xs text-gray-600 mb-4">
+                {provider.city && <span>{provider.city}</span>}
+                {provider.district && <span>• {provider.district}</span>}
+            </div>
             <div className="text-center text-yellow-500 flex items-center justify-center mb-4 space-x-1">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                >
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.974a1 1 0 00.95.69h4.178c.969 0 1.371 1.24.588 1.81l-3.384 2.456a1 1 0 00-.364 1.118l1.287 3.974c.3.92-.755 1.688-1.54 1.118L10 13.347l-3.384 2.456c-.784.57-1.838-.197-1.539-1.118l1.287-3.974a1 1 0 00-.364-1.118L3.616 9.4c-.783-.57-.38-1.81.588-1.81h4.178a1 1 0 00.95-.69l1.286-3.973z" />
-                </svg>
-                <span>
-                    {provider.rating} ({provider.reviews} reviews)
-                </span>
+                <RatingBadge
+                    providerId={provider.id}
+                    fallbackRating={provider.rating}
+                    fallbackCount={provider.reviews}
+                    compact
+                />
             </div>
             <div className="text-gray-700 space-y-1 mb-4 text-sm">
                 <div className="flex justify-between">
                     <span className="font-semibold">Price: </span>
-                    <span className="text-green-600 font-semibold">${provider.price}/hour</span>
+                                        {provider.price != null ? (
+                                            <span className="text-green-600 font-semibold">
+                                                NPR {provider.price}
+                                                {provider.priceType === 'hourly' ? '/hour' : ''}
+                                            </span>
+                                        ) : (
+                                            <span className="text-gray-500">Contact for price</span>
+                                        )}
                 </div>
                 <div className="flex justify-between">
                     <span className="font-semibold">Experience: </span>

@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL ||'http://127.0.0.1:8000/api/', 
     headers: {
@@ -8,10 +7,27 @@ const api = axios.create({
     },
 });
 
-// Request interceptor
+// Store the getToken function (will be set by the app)
+let getTokenFunction = null;
+
+export const setGetTokenFunction = (fn) => {
+    getTokenFunction = fn;
+};
+
+// Request interceptor to add Clerk auth token
 api.interceptors.request.use(
-    (config) => {
-        
+    async (config) => {
+        try {
+            // Get the Clerk token if available
+            if (getTokenFunction) {
+                const token = await getTokenFunction();
+                if (token) {
+                    config.headers.Authorization = `Bearer ${token}`;
+                }
+            }
+        } catch (error) {
+            console.error('Error getting auth token:', error);
+        }
         return config;
     },
     (error) => {
@@ -20,12 +36,12 @@ api.interceptors.request.use(
 );
 
 
-// Response interceptor to handle token refresh
+// Response interceptor to handle errors
 
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
-         // hANDLE ERROR
+         // HANDLE ERROR
          if (error.response?.status === 401){
             console.error('Unauthorized access');
          }

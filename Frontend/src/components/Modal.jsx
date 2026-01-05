@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-export function Modal({ isOpen, onClose, title, children }) {
+export function Modal({ isOpen = true, onClose, title, children }) {
   // State to handle mount/unmount with animation
   const [show, setShow] = useState(isOpen);
 

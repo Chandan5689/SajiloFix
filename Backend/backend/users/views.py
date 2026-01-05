@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.permissions import BasePermission
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.db.models import Q
 from .serializers import UserSerializer, SpecialitySerializer, SpecializationSerializer, CertificateSerializer
 from .models import Speciality, Specialization, UserSpeciality, UserSpecialization, Certificate
 from .authentication import ClerkAuthentication
@@ -47,6 +48,22 @@ class CurrentUserView(generics.RetrieveAPIView):
     
     def get_object(self):
         return self.request.user
+
+
+class UpdateUserProfileView(generics.UpdateAPIView):
+    """Update current user's profile information"""
+    authentication_classes = [ClerkAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserSerializer
+    parser_classes = (MultiPartParser, FormParser)
+    
+    def get_object(self):
+        return self.request.user
+    
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -363,3 +380,36 @@ class SpecializationsListView(generics.ListAPIView):
         if speciality_id:
             queryset = queryset.filter(speciality_id=speciality_id)
         return queryset
+
+
+class LocationsListView(APIView):
+    """Get available cities and districts from provider data"""
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        # Get all unique cities and districts from users with complete profiles
+        # Filter for users who are service providers with complete registration
+        providers = User.objects.filter(
+            user_type='offer',
+            registration_completed=True,
+            city__isnull=False
+        ).exclude(city='').values_list('city', 'district').distinct()
+        
+        # Build cities and districts
+        cities = {}
+        for city, district in providers:
+            if city not in cities:
+                cities[city] = []
+            if district:
+                cities[city].append(district)
+        
+        # Sort and remove duplicates
+        for city in cities:
+            cities[city] = sorted(list(set(cities[city])))
+        
+        sorted_cities = sorted(cities.keys())
+        
+        return Response({
+            'cities': sorted_cities,
+            'districts': cities
+        })

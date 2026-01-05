@@ -1,18 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Save,Calendar, Clock, Settings, Zap } from 'lucide-react';
 import ProviderDashboardLayout from '../../../../layouts/ProviderDashboardLayout';
+import availabilityService from '../../../../services/availabilityService';
+import { useToast } from '../../../../components/Toast';
 
 // Helper to generate time options (every 30 mins)
 const generateTimeOptions = () => {
     const times = [];
 
-    // Start at 8 AM (08:00) and end at 6 PM (18:00)
-    for (let i = 8; i <= 18; i++) {
-        const hour12 = i === 0 ? 12 : i > 12 ? i - 12 : i;  // Convert 24h → 12h format
-        const ampm = i < 12 ? 'AM' : 'PM';
-
-        // Add only the “:00” minute
-        times.push(`${hour12}:00 ${ampm}`);
+    // Start at 6:00 AM and end at 10:00 PM, every 30 minutes
+    for (let h = 6; h <= 22; h++) {
+        for (let m of [0, 30]) {
+            const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+            const ampm = h < 12 ? 'AM' : 'PM';
+            times.push(`${hour12}:${m === 0 ? '00' : '30'} ${ampm}`);
+        }
     }
 
     return times;
@@ -22,7 +24,11 @@ const timeOptions = generateTimeOptions();
 const Availability = () => {
     const [activeTab, setActiveTab] = useState('Weekly Schedule');
     const [activeMenu, setActiveMenu] = useState("availability");
-    // Initial State mimicking the image (Mon/Thu unavailable, Tue/Wed/Fri available)
+    const { addToast } = useToast();
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [validationError, setValidationError] = useState('');
+    // Initial State; will hydrate from backend when available
     const [schedule, setSchedule] = useState([
         { day: 'Monday', enabled: false, startTime: '9:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
         { day: 'Tuesday', enabled: true, startTime: '8:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
@@ -47,9 +53,59 @@ const Availability = () => {
         setSchedule(newSchedule);
     };
 
-    const handleSave = () => {
-        console.log("Saving Schedule:", schedule);
-        alert("Schedule Saved Successfully!");
+    const parseTimeToMinutes = (timeStr) => {
+        // expects like "8:30 AM"
+        const [time, period] = timeStr.split(' ');
+        const [h, m] = time.split(':').map(Number);
+        let hours24 = period === 'PM' ? (h % 12) + 12 : h % 12;
+        return hours24 * 60 + (m || 0);
+    };
+
+    const validateSchedule = () => {
+        for (const day of schedule) {
+            if (!day.enabled) continue;
+            const start = parseTimeToMinutes(day.startTime);
+            const end = parseTimeToMinutes(day.endTime);
+            const bStart = parseTimeToMinutes(day.breakStart);
+            const bEnd = parseTimeToMinutes(day.breakEnd);
+
+            if (start >= end) return `On ${day.day}, start time must be before end time.`;
+            if (bStart < start || bEnd > end || bStart >= bEnd) return `On ${day.day}, break must be inside working hours and start before end.`;
+        }
+        return '';
+    };
+
+    const handleSave = async () => {
+        const validationMsg = validateSchedule();
+        if (validationMsg) {
+            setValidationError(validationMsg);
+            addToast(validationMsg, 'error');
+            return;
+        }
+        setValidationError('');
+        try {
+            setSaving(true);
+            const payload = {
+                weekly_schedule: schedule.map(d => ({
+                    day: d.day,
+                    enabled: d.enabled,
+                    start_time: d.startTime,
+                    end_time: d.endTime,
+                    break_start: d.breakStart,
+                    break_end: d.breakEnd,
+                })),
+                settings,
+            };
+            await availabilityService.saveAvailability(payload);
+            addToast('Availability saved successfully!', 'success');
+        } catch (err) {
+            console.error('Save error:', err);
+            const errorMsg = typeof err === 'string' ? err : err?.message || 'Failed to save availability';
+            setValidationError(errorMsg);
+            addToast(errorMsg, 'error');
+        } finally {
+            setSaving(false);
+        }
     };
 
     const [settings, setSettings] = useState({
@@ -68,10 +124,35 @@ const Availability = () => {
     };
 
     const handleSaveSettings = () => {
-        console.log("Saving Settings:", settings);
-        // Using a custom modal style message instead of alert()
-        alert("Availability Settings Saved!");
+        handleSave(); // use same payload/save call
     };
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                setLoading(true);
+                const data = await availabilityService.getAvailability();
+                if (data?.weekly_schedule) {
+                    setSchedule(data.weekly_schedule.map(d => ({
+                        day: d.day,
+                        enabled: !!d.enabled,
+                        startTime: d.start_time || '8:00 AM',
+                        endTime: d.end_time || '5:00 PM',
+                        breakStart: d.break_start || '12:00 PM',
+                        breakEnd: d.break_end || '1:00 PM',
+                    })));
+                }
+                if (data?.settings) {
+                    setSettings(prev => ({ ...prev, ...data.settings }));
+                }
+            } catch (err) {
+                addToast(err.error || err.message || 'Failed to load availability', 'error');
+            } finally {
+                setLoading(false);
+            }
+        };
+        load();
+    }, [addToast]);
 
     return (
         <ProviderDashboardLayout activeMenuKey={activeMenu} onMenuChange={setActiveMenu}>
@@ -104,6 +185,13 @@ const Availability = () => {
                     {/* Main Content Card */}
 
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8">
+
+                        {loading && (
+                            <div className="text-center text-gray-600 py-6">Loading availability...</div>
+                        )}
+                        {validationError && (
+                            <div className="mb-4 p-3 rounded border border-red-200 bg-red-50 text-sm text-red-700">{validationError}</div>
+                        )}
 
                         {/* Card Header */}
                         {activeTab === "Weekly Schedule" && (

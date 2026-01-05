@@ -1,109 +1,243 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FaLocationDot } from "react-icons/fa6";
 import {FaSearch,} from 'react-icons/fa'
 import ServiceProviderCard from "../../layouts/ServiceProviderCard";
-const categories = [
-  "All Services",
-  "Plumbing",
-  "Cleaning",
-  "Electrical",
-  "Painting",
-  "Carpentry",
-  "AC Repair",
-];
-
-export const serviceProviders = [
-  {
-    id: 1,
-    name: "John Smith",
-    profession: "Plumbing",
-    rating: 4.9,
-    reviews: 127,
-    price: 45,
-    experience: 8,
-    availability: "Available Today",
-    specialties: ["Pipe Repair", "Installation", "Emergency Service"],
-    img: "https://randomuser.me/api/portraits/men/32.jpg",
-  },
-  {
-    id: 2,
-    name: "Mike Rodriguez",
-    profession: "Electrical",
-    rating: 4.9,
-    reviews: 156,
-    price: 55,
-    experience: 12,
-    availability: "Available Today",
-    specialties: ["Wiring", "Panel Upgrades", "Troubleshooting"],
-    img: "https://randomuser.me/api/portraits/men/65.jpg",
-  },
-  {
-    id: 3,
-    name: "Amanda Wilson",
-    profession: "AC Repair",
-    rating: 4.9,
-    reviews: 112,
-    price: 60,
-    experience: 9,
-    availability: "Available Tomorrow",
-    specialties: ["AC Repair", "Maintenance", "Installation"],
-    img: "https://randomuser.me/api/portraits/women/44.jpg",
-  },
-  // Add 3 more providers (total 6) to match 6 providers shown in screenshot
-  {
-    id: 4,
-    name: "Sarah Johnson",
-    profession: "Cleaning",
-    rating: 4.8,
-    reviews: 98,
-    price: 30,
-    experience: 7,
-    availability: "Available Today",
-    specialties: ["Deep Cleaning", "Carpet Cleaning"],
-    img: "https://randomuser.me/api/portraits/women/68.jpg",
-  },
-  {
-    id: 5,
-    name: "David Lee",
-    profession: "Painting",
-    rating: 4.7,
-    reviews: 110,
-    price: 40,
-    experience: 11,
-    availability: "Available Tomorrow",
-    specialties: ["Interior Painting", "Exterior Painting"],
-    img: "https://randomuser.me/api/portraits/men/85.jpg",
-  },
-  {
-    id: 6,
-    name: "Mike Brown",
-    profession: "Carpentry",
-    rating: 4.9,
-    reviews: 123,
-    price: 50,
-    experience: 10,
-    availability: "Available Today",
-    specialties: ["Furniture", "Custom Woodwork"],
-    img: "https://randomuser.me/api/portraits/men/72.jpg",
-  },
-];
-
+import providersService from "../../services/providersService";
+import specialitiesService from "../../services/specialitiesService";
+import locationsService from "../../services/locationsService";
+import { nepaliCities, nepaliDistricts } from "../../constants/nepaliLocations";
 
 export default function Service() {
-  const [selectedCategory, setSelectedCategory] = useState("All Services");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [locationTerm, setLocationTerm] = useState("");
-  const [sortBy, setSortBy] = useState("Rating");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [categories, setCategories] = useState(["All Services"]);
+  const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || "All Services");
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || "");
+  const [city, setCity] = useState(searchParams.get('city') || "");
+  const [district, setDistrict] = useState(searchParams.get('district') || "");
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') || "Rating");
+  const [providers, setProviders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [topRated, setTopRated] = useState(searchParams.get('topRated') === 'true');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  
+  // Location states
+  const [availableCities, setAvailableCities] = useState([]);
+  const [availableDistricts, setAvailableDistricts] = useState({});
+  const [useSearchMode, setUseSearchMode] = useState(true);
+  const [citySearch, setCitySearch] = useState("");
+  const [districtSearch, setDistrictSearch] = useState("");
+  const [showCityDropdown, setShowCityDropdown] = useState(false);
+  const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
+  
+  const itemsPerPage = 12;
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/';
+  const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '/');
+
+  // Helper to reset all filters
+  const resetFilters = () => {
+    setSelectedCategory("All Services");
+    setSearchTerm("");
+    setCity("");
+    setDistrict("");
+    setCitySearch("");
+    setDistrictSearch("");
+    setShowCityDropdown(false);
+    setShowDistrictDropdown(false);
+    setSortBy("Rating");
+    setTopRated(false);
+    setPage(1);
+    setProviders([]);
+    setSearchParams(new URLSearchParams()); // Clear URL params
+  };
+
+  // Helper to update URL search params
+  const updateSearchParams = (params) => {
+    const newParams = new URLSearchParams(searchParams);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === null || value === "" || value === "All Services") {
+        newParams.delete(key);
+      } else {
+        newParams.set(key, value);
+      }
+    });
+    setSearchParams(newParams);
+  };
+
+  // Sync each filter to URL
+  useEffect(() => {
+    updateSearchParams({ category: selectedCategory });
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    updateSearchParams({ q: searchTerm });
+  }, [searchTerm]);
+
+  useEffect(() => {
+    updateSearchParams({ city });
+  }, [city]);
+
+  useEffect(() => {
+    updateSearchParams({ district });
+  }, [district]);
+
+  useEffect(() => {
+    updateSearchParams({ sort: sortBy });
+  }, [sortBy]);
+
+  useEffect(() => {
+    updateSearchParams({ topRated: topRated ? 'true' : null });
+  }, [topRated]);
+
+  // Fetch providers on component mount
+  useEffect(() => {
+    fetchProviders();
+  }, []);
+
+  // Fetch categories (specialities) from backend
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const list = await specialitiesService.getSpecialities();
+        if (mounted && Array.isArray(list)) {
+          setCategories(["All Services", ...list.map(s => s.name)]);
+        }
+      } catch (e) {
+        console.error("Failed to load categories", e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Fetch locations from backend
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const data = await locationsService.getLocations();
+        if (mounted) {
+          const dynamicCities = data.cities || [];
+          const dynamicDistricts = data.districts || {};
+          // Merge static + dynamic cities
+          const mergedCities = Array.from(new Set([...
+            dynamicCities,
+            ...nepaliCities
+          ])).sort();
+          // Merge districts per city (union of arrays)
+          const mergedDistricts = {};
+          mergedCities.forEach(cityName => {
+            const staticDs = nepaliDistricts[cityName] || [];
+            const dynamicDs = dynamicDistricts[cityName] || [];
+            mergedDistricts[cityName] = Array.from(new Set([
+              ...staticDs,
+              ...dynamicDs
+            ])).sort();
+          });
+          setAvailableCities(mergedCities);
+          setAvailableDistricts(mergedDistricts);
+        }
+      } catch (e) {
+        console.error("Failed to load locations", e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const fetchProviders = async (filters = {}) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await providersService.getProviders(filters);
+      
+      // Convert provider data to format compatible with ServiceProviderCard
+      const formattedProviders = data.map(provider => ({
+        id: provider.id,
+        name: `${provider.first_name} ${provider.last_name}`.trim(),
+        profession: provider.specializations?.[0] || 'Service Provider',
+        rating: provider.average_rating,
+        reviews: provider.review_count,
+        price: provider.starting_price != null ? Number(provider.starting_price) : null,
+        priceType: provider.starting_price_type || null,
+        experience: provider.years_of_experience || 0,
+        availability: "Available Today", // Can be enhanced with real availability
+        specialties: provider.specializations || [],
+        img: (() => {
+          if (provider.profile_picture) {
+            if (String(provider.profile_picture).startsWith('http')) return provider.profile_picture;
+            const path = String(provider.profile_picture).startsWith('/') ? String(provider.profile_picture).slice(1) : String(provider.profile_picture);
+            return API_ORIGIN + path;
+          }
+          return "https://randomuser.me/api/portraits/men/32.jpg";
+        })(),
+        city: provider.city,
+        district: provider.district,
+        bio: provider.bio,
+      }));
+      
+      // Pagination: set initial providers or append for "Load More"
+      if (page === 1) {
+        setProviders(formattedProviders);
+      } else {
+        setProviders(prev => [...prev, ...formattedProviders]);
+      }
+      
+      // Determine if there are more results
+      setHasMore(formattedProviders.length >= itemsPerPage);
+    } catch (err) {
+      console.error("Error fetching providers:", err);
+      setError("Failed to load providers");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Debounced server-side fetch when filters change (reset to page 1)
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const filters = {};
+      if (selectedCategory && selectedCategory !== 'All Services') {
+        filters.specialization = selectedCategory;
+      }
+      if (searchTerm) {
+        filters.q = searchTerm;
+      }
+      if (city) {
+        filters.city = city;
+      }
+      if (district) {
+        filters.district = district;
+      }
+      if (topRated) {
+        filters.min_rating = 4.5;
+      }
+      setPage(1); // Reset to first page on filter change
+      fetchProviders(filters);
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [selectedCategory, searchTerm, city, district, topRated]);
 
   // Filter providers by category and search input
-  let filteredProviders = serviceProviders.filter((provider) => {
+  let filteredProviders = providers.filter((provider) => {
     const matchesCategory =
-      selectedCategory === "All Services" || provider.profession === selectedCategory;
+      selectedCategory === "All Services" || 
+      provider.specialties.some(spec => 
+        spec.toLowerCase().includes(selectedCategory.toLowerCase())
+      );
     const matchesSearch =
       provider.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       provider.profession.toLowerCase().includes(searchTerm.toLowerCase());
-    // For demo, location filter is not applied, since no location data available.
-    return matchesCategory && matchesSearch;
+    const matchesLocation =
+      (!city || provider.city?.toLowerCase().includes(city.toLowerCase())) &&
+      (!district || provider.district?.toLowerCase().includes(district.toLowerCase()));
+    
+    return matchesCategory && matchesSearch && matchesLocation;
   });
 
   // Sort by rating descending only, as shown in UI
@@ -113,8 +247,20 @@ export default function Service() {
     );
   }
   if (sortBy === "Price") {
+    filteredProviders = filteredProviders.sort((a, b) => {
+      const av = a.price != null ? a.price : Number.MAX_SAFE_INTEGER;
+      const bv = b.price != null ? b.price : Number.MAX_SAFE_INTEGER;
+      return av - bv;
+    });
+  }
+  if (sortBy === "Reviews") {
     filteredProviders = filteredProviders.sort(
-      (a, b) => a.price - b.price
+      (a, b) => (b.reviews ?? 0) - (a.reviews ?? 0)
+    );
+  }
+  if (sortBy === "Experience") {
+    filteredProviders = filteredProviders.sort(
+      (a, b) => (b.experience ?? 0) - (a.experience ?? 0)
     );
   }
 
@@ -150,20 +296,149 @@ export default function Service() {
             />
           </div>
 
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
-              <div className="w-5 h-5 flex items-center-safe justify-center-safe">
-                <FaLocationDot className=" text-green-500" />
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            {useSearchMode ? (
+              <>
+                {/* City Search Dropdown */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
+                      <FaLocationDot className=" text-green-500" />
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search City..."
+                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                    value={citySearch}
+                    onChange={(e) => {
+                      setCitySearch(e.target.value);
+                      setShowCityDropdown(true);
+                    }}
+                    onFocus={() => setShowCityDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowCityDropdown(false), 200)}
+                  />
+                  {showCityDropdown && (
+                    <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg">
+                      {availableCities
+                        .filter(c => c.toLowerCase().includes(citySearch.toLowerCase()))
+                        .map(c => (
+                          <div
+                            key={c}
+                            onMouseDown={() => {
+                              // Use mousedown so selection occurs before input blur
+                              setCity(c);
+                              setCitySearch(c);
+                              setShowCityDropdown(false);
+                              setDistrict("");
+                              setDistrictSearch("");
+                            }}
+                            className="px-4 py-2 hover:bg-green-100 cursor-pointer text-sm"
+                          >
+                            {c}
+                          </div>
+                        ))}
+                      {availableCities.filter(c => c.toLowerCase().includes(citySearch.toLowerCase())).length === 0 && (
+                        <div className="px-4 py-2 text-gray-500 text-sm">No cities found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-            </div>
-            <input
-              type="text"
-              placeholder="Enter location..."
-              className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
-              value={locationTerm}
-              onChange={(e) => setLocationTerm(e.target.value)}
-            />
+                {/* District Search Dropdown */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
+                      <FaLocationDot className=" text-green-500" />
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search District..."
+                    disabled={!city}
+                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    value={districtSearch}
+                    onChange={(e) => {
+                      setDistrictSearch(e.target.value);
+                      setShowDistrictDropdown(true);
+                    }}
+                    onFocus={() => setShowDistrictDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowDistrictDropdown(false), 200)}
+                  />
+                  {showDistrictDropdown && city && (
+                    <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg">
+                      {(availableDistricts[city] || [])
+                        .filter(d => d.toLowerCase().includes(districtSearch.toLowerCase()))
+                        .map(d => (
+                          <div
+                            key={d}
+                            onMouseDown={() => {
+                              setDistrict(d);
+                              setDistrictSearch(d);
+                              setShowDistrictDropdown(false);
+                            }}
+                            className="px-4 py-2 hover:bg-green-100 cursor-pointer text-sm"
+                          >
+                            {d}
+                          </div>
+                        ))}
+                      {(availableDistricts[city] || []).filter(d => d.toLowerCase().includes(districtSearch.toLowerCase())).length === 0 && (
+                        <div className="px-4 py-2 text-gray-500 text-sm">No districts found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* City Select Dropdown (merged static + dynamic) */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
+                      <FaLocationDot className=" text-green-500" />
+                    </div>
+                  </div>
+                  <select
+                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                    value={city}
+                    onChange={(e) => {
+                      setCity(e.target.value);
+                      setDistrict("");
+                      setCitySearch(e.target.value);
+                      setDistrictSearch("");
+                    }}
+                  >
+                    <option value="">Select City</option>
+                    {availableCities.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* District Select Dropdown (merged static + dynamic) */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
+                      <FaLocationDot className=" text-green-500" />
+                    </div>
+                  </div>
+                  <select
+                    disabled={!city}
+                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    value={district}
+                    onChange={(e) => {
+                      setDistrict(e.target.value);
+                      setDistrictSearch(e.target.value);
+                    }}
+                  >
+                    <option value="">Select District</option>
+                    {(availableDistricts[city] || []).map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
 
 
@@ -174,10 +449,50 @@ export default function Service() {
               className="w-full border border-gray-300 rounded-md pl-4 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
             >
               <option value="Rating">Sort by Rating</option>
+              <option value="Reviews">Sort by Reviews</option>
+              <option value="Experience">Sort by Experience</option>
               <option value="Price">Sort by Price</option>
               {/* Add other sorting options if you want */}
             </select>
           </div>
+          <div className="flex items-center">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300"
+                checked={topRated}
+                onChange={(e) => setTopRated(e.target.checked)}
+              />
+              Top Rated (4.5+)
+            </label>
+          </div>
+
+          {/* Toggle between search and dropdown modes */}
+          <div className="flex items-center">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300"
+                checked={useSearchMode}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  setUseSearchMode(enabled);
+                  if (enabled) {
+                    setCitySearch(city || "");
+                    setDistrictSearch(district || "");
+                  }
+                }}
+              />
+              Search mode on (toggle for dropdown selects)
+            </label>
+          </div>
+
+          <button
+            onClick={resetFilters}
+            className="px-4 py-2 bg-red-500 text-white rounded-md text-sm font-medium hover:bg-red-600 transition"
+          >
+            Clear Filters
+          </button>
         </div>
 
 
@@ -201,15 +516,86 @@ export default function Service() {
 
       {/* Showing X service providers */}
       <div className="max-w-7xl mx-auto mb-6 text-gray-700 text-sm">
-        Showing {filteredProviders.length} service providers
+        {loading ? (
+          <span>Loading providers...</span>
+        ) : error ? (
+          <span className="text-red-600">{error}</span>
+        ) : (
+          <span>Showing {filteredProviders.length} service providers</span>
+        )}
       </div>
 
       {/* Cards grid */}
       <div className="max-w-7xl mx-auto grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-        {filteredProviders.map((provider) => (
-          <ServiceProviderCard key={provider.id} provider={provider} />
-        ))}
+        {loading ? (
+          Array.from({ length: 6 }).map((_, idx) => (
+            <div key={idx} className="bg-white rounded-lg shadow p-6 animate-pulse">
+              <div className="flex justify-center mb-3">
+                <div className="w-20 h-20 rounded-full bg-gray-200" />
+              </div>
+              <div className="h-4 bg-gray-200 rounded w-3/5 mx-auto mb-2" />
+              <div className="h-3 bg-gray-200 rounded w-2/5 mx-auto mb-4" />
+              <div className="space-y-2">
+                <div className="h-3 bg-gray-200 rounded w-full" />
+                <div className="h-3 bg-gray-200 rounded w-4/5" />
+                <div className="h-3 bg-gray-200 rounded w-3/5" />
+              </div>
+            </div>
+          ))
+        ) : error ? (
+          <div className="col-span-full text-center py-12">
+            <div className="text-red-600">{error}</div>
+            <button 
+              onClick={fetchProviders}
+              className="mt-4 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : filteredProviders.length === 0 ? (
+          <div className="col-span-full text-center py-12">
+            <div className="text-gray-600">No providers found matching your criteria</div>
+          </div>
+        ) : (
+          filteredProviders.map((provider) => (
+            <ServiceProviderCard key={provider.id} provider={provider} />
+          ))
+        )}
       </div>
+
+      {/* Load More button */}
+      {hasMore && !loading && filteredProviders.length > 0 && (
+        <div className="max-w-7xl mx-auto mt-8 text-center">
+          <button
+            onClick={() => {
+              setPage(prev => prev + 1);
+              // Fetch next page with current filters
+              const filters = {};
+              if (selectedCategory && selectedCategory !== 'All Services') {
+                filters.specialization = selectedCategory;
+              }
+              if (searchTerm) {
+                filters.q = searchTerm;
+              }
+              if (city) {
+                filters.city = city;
+              }
+              if (district) {
+                filters.district = district;
+              }
+              if (topRated) {
+                filters.min_rating = 4.5;
+              }
+              // In a real scenario, you'd pass page/offset to backend
+              // For now, just fetch all again (backend should handle pagination)
+              fetchProviders(filters);
+            }}
+            className="px-6 py-3 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 transition"
+          >
+            Load More
+          </button>
+        </div>
+      )}
     </div>
   );
 }

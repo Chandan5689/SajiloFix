@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import MyBookings from '../pages/Dashboard/User/MyBookings';
 import ProviderMyBookings from '../pages/Dashboard/Provider/ProviderMyBookings';
+import { UserProfileProvider } from '../context/UserProfileContext';
 
 function BookingsRouter() {
     const { isLoaded, isSignedIn } = useUser();
@@ -50,11 +51,19 @@ function BookingsRouter() {
     }
 
     if (userType === 'offer') {
-        return <ProviderMyBookings />;
+        return (
+            <UserProfileProvider>
+                <ProviderMyBookings />
+            </UserProfileProvider>
+        );
     }
 
     if (userType === 'find') {
-        return <MyBookings />;
+        return (
+            <UserProfileProvider>
+                <MyBookings />
+            </UserProfileProvider>
+        );
     }
 
     return <Navigate to="/" replace />;

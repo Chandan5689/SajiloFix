@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import './App.css'
 import { BrowserRouter as Router, Route, Routes, Navigate, useNavigate } from 'react-router-dom';
 // import { FirebaseAuthProvider, useFirebaseAuth } from './context/FirebaseAuthContext';
-import { ClerkProvider, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
+import { ClerkProvider, SignedIn, SignedOut, RedirectToSignIn, useAuth } from '@clerk/clerk-react';
 import Navbar from './components/Navbar'
 import RequireCompleteRegistration from './components/RequireCompleteRegistration'
 import RequireProviderRole from './components/RequireProviderRole'
@@ -22,9 +22,11 @@ import UserDashboard from './pages/Dashboard/User/UserDashboard'
 import MyBookings from './pages/Dashboard/User/MyBookings'
 import UserMyProfile from './pages/Dashboard/User/UserMyProfile'
 import UserPayments from './pages/Dashboard/User/UserPayments'
+import MyReviews from './pages/Dashboard/User/MyReviews'
 import ProviderDashboard from './pages/Dashboard/Provider/ProviderDashboard'
 import ProviderMyBookings from './pages/Dashboard/Provider/ProviderMyBookings'
-import ProviderMyServices from './pages/Dashboard/Provider/ProviderMyServices/ProviderMyServices'
+import ProviderMyServices from './pages/Dashboard/Provider/ProviderMyServices'
+import ProviderProfile from './pages/Dashboard/Provider/ProviderProfile'
 import CustomerReviews from './pages/Dashboard/Provider/Reviews/CustomerReviews'
 import ProviderEarnings from './pages/Dashboard/Provider/Earnings/ProviderEarnings'
 import MyProfile from './pages/Dashboard/Provider/ProviderMyProfile/MyProfile'
@@ -32,7 +34,7 @@ import Availability from './pages/Dashboard/Provider/Availability/Availability'
 import Login from './pages/Auth/Login/Login'
 import VerifyPhoneFlow from './pages/Auth/VerifyPhoneFlow';
 import CompleteProviderProfile from './pages/Auth/CompleteProviderProfile';
-import api from './api/axios';
+import { setGetTokenFunction } from './api/axios';
 import ClerkLogin from './pages/Auth/ClerkLogin';
 import ClerkRegister from './pages/Auth/ClerkRegister';
 import SSOCallback from './pages/Auth/SSOCallback';
@@ -41,6 +43,7 @@ import SSOCallback from './pages/Auth/SSOCallback';
 import React from 'react';
 // import SajilofixChatbot from './components/chatbot/SajilofixChatbot';
 import Chatbot from './components/Chatbot';
+import { ToastProvider } from './components/Toast';
 
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -57,22 +60,32 @@ function ProtectedRoute({ children }) {
     );
 }
 
+// Component to initialize Clerk token for axios
+function AppInitializer({ children }) {
+    const { getToken } = useAuth();
+
+    useEffect(() => {
+        // Set the token function for axios
+        setGetTokenFunction(getToken);
+    }, [getToken]);
+
+    return children;
+}
+
 function App() {
     return (
-        
+
         <ClerkProvider publishableKey={clerkPubKey}>
-            <Router>
-                <div className='App'>
-                     
-                    <Navbar />
+            <AppInitializer>
+                <ToastProvider>
+                <Router>
+
                     <div>
-        <h1 className="text-3xl font-bold text-center mt-10">
-          Welcome to SajiloFix
-        </h1>
-        {/* Your other components */}
-      </div>
-                    <Chatbot />
-                    <main>
+
+                        <Navbar />
+
+                        <Chatbot />
+                        <main>
                         <Routes>
                             {/* Public Routes */}
                             <Route path='/' element={<HomePage />} />
@@ -158,6 +171,15 @@ function App() {
                                     </RequireCompleteRegistration>
                                 </ProtectedRoute>
                             } />
+                            <Route path='/user/my-reviews' element={
+                                <ProtectedRoute>
+                                    <RequireCompleteRegistration>
+                                        <RequireUserRole>
+                                            <MyReviews />
+                                        </RequireUserRole>
+                                    </RequireCompleteRegistration>
+                                </ProtectedRoute>
+                            } />
 
                             {/* Keep a provider-specific path for deep links */}
                             <Route path='/provider/dashboard' element={
@@ -187,6 +209,15 @@ function App() {
                                     </RequireCompleteRegistration>
                                 </ProtectedRoute>
                             } />
+                            <Route path='/provider/profile' element={
+                                <ProtectedRoute>
+                                    <RequireCompleteRegistration>
+                                        <RequireProviderRole>
+                                            <ProviderProfile />
+                                        </RequireProviderRole>
+                                    </RequireCompleteRegistration>
+                                </ProtectedRoute>
+                            } />
                             <Route path='/provider/reviews' element={
                                 <ProtectedRoute>
                                     <RequireCompleteRegistration>
@@ -205,7 +236,7 @@ function App() {
                                     </RequireCompleteRegistration>
                                 </ProtectedRoute>
                             } />
-                            <Route path='/provider/my-profile' element={
+                            {/* <Route path='/provider/my-profile' element={
                                 <ProtectedRoute>
                                     <RequireCompleteRegistration>
                                         <RequireProviderRole>
@@ -213,7 +244,7 @@ function App() {
                                         </RequireProviderRole>
                                     </RequireCompleteRegistration>
                                 </ProtectedRoute>
-                            } />
+                            } /> */}
                             <Route path='/provider/availability' element={
                                 <ProtectedRoute>
                                     <RequireCompleteRegistration>
@@ -229,6 +260,8 @@ function App() {
                     <Footer />
                 </div>
             </Router>
+            </ToastProvider>
+            </AppInitializer>
 
         </ClerkProvider>
 

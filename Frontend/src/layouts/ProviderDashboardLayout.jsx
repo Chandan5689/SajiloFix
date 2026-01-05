@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useClerk } from "@clerk/clerk-react";
+import { useUserProfile } from "../context/UserProfileContext";
 import {
   AiOutlineDashboard,
   AiOutlineDollarCircle,
@@ -7,9 +10,8 @@ import {
   AiOutlineClockCircle,
   AiOutlinePhone,
 } from "react-icons/ai";
-import { BiBookOpen, BiMessageDetail, BiCog } from "react-icons/bi";
+import { BiBookOpen, BiMessageDetail, BiCog, BiLogOut } from "react-icons/bi";
 import { FaUserCircle, FaRegCalendarCheck } from "react-icons/fa";
-import { Link } from "react-router";
 
 const sidebarItems = [
   { key: "dashboard", label: "Dashboard", icon: <AiOutlineDashboard size={20} />, link: "/provider/dashboard" },
@@ -19,17 +21,64 @@ const sidebarItems = [
   { key: "reviews", label: "Reviews", icon: <AiOutlineStar size={20} />, link: "/provider/reviews" },
   { key: "availability", label: "Availability", icon: <FaRegCalendarCheck size={20} />, link: "/provider/availability" },
   { key: "messages", label: "Messages", icon: <BiMessageDetail size={20} />, link: "#" },
-  { key: "my-profile", label: "Profile", icon: <FaUserCircle size={20} />, link: "/provider/my-profile" },
+  { key: "profile", label: "Profile", icon: <FaUserCircle size={20} />, link: "/provider/profile" },
+  { key: "logout", label: "Logout", icon: <BiLogOut size={20} />, isLogout: true },
 ];
 
-export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, children }) {
+export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, children, profileData = null }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const navigate = useNavigate();
+  const { signOut } = useClerk();
+  const { userProfile } = useUserProfile();
+  const [defaultProfileData, setDefaultProfileData] = useState({
+    name: "Service Provider",
+    specialization: "Service Provider",
+    rating: 0,
+    reviewCount: 0,
+  });
 
   useEffect(() => {
     if (sidebarOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
   }, [sidebarOpen]);
+
+  // Generate initials from name
+  const getInitials = (name) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  // Build profile data from context (cached) or fallback to prop or default
+  const contextProfile = userProfile
+    ? {
+        name:
+          userProfile.first_name && userProfile.last_name
+            ? `${userProfile.first_name} ${userProfile.last_name}`
+            : userProfile.email?.split("@")[0] || "Service Provider",
+        specialization:
+          userProfile.user_specializations?.map((s) => s.specialization?.name).join(", ") || "Service Provider",
+        rating: profileData?.rating || 0,
+        reviewCount: profileData?.reviewCount || 0,
+        profilePicture: userProfile.profile_picture || null,
+      }
+    : null;
+
+  const displayProfile = contextProfile || profileData || defaultProfileData;
+
+  // Handle logout for providers
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      navigate("/login");
+    } catch (err) {
+      console.error("Error signing out:", err);
+    }
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50 text-gray-900 font-sans">
@@ -52,71 +101,64 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
       >
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center gap-3 truncate">
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-lg select-none">
-              JS
+            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-lg select-none overflow-hidden">
+              {displayProfile.profilePicture ? (
+                <img
+                  src={displayProfile.profilePicture}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                getInitials(displayProfile.name)
+              )}
             </div>
             {!sidebarCollapsed && (
               <div className="truncate">
-                <p className="font-semibold truncate">John Smith</p>
-                <p className="text-sm text-gray-500 truncate">Plumbing Expert</p>
+                <p className="font-semibold truncate">{displayProfile.name}</p>
+                <p className="text-sm text-gray-500 truncate">{displayProfile.specialization}</p>
                 <div className="flex items-center text-yellow-400 space-x-1 mt-1">
                   <AiOutlineStar size={16} />
-                  <span className="font-semibold text-gray-700">4.9</span>
-                  <span className="text-gray-500">(127 reviews)</span>
+                  <span className="font-semibold text-gray-700">{displayProfile.rating || "N/A"}</span>
+                  <span className="text-gray-500">({displayProfile.reviewCount})</span>
                 </div>
               </div>
             )}
           </div>
-
-          {/* Desktop sidebar width toggle button */}
-          {/* <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="hidden md:inline-block rounded p-1 hover:bg-gray-100 focus:outline-none"
-            aria-label="Toggle sidebar width"
-          >
-            {sidebarCollapsed ? (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5 text-gray-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7-7 7M5 5l7 7-7 7" />
-              </svg>
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5 text-gray-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7 7-7M19 19l-7-7 7-7" />
-              </svg>
-            )}
-          </button> */}
         </div>
 
         {/* Navigation Menu */}
         <nav className="flex flex-col flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {sidebarItems.map(({ key, label, icon, isLogout }) => {
             const active = activeMenuKey === key;
+
+            if (isLogout) {
+              return (
+                <button
+                  key={key}
+                  onClick={handleLogout}
+                  title={sidebarCollapsed ? label : undefined}
+                  className={`flex items-center gap-4 rounded-md px-4 py-3 select-none truncate transition-colors text-red-600 hover:bg-red-100 ${
+                    sidebarCollapsed ? "justify-center px-0" : "justify-start"
+                  }`}
+                >
+                  {React.cloneElement(icon, { className: `h-6 w-6 ` })}
+                  {!sidebarCollapsed && <span>{label}</span>}
+                </button>
+              );
+            }
+
             return (
               <Link
                 key={key}
-                to={isLogout ? "/" : sidebarItems.find(item => item.key === key).link}
+                to={sidebarItems.find(item => item.key === key).link}
                 onClick={() => {
                   onMenuChange(key);
                   setSidebarOpen(false);
                 }}
                 title={sidebarCollapsed ? label : undefined}
                 className={`flex items-center gap-4 rounded-md px-4 py-3 select-none truncate transition-colors
-                  ${isLogout
-                    ? "text-red-600 hover:bg-red-100"
-                    : active
+                  ${
+                    active
                       ? "bg-green-600 text-white font-semibold"
                       : "text-gray-700 hover:bg-gray-100"
                   }

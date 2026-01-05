@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import UserMyProfile from '../pages/Dashboard/User/UserMyProfile';
 import MyProfile from '../pages/Dashboard/Provider/ProviderMyProfile/MyProfile';
+import { UserProfileProvider } from '../context/UserProfileContext';
 
 function ProfileRouter() {
     const { isLoaded, isSignedIn } = useUser();
@@ -50,11 +51,19 @@ function ProfileRouter() {
     }
 
     if (userType === 'offer') {
-        return <MyProfile />;
+        return (
+            <UserProfileProvider>
+                <MyProfile />
+            </UserProfileProvider>
+        );
     }
 
     if (userType === 'find') {
-        return <UserMyProfile />;
+        return (
+            <UserProfileProvider>
+                <UserMyProfile />
+            </UserProfileProvider>
+        );
     }
 
     return <Navigate to="/" replace />;
