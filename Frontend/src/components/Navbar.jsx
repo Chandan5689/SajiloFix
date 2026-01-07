@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FaChevronDown, FaUser, FaCog, FaQuestionCircle, FaSignOutAlt } from "react-icons/fa";
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUser, useClerk, useAuth } from '@clerk/clerk-react';
+import logosajilofix from "../assets/logosajilofix.png";
 
 function Navbar() {
     const { isSignedIn, user, isLoaded } = useUser();
@@ -89,12 +90,13 @@ function Navbar() {
         };
     }, []);
 
-    const navLinks = [
-        { name: 'Services', path: '/services' },
-        { name: 'How It Works', path: '/howitworks' },
-        { name: 'About', path: '/about' },
-        { name: 'Contact', path: '/contact' },
-    ];
+   const navLinks = [
+  { name: 'Services', path: '/services', highlight: true },
+  { name: 'How It Works', path: '/how-it-works' },
+  { name: 'About Us', path: '/about' },
+  { name: 'Contact', path: '/contact' },
+];
+
 
     const handleLogout = async () => {
         await signOut();
@@ -129,16 +131,20 @@ function Navbar() {
     }
 
     return (
-        <div className='bg-gray-50'>
-            <header className='bg-white sticky top-0 shadow-md z-50'>
-                <div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'>
+        <header className='bg-white sticky top-0 shadow-lg z-50 w-full'>
+            <div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'>
                     <div className='flex justify-between items-center h-16'>
                         <div className='flex items-center'>
-                            <Link to="/">
-                                <h1 className="text-2xl font-bold text-green-600 cursor-pointer hover:text-green-700 transition-colors duration-300 font-['Pacifico,sans-serif,cursive']">
-                                    SajiloFix
-                                </h1>
-                            </Link>
+                         <Link to="/">
+  <img
+    src={logosajilofix}
+    alt="SajiloFix Logo"
+    style={{
+      height: "40px",
+      cursor: "pointer",
+    }}
+  />
+</Link>
                         </div>
 
                         {/* Desktop navigation */}
@@ -237,7 +243,7 @@ function Navbar() {
                                 <div className='flex space-x-6'>
                                     <Link
                                         to="/login"
-                                        className="text-gray-700 hover:text-green-600 font-medium cursor-pointer whitespace-nowrap"
+                                        className="text-gray-700 py-2 hover:text-green-600 font-medium cursor-pointer whitespace-nowrap"
                                     >
                                         Login
                                     </Link>
@@ -379,7 +385,6 @@ function Navbar() {
                     )}
                 </div>
             </header>
-        </div>
     );
 }
 

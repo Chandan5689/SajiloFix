@@ -1,13 +1,14 @@
 import React from 'react'
 import HomeBackground from '../../assets/Home-background.jpg'
+import backgroundhome from '../../assets/backgroundhome.png'
 import {FaSearch,} from 'react-icons/fa'
 import { FaLocationDot } from "react-icons/fa6";
 function Hero() {
     return (
         <section className='relative bg-linear-to-br from-blue-50 to-white py-20'>
-            <div className="absolute inset-0 bg-cover bg-center opacity-20"
+            <div className="absolute inset-0 bg-cover bg-center opacity-40"
                 style={{
-                    backgroundImage: `url(${HomeBackground})`,
+                    backgroundImage: `url(${backgroundhome})`,
                     width: '100% ',
                     height: '600px',
                 }}>
