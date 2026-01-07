@@ -12,6 +12,7 @@ import {
 } from "react-icons/ai";
 import { BiBookOpen, BiMessageDetail, BiCog, BiLogOut } from "react-icons/bi";
 import { FaUserCircle, FaRegCalendarCheck } from "react-icons/fa";
+import bookingsService from "../services/bookingsService";
 
 const sidebarItems = [
   { key: "dashboard", label: "Dashboard", icon: <AiOutlineDashboard size={20} />, link: "/provider/dashboard" },
@@ -28,6 +29,17 @@ const sidebarItems = [
 export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, children, profileData = null }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarStats, setSidebarStats] = useState(() => {
+    const stored = sessionStorage.getItem('providerSidebarStats');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        console.warn('Failed to parse cached provider stats', e);
+      }
+    }
+    return null;
+  });
   const navigate = useNavigate();
   const { signOut } = useClerk();
   const { userProfile } = useUserProfile();
@@ -42,6 +54,31 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
     if (sidebarOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
   }, [sidebarOpen]);
+
+  // Fetch provider stats to keep rating/review count available across tabs
+  useEffect(() => {
+    // Only fetch once if we don't already have rating data
+    if (profileData?.rating || sidebarStats) return;
+    let isMounted = true;
+    (async () => {
+      try {
+        const stats = await bookingsService.getProviderDashboardStats();
+        if (isMounted) {
+          setSidebarStats(stats);
+          try {
+            sessionStorage.setItem('providerSidebarStats', JSON.stringify(stats));
+          } catch (e) {
+            console.warn('Failed to cache provider stats', e);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching provider stats for sidebar:", err);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, [profileData, sidebarStats]);
 
   // Generate initials from name
   const getInitials = (name) => {
@@ -62,9 +99,9 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
             : userProfile.email?.split("@")[0] || "Service Provider",
         specialization:
           userProfile.user_specializations?.map((s) => s.specialization?.name).join(", ") || "Service Provider",
-        rating: profileData?.rating || 0,
-        reviewCount: profileData?.reviewCount || 0,
-        profilePicture: userProfile.profile_picture || null,
+        rating: profileData?.rating ?? sidebarStats?.average_rating ?? 0,
+        reviewCount: profileData?.reviewCount ?? sidebarStats?.review_count ?? 0,
+        profilePicture: userProfile.profile_picture_url || userProfile.profile_picture || null,
       }
     : null;
 

@@ -39,23 +39,17 @@ export default function ProviderDashboard() {
       setLoading(true);
       setError(null);
 
-      // Fetch bookings and reviews in parallel
-      const [bookings, reviews] = await Promise.all([
-        bookingsService.getProviderBookings(),
-        bookingsService.getProviderReviews()
+      // Fetch stats, bookings, and reviews in parallel (lightweight)
+      const [statsResp, bookingsResp, reviewsResp] = await Promise.all([
+        bookingsService.getProviderDashboardStats(),
+        bookingsService.getProviderBookings({ page: 1, page_size: 5 }),
+        bookingsService.getProviderReviews({ page: 1, page_size: 5 }),
       ]);
 
-      // Calculate stats
-      const totalJobs = bookings.filter(b => b.status === 'completed').length;
-      const totalEarnings = bookings
-        .filter(b => b.status === 'completed')
-        .reduce((sum, b) => sum + (parseFloat(b.final_price) || parseFloat(b.quoted_price) || 0), 0);
-      const activeJobs = bookings.filter(b => ['confirmed', 'scheduled', 'in_progress'].includes(b.status)).length;
-
-      // Calculate average rating from reviews
-      const averageRating = reviews.length > 0
-        ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
-        : 0;
+      const totalJobs = statsResp.total_jobs ?? 0;
+      const totalEarnings = statsResp.total_earnings ?? 0;
+      const activeJobs = statsResp.active_jobs ?? 0;
+      const averageRating = statsResp.average_rating ?? 0;
 
       // Get provider name and specialization from user profile context
       const providerName = userProfile?.first_name && userProfile?.last_name
@@ -78,14 +72,16 @@ export default function ProviderDashboard() {
       });
 
       // Get upcoming bookings (next 3 confirmed/scheduled)
-      const upcoming = bookings
+      const bookingsList = bookingsResp?.results ?? bookingsResp ?? [];
+      const upcoming = bookingsList
         .filter(b => ['pending', 'confirmed', 'scheduled'].includes(b.status))
         .sort((a, b) => new Date(a.scheduled_date || a.preferred_date) - new Date(b.scheduled_date || b.preferred_date))
         .slice(0, 3);
       setUpcomingBookings(upcoming);
 
       // Get recent reviews (latest 3)
-      const recent = reviews
+      const reviewsList = reviewsResp?.results ?? reviewsResp ?? [];
+      const recent = reviewsList
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, 3);
       setRecentReviews(recent);

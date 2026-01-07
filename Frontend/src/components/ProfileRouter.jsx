@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import UserMyProfile from '../pages/Dashboard/User/UserMyProfile';
-import MyProfile from '../pages/Dashboard/Provider/ProviderMyProfile/MyProfile';
+import ProviderProfile from '../pages/Dashboard/Provider/ProviderProfile';
+// import MyProfile from '../pages/Dashboard/Provider/ProviderMyProfile/MyProfile';
 import { UserProfileProvider } from '../context/UserProfileContext';
 
 function ProfileRouter() {
@@ -53,7 +54,7 @@ function ProfileRouter() {
     if (userType === 'offer') {
         return (
             <UserProfileProvider>
-                <MyProfile />
+                <ProviderProfile />
             </UserProfileProvider>
         );
     }

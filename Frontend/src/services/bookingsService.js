@@ -10,8 +10,12 @@ const bookingsService = {
    */
   getMyBookings: async (filters = {}) => {
     try {
-      const params = new URLSearchParams(filters).toString();
-      const response = await api.get(`/bookings/my-bookings/${params ? '?' + params : ''}`);
+      const params = {
+        page: filters.page ?? 1,
+        page_size: filters.page_size ?? 20,
+        ...filters,
+      };
+      const response = await api.get('/bookings/my-bookings/', { params });
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -107,19 +111,6 @@ const bookingsService = {
   },
 
   /**
-   * Get reviews submitted by the current customer
-   * @returns {Promise} Array of reviews
-   */
-  getMyCustomerReviews: async () => {
-    try {
-      const response = await api.get('/bookings/reviews/my-submitted/');
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-
-  /**
    * Create a review for a completed booking
    * @param {number} bookingId
    * @param {Object} reviewData - { rating, title, comment, would_recommend }
@@ -140,9 +131,14 @@ const bookingsService = {
    * Fetch all bookings for the current provider
    * @returns {Promise} Array of provider's bookings
    */
-  getProviderBookings: async () => {
+  getProviderBookings: async (filters = {}) => {
     try {
-      const response = await api.get('/bookings/provider-bookings/');
+      const params = {
+        page: filters.page ?? 1,
+        page_size: filters.page_size ?? 20,
+        ...filters,
+      };
+      const response = await api.get('/bookings/provider-bookings/', { params });
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -284,8 +280,44 @@ const bookingsService = {
    */
   getProviderReviews: async (filters = {}) => {
     try {
-      const params = new URLSearchParams(filters).toString();
-      const response = await api.get(`/bookings/reviews/my/${params ? '?' + params : ''}`);
+      const params = {
+        page: filters.page ?? 1,
+        page_size: filters.page_size ?? 20,
+        ...filters,
+      };
+      const response = await api.get('/bookings/reviews/my/', { params });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  getMyCustomerReviews: async (filters = {}) => {
+    try {
+      const params = {
+        page: filters.page ?? 1,
+        page_size: filters.page_size ?? 20,
+        ...filters,
+      };
+      const response = await api.get('/bookings/reviews/my-submitted/', { params });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  getUserDashboardStats: async () => {
+    try {
+      const response = await api.get('/bookings/dashboard/stats/user/');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  getProviderDashboardStats: async () => {
+    try {
+      const response = await api.get('/bookings/dashboard/stats/provider/');
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -411,6 +443,78 @@ const bookingsService = {
   getServiceDetail: async (serviceId) => {
     try {
       const response = await api.get(`/bookings/services/${serviceId}/`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // ==================== BOOKING CONFLICT DETECTION ====================
+
+  /**
+   * Check for booking conflicts before creating a booking
+   * @param {number} providerId
+   * @param {string} preferredDate - YYYY-MM-DD
+   * @param {string} preferredTime - Optional HH:MM:SS
+   * @param {number} serviceId - Optional
+   * @returns {Promise} Conflict check result with warnings/suggestions
+   */
+  checkBookingConflict: async (providerId, preferredDate, preferredTime = null, serviceId = null) => {
+    try {
+      const payload = {
+        provider_id: providerId,
+        preferred_date: preferredDate,
+      };
+      if (preferredTime) {
+        payload.preferred_time = preferredTime;
+      }
+      if (serviceId) {
+        payload.service_id = serviceId;
+      }
+      
+      const response = await api.post('/bookings/check-conflict/', payload);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
+   * Get available time slots for a provider on a specific date
+   * @param {number} providerId
+   * @param {string} date - YYYY-MM-DD
+   * @returns {Promise} Available slots and booked times
+   */
+  getAvailableTimeSlots: async (providerId, date) => {
+    try {
+      const response = await api.get('/bookings/available-slots/', {
+        params: {
+          provider_id: providerId,
+          date: date,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
+   * Get alternative dates with available slots
+   * @param {number} providerId
+   * @param {string} preferredDate - YYYY-MM-DD
+   * @param {number} daysAhead - Optional (default 7)
+   * @returns {Promise} Alternative dates with availability info
+   */
+  getAlternativeDates: async (providerId, preferredDate, daysAhead = 7) => {
+    try {
+      const response = await api.get('/bookings/alternative-dates/', {
+        params: {
+          provider_id: providerId,
+          preferred_date: preferredDate,
+          days_ahead: daysAhead,
+        },
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;

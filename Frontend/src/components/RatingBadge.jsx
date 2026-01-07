@@ -22,10 +22,9 @@ export default function RatingBadge({ providerId, fallbackRating = null, fallbac
     const fetchStats = async () => {
       try {
         setLoading(true);
-        const reviews = await bookingsService.getProviderReviews();
-        const scoped = Array.isArray(reviews)
-          ? reviews.filter(r => parseInt(r.provider_id || r.provider, 10) === parseInt(providerId, 10) || !r.provider_id)
-          : [];
+        const resp = await bookingsService.getProviderReviews({ page_size: 50 });
+        const reviews = Array.isArray(resp?.results) ? resp.results : (Array.isArray(resp) ? resp : []);
+        const scoped = reviews.filter(r => parseInt(r.provider_id || r.provider, 10) === parseInt(providerId, 10) || !r.provider_id);
         const source = scoped.length > 0 ? scoped : reviews; // fallback to all if provider_id not sent
         if (Array.isArray(source) && source.length > 0) {
           const totalRating = source.reduce((sum, r) => sum + (parseInt(r.rating, 10) || 0), 0);
