@@ -28,8 +28,9 @@ export default function MyReviews() {
       try {
         setLoading(true);
         setError(null);
-        const data = await bookingsService.getMyCustomerReviews();
-        setReviews(Array.isArray(data) ? data : []);
+        const data = await bookingsService.getMyCustomerReviews({ page_size: 50 });
+        const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+        setReviews(list);
       } catch (err) {
         console.error("Error fetching reviews:", err);
         setError(

@@ -9,61 +9,89 @@ import bookingsService from '../../../../services/bookingsService';
 const CustomerReviews = () => {
     const [activeMenu, setActiveMenu] = useState("reviews");
     const [activeFilter, setActiveFilter] = useState("all");
-    const [reviews, setReviews] = useState([]); // full set for stats/counts
+    const [reviews, setReviews] = useState([]); // full set for stats/counts (all filter)
     const [filteredReviews, setFilteredReviews] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filterLoading, setFilterLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const [totalCount, setTotalCount] = useState(null);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const pageSize = 20;
 
-    useEffect(() => {
-        const fetchReviews = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-                const data = await bookingsService.getProviderReviews();
-                const list = Array.isArray(data) ? data : [];
-                setReviews(list);
-                setFilteredReviews(list);
-            } catch (err) {
-                console.error('Error fetching provider reviews:', err);
-                setError(err.error || 'Failed to load reviews');
-            } finally {
-                setLoading(false);
+    // Helper to merge lists without duplicates
+    const mergeReviews = (prev, next) => {
+        const map = new Map();
+        [...prev, ...next].forEach(r => {
+            if (r?.id != null) map.set(r.id, r);
+        });
+        return Array.from(map.values());
+    };
+
+    const fetchReviews = async ({ targetPage = 1, append = false, filter = 'all' } = {}) => {
+        const params = { page: targetPage, page_size: pageSize };
+        if (filter !== 'all') params.rating = filter;
+
+        if (append) setLoadingMore(true);
+        else if (filter === 'all') setLoading(true);
+        else setFilterLoading(true);
+
+        try {
+            setError(null);
+            const data = await bookingsService.getProviderReviews(params);
+            const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+            const nextHasMore = Boolean(data?.next);
+
+            if (filter === 'all') {
+                setReviews(prev => append ? mergeReviews(prev, list) : list);
+                setFilteredReviews(prev => append ? mergeReviews(prev, list) : list);
+            } else {
+                setFilteredReviews(prev => append ? mergeReviews(prev, list) : list);
             }
-        };
-        fetchReviews();
+
+            if (filter === 'all') setTotalCount(typeof data?.count === 'number' ? data.count : null);
+            setHasMore(nextHasMore);
+            setPage(targetPage);
+        } catch (err) {
+            console.error('Error fetching provider reviews:', err);
+            setError(err.error || 'Failed to load reviews');
+        } finally {
+            setLoading(false);
+            setLoadingMore(false);
+            setFilterLoading(false);
+        }
+    };
+
+    // Initial fetch
+    useEffect(() => {
+        fetchReviews({ targetPage: 1, append: false, filter: 'all' });
     }, []);
 
-    // Fetch filtered reviews from backend when filter changes
+    // Fetch when filter changes
     useEffect(() => {
-        const fetchFiltered = async () => {
-            if (activeFilter === 'all') {
-                setFilteredReviews(reviews);
-                return;
-            }
-            try {
-                setFilterLoading(true);
-                const params = { rating: activeFilter };
-                const data = await bookingsService.getProviderReviews(params);
-                setFilteredReviews(Array.isArray(data) ? data : []);
-            } catch (err) {
-                console.error('Error filtering reviews:', err);
-                setError(err.error || 'Failed to filter reviews');
-            } finally {
-                setFilterLoading(false);
-            }
-        };
-        fetchFiltered();
-    }, [activeFilter, reviews]);
+        if (activeFilter === 'all') {
+            setFilteredReviews(reviews);
+            setHasMore(reviews.length < (totalCount || reviews.length));
+            setPage(Math.ceil(reviews.length / pageSize) || 1);
+            return;
+        }
+        fetchReviews({ targetPage: 1, append: false, filter: activeFilter });
+    }, [activeFilter]);
+
+    const handleLoadMore = () => {
+        if (!hasMore || loadingMore) return;
+        fetchReviews({ targetPage: page + 1, append: true, filter: activeFilter });
+    };
 
     const filterCounts = useMemo(() => ({
-        all: reviews.length,
+        all: totalCount ?? reviews.length,
         5: reviews.filter(r => parseInt(r.rating, 10) === 5).length,
         4: reviews.filter(r => parseInt(r.rating, 10) === 4).length,
         3: reviews.filter(r => parseInt(r.rating, 10) === 3).length,
         2: reviews.filter(r => parseInt(r.rating, 10) === 2).length,
         1: reviews.filter(r => parseInt(r.rating, 10) === 1).length
-    }), [reviews]);
+    }), [reviews, totalCount]);
 
 
     return (
@@ -104,7 +132,20 @@ const CustomerReviews = () => {
                     {/* Right Column */}
                     <div className="">
                         {!loading && !error && (
-                            <ReviewList reviews={filteredReviews} loading={filterLoading} />
+                            <>
+                                <ReviewList reviews={filteredReviews} loading={filterLoading} totalCount={activeFilter === 'all' ? totalCount : null} />
+                                {hasMore && (
+                                    <div className="mt-6 text-center">
+                                        <button
+                                            onClick={handleLoadMore}
+                                            disabled={loadingMore}
+                                            className="px-4 py-2 bg-gray-800 text-white rounded-md text-sm font-semibold hover:bg-gray-900 disabled:opacity-50"
+                                        >
+                                            {loadingMore ? 'Loading...' : 'Load More'}
+                                        </button>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>

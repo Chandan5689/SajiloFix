@@ -29,6 +29,10 @@ export default function MyBookingsPage() {
     const [selectedBooking, setSelectedBooking] = useState(null);
     const [bookings, setBookings] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const pageSize = 10;
     const [error, setError] = useState(null);
     const [cancelingBookingId, setCancelingBookingId] = useState(null);
     const [cancelReason, setCancelReason] = useState("");
@@ -61,22 +65,37 @@ export default function MyBookingsPage() {
 
     // Fetch bookings on component mount
     useEffect(() => {
-        fetchBookings();
+        fetchBookings(1, false);
     }, []);
 
-    const fetchBookings = async () => {
+    const fetchBookings = async (targetPage = 1, append = false) => {
         try {
-            setLoading(true);
+            if (append) {
+                setLoadingMore(true);
+            } else {
+                setLoading(true);
+            }
             setError(null);
-            const data = await bookingsService.getMyBookings();
-            setBookings(Array.isArray(data) ? data : []);
+            const data = await bookingsService.getMyBookings({ page: targetPage, page_size: pageSize });
+            const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+            setBookings((prev) => append ? [...prev, ...list] : list);
+            setHasMore(Boolean(data?.next));
+            setPage(targetPage);
         } catch (err) {
             console.error("Error fetching bookings:", err);
             setError(err.error || "Failed to load bookings");
-            setBookings([]);
+            if (!append) {
+                setBookings([]);
+            }
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
+    };
+
+    const handleLoadMore = () => {
+        if (!hasMore || loadingMore) return;
+        fetchBookings(page + 1, true);
     };
 
     // Handle booking cancellation
@@ -118,8 +137,9 @@ export default function MyBookingsPage() {
             setReviewSuccess(null);
             setHasReviewed(false);
             try {
-                const myReviews = await bookingsService.getMyCustomerReviews();
-                const reviewed = Array.isArray(myReviews) && myReviews.some(r => r.booking_id === selectedBooking.id);
+                const myReviewsResp = await bookingsService.getMyCustomerReviews({ page_size: 100 });
+                const myReviews = Array.isArray(myReviewsResp?.results) ? myReviewsResp.results : (Array.isArray(myReviewsResp) ? myReviewsResp : []);
+                const reviewed = myReviews.some(r => r.booking_id === selectedBooking.id || r.booking === selectedBooking.id);
                 setHasReviewed(reviewed);
             } catch (err) {
                 // Non-blocking: if unable to fetch, allow form and backend will enforce
@@ -379,6 +399,18 @@ export default function MyBookingsPage() {
                                     <div>
                                         <p className="font-semibold text-lg">{booking.service_title}</p>
                                         <p className="text-gray-700 text-sm">{booking.provider_name}</p>
+
+            {hasMore && (
+                <div className="mt-6 text-center">
+                    <button
+                        onClick={handleLoadMore}
+                        disabled={loadingMore}
+                        className="px-4 py-2 bg-gray-800 text-white rounded-md text-sm font-semibold hover:bg-gray-900 disabled:opacity-50"
+                    >
+                        {loadingMore ? "Loading..." : "Load More"}
+                    </button>
+                </div>
+            )}
                                     </div>
                                     <span
                                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${statusColorMap[booking.status] || "bg-gray-100 text-gray-700"}`}

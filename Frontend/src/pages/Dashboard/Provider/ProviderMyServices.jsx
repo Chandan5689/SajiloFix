@@ -201,9 +201,9 @@ export default function ProviderMyServices() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         
-        // Validation
-        if (!formData.title || !formData.description || !formData.specialization || !formData.base_price) {
-            alert('Please fill in all required fields (Title, Description, Specialization, Base Price)');
+        // Validation (title/description now optional)
+        if (!formData.specialization || !formData.base_price) {
+            alert('Please fill in required fields (Specialization, Base Price)');
             return;
         }
 
@@ -352,7 +352,12 @@ export default function ProviderMyServices() {
             {/* Services Grid */}
             <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                 {services.length > 0 ? (
-                    services.map((service) => (
+                    services.map((service) => {
+                        // Find which speciality this service's specialization belongs to
+                        const serviceSpec = providerSpecializations.find(spec => spec.id === service.specialization?.id || spec.id === service.specialization);
+                        const specialityName = serviceSpec?.speciality || '';
+                        
+                        return (
                         <div
                             key={service.id}
                             className={`bg-white p-6 rounded-lg shadow border ${
@@ -373,15 +378,22 @@ export default function ProviderMyServices() {
                             </div>
 
                             <div className="mb-4 pr-20">
-                                <h3 className="text-xl font-semibold text-gray-900 mb-2">{service.title}</h3>
-                                <p className="text-gray-600 text-sm line-clamp-2">{service.description}</p>
+                                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                                    {specialityName && (
+                                        <>
+                                            <span className="text-gray-600">{specialityName}</span>
+                                            <span className="text-gray-400 mx-2">/</span>
+                                        </>
+                                    )}
+                                    {service.specialization_name || service.specialization || 'N/A'}
+                                </h3>
+                                <p className="text-gray-600 text-sm line-clamp-2">
+                                    {service.title && <span className="block font-semibold">{service.title}</span>}
+                                    {service.description}
+                                </p>
                             </div>
 
                             <div className="space-y-2 text-sm text-gray-600 mb-4">
-                                <p className="flex items-center gap-2">
-                                    <MdCategory className="text-gray-400" />
-                                    <span className="font-semibold">Specialization:</span> {service.specialization_name || service.specialization || 'N/A'}
-                                </p>
                                 <p className="flex items-center gap-2">
                                     <MdAttachMoney className="text-gray-400" />
                                     <span className="font-semibold">Price:</span> {formatCurrency(service.base_price)}
@@ -434,7 +446,8 @@ export default function ProviderMyServices() {
                                 </button>
                             </div>
                         </div>
-                    ))
+                        );
+                    })
                 ) : (
                     <div className="col-span-full text-center p-10 bg-white rounded-lg shadow-md text-gray-500">
                         <p className="mb-2 text-lg font-semibold">No services found</p>
@@ -516,10 +529,10 @@ export default function ProviderMyServices() {
                                 </p>
                             </div>
 
-                            {/* Title */}
+                            {/* Title (optional) */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    Service Title <span className="text-red-500">*</span>
+                                    Service Title <span className="text-gray-400 text-xs">(Optional)</span>
                                 </label>
                                 <input
                                     type="text"
@@ -528,14 +541,13 @@ export default function ProviderMyServices() {
                                     onChange={handleInputChange}
                                     placeholder="e.g., Emergency Plumbing Repair"
                                     className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
-                                    required
                                 />
                             </div>
 
-                            {/* Description */}
+                            {/* Description (optional) */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    Description <span className="text-red-500">*</span>
+                                    Description <span className="text-gray-400 text-xs">(Optional)</span>
                                 </label>
                                 <textarea
                                     name="description"
@@ -544,7 +556,6 @@ export default function ProviderMyServices() {
                                     placeholder="Describe your service in detail..."
                                     rows="4"
                                     className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
-                                    required
                                 />
                             </div>
 

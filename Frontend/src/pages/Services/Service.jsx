@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FaLocationDot } from "react-icons/fa6";
-import {FaSearch,} from 'react-icons/fa'
+import { FaSearch } from 'react-icons/fa'
 import ServiceProviderCard from "../../layouts/ServiceProviderCard";
 import providersService from "../../services/providersService";
 import specialitiesService from "../../services/specialitiesService";
@@ -22,6 +22,7 @@ export default function Service() {
   const [topRated, setTopRated] = useState(searchParams.get('topRated') === 'true');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [totalProviders, setTotalProviders] = useState(null);
   
   // Location states
   const [availableCities, setAvailableCities] = useState([]);
@@ -35,6 +36,26 @@ export default function Service() {
   const itemsPerPage = 12;
   const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/';
   const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '/');
+
+  const buildFilters = () => {
+    const filters = {};
+    if (selectedCategory && selectedCategory !== 'All Services') {
+      filters.specialization = selectedCategory;
+    }
+    if (searchTerm) {
+      filters.q = searchTerm;
+    }
+    if (city) {
+      filters.city = city;
+    }
+    if (district) {
+      filters.district = district;
+    }
+    if (topRated) {
+      filters.min_rating = 4.5;
+    }
+    return filters;
+  };
 
   // Helper to reset all filters
   const resetFilters = () => {
@@ -93,7 +114,7 @@ export default function Service() {
 
   // Fetch providers on component mount
   useEffect(() => {
-    fetchProviders();
+    fetchProviders(buildFilters(), 1, false);
   }, []);
 
   // Fetch categories (specialities) from backend
@@ -146,23 +167,40 @@ export default function Service() {
     return () => { mounted = false; };
   }, []);
 
-  const fetchProviders = async (filters = {}) => {
+  const fetchProviders = async (filters = {}, pageArg = 1, append = false) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await providersService.getProviders(filters);
+      const pagedFilters = {
+        ...filters,
+        page: pageArg,
+        page_size: itemsPerPage,
+      };
+      setTotalProviders(null);
+      const data = await providersService.getProviders(pagedFilters);
+      const list = Array.isArray(data) ? data : (data.results || []);
+      const totalCount = Array.isArray(data) ? null : (data.count ?? null);
+      if (totalCount !== null) {
+        setTotalProviders(totalCount);
+      }
       
       // Convert provider data to format compatible with ServiceProviderCard
-      const formattedProviders = data.map(provider => ({
+      const formattedProviders = list.map(provider => ({
         id: provider.id,
         name: `${provider.first_name} ${provider.last_name}`.trim(),
         profession: provider.specializations?.[0] || 'Service Provider',
+        primarySpecialization: provider.specializations?.[0] || null,
+        serviceCategory: provider.speciality?.[0] || null,
         rating: provider.average_rating,
         reviews: provider.review_count,
         price: provider.starting_price != null ? Number(provider.starting_price) : null,
         priceType: provider.starting_price_type || null,
         experience: provider.years_of_experience || 0,
-        availability: "Available Today", // Can be enhanced with real availability
+        serviceCount: provider.service_count || 0,
+        servicePreview: provider.services_preview || [],
+        priceRangeMin: provider.price_range_min != null ? Number(provider.price_range_min) : null,
+        priceRangeMax: provider.price_range_max != null ? Number(provider.price_range_max) : null,
+        availability: provider.availability_status || "Schedule on request",
         specialties: provider.specializations || [],
         img: (() => {
           if (provider.profile_picture) {
@@ -178,14 +216,15 @@ export default function Service() {
       }));
       
       // Pagination: set initial providers or append for "Load More"
-      if (page === 1) {
-        setProviders(formattedProviders);
-      } else {
+      if (append) {
         setProviders(prev => [...prev, ...formattedProviders]);
+      } else {
+        setProviders(formattedProviders);
       }
       
       // Determine if there are more results
-      setHasMore(formattedProviders.length >= itemsPerPage);
+      const hasNext = Array.isArray(data) ? (formattedProviders.length >= itemsPerPage) : Boolean(data.next);
+      setHasMore(hasNext);
     } catch (err) {
       console.error("Error fetching providers:", err);
       setError("Failed to load providers");
@@ -198,24 +237,9 @@ export default function Service() {
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      const filters = {};
-      if (selectedCategory && selectedCategory !== 'All Services') {
-        filters.specialization = selectedCategory;
-      }
-      if (searchTerm) {
-        filters.q = searchTerm;
-      }
-      if (city) {
-        filters.city = city;
-      }
-      if (district) {
-        filters.district = district;
-      }
-      if (topRated) {
-        filters.min_rating = 4.5;
-      }
+      const filters = buildFilters();
       setPage(1); // Reset to first page on filter change
-      fetchProviders(filters);
+      fetchProviders(filters, 1, false);
     }, 300);
     return () => {
       clearTimeout(timer);
@@ -223,28 +247,27 @@ export default function Service() {
     };
   }, [selectedCategory, searchTerm, city, district, topRated]);
 
-  // Filter providers by category and search input
+  // Server-side filtering already applied; keep light client filters for safety
   let filteredProviders = providers.filter((provider) => {
     const matchesCategory =
       selectedCategory === "All Services" || 
       provider.specialties.some(spec => 
         spec.toLowerCase().includes(selectedCategory.toLowerCase())
       );
+    const term = searchTerm.toLowerCase();
     const matchesSearch =
-      provider.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      provider.profession.toLowerCase().includes(searchTerm.toLowerCase());
+      provider.name.toLowerCase().includes(term) ||
+      provider.profession.toLowerCase().includes(term) ||
+      provider.primarySpecialization?.toLowerCase().includes(term);
     const matchesLocation =
       (!city || provider.city?.toLowerCase().includes(city.toLowerCase())) &&
       (!district || provider.district?.toLowerCase().includes(district.toLowerCase()));
-    
     return matchesCategory && matchesSearch && matchesLocation;
   });
 
-  // Sort by rating descending only, as shown in UI
+  // Keep UI-sort deterministic on current page results
   if (sortBy === "Rating") {
-    filteredProviders = filteredProviders.sort(
-      (a, b) => b.rating - a.rating
-    );
+    filteredProviders = filteredProviders.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
   }
   if (sortBy === "Price") {
     filteredProviders = filteredProviders.sort((a, b) => {
@@ -254,252 +277,237 @@ export default function Service() {
     });
   }
   if (sortBy === "Reviews") {
-    filteredProviders = filteredProviders.sort(
-      (a, b) => (b.reviews ?? 0) - (a.reviews ?? 0)
-    );
+    filteredProviders = filteredProviders.sort((a, b) => (b.reviews ?? 0) - (a.reviews ?? 0));
   }
   if (sortBy === "Experience") {
-    filteredProviders = filteredProviders.sort(
-      (a, b) => (b.experience ?? 0) - (a.experience ?? 0)
-    );
+    filteredProviders = filteredProviders.sort((a, b) => (b.experience ?? 0) - (a.experience ?? 0));
   }
 
   return (
     <div className="min-h-screen bg-gray-50 p-10">
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-6">
-        <h1 className="text-xl font-bold text-gray-900">
-          Find Service Providers
+        <h1 className="text-2xl font-bold text-gray-900">
+          Find Your Right Pro
         </h1>
         <p className="text-gray-600 mt-1">
-          Browse and book verified professionals in your area
+          Compare services, pricing, and reviews before you book.
         </p>
       </div>
 
       {/* Search & Filter bar */}
-      <div className="bg-white max-w-7xl mx-auto rounded-md shadow px-6 py-5 mb-6 flex flex-col md:flex-row  md:space-x-4 space-y-4 md:space-y-0">
-
-        <div className='grid grid-cols-1 md:grid-cols-3 gap-4 w-full'>
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
-              <div className="w-5 h-5 flex items-center-safe justify-center-safe">
-                <FaSearch className=" text-green-500" />
+      <div className="bg-white max-w-7xl mx-auto rounded-2xl shadow px-6 py-5 mb-6 border border-gray-100">
+        <div className="flex flex-col gap-4">
+          {/* Row 1: Search + Clear */}
+          <div className="flex flex-col md:flex-row gap-3 md:items-center">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                <FaSearch className="text-green-500" />
               </div>
-
+              <input
+                type="text"
+                placeholder="Search providers or services..."
+                className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-            <input
-              type="text"
-              placeholder="Search services or providers..."
-              className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 md:grow"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+           
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {useSearchMode ? (
-              <>
-                {/* City Search Dropdown */}
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
-                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
-                      <FaLocationDot className=" text-green-500" />
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Search City..."
-                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
-                    value={citySearch}
-                    onChange={(e) => {
-                      setCitySearch(e.target.value);
-                      setShowCityDropdown(true);
-                    }}
-                    onFocus={() => setShowCityDropdown(true)}
-                    onBlur={() => setTimeout(() => setShowCityDropdown(false), 200)}
-                  />
-                  {showCityDropdown && (
-                    <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg">
-                      {availableCities
-                        .filter(c => c.toLowerCase().includes(citySearch.toLowerCase()))
-                        .map(c => (
-                          <div
-                            key={c}
-                            onMouseDown={() => {
-                              // Use mousedown so selection occurs before input blur
-                              setCity(c);
-                              setCitySearch(c);
-                              setShowCityDropdown(false);
-                              setDistrict("");
-                              setDistrictSearch("");
-                            }}
-                            className="px-4 py-2 hover:bg-green-100 cursor-pointer text-sm"
-                          >
-                            {c}
-                          </div>
-                        ))}
-                      {availableCities.filter(c => c.toLowerCase().includes(citySearch.toLowerCase())).length === 0 && (
-                        <div className="px-4 py-2 text-gray-500 text-sm">No cities found</div>
-                      )}
-                    </div>
+          {/* Row 2: Location (search-mode toggle simplified) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                <FaLocationDot className="text-green-500" />
+              </div>
+              {useSearchMode ? (
+                <input
+                  type="text"
+                  placeholder="Search City..."
+                  className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  value={citySearch}
+                  onChange={(e) => {
+                    setCitySearch(e.target.value);
+                    setShowCityDropdown(true);
+                  }}
+                  onFocus={() => setShowCityDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowCityDropdown(false), 200)}
+                />
+              ) : (
+                <select
+                  className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  value={city}
+                  onChange={(e) => {
+                    setCity(e.target.value);
+                    setDistrict("");
+                    setCitySearch(e.target.value);
+                    setDistrictSearch("");
+                  }}
+                >
+                  <option value="">Select City</option>
+                  {availableCities.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              )}
+              {showCityDropdown && useSearchMode && (
+                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg">
+                  {availableCities
+                    .filter(c => c.toLowerCase().includes(citySearch.toLowerCase()))
+                    .map(c => (
+                      <div
+                        key={c}
+                        onMouseDown={() => {
+                          setCity(c);
+                          setCitySearch(c);
+                          setShowCityDropdown(false);
+                          setDistrict("");
+                          setDistrictSearch("");
+                        }}
+                        className="px-4 py-2 hover:bg-green-100 cursor-pointer text-sm"
+                      >
+                        {c}
+                      </div>
+                    ))}
+                  {availableCities.filter(c => c.toLowerCase().includes(citySearch.toLowerCase())).length === 0 && (
+                    <div className="px-4 py-2 text-gray-500 text-sm">No cities found</div>
                   )}
                 </div>
+              )}
+            </div>
 
-                {/* District Search Dropdown */}
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
-                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
-                      <FaLocationDot className=" text-green-500" />
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Search District..."
-                    disabled={!city}
-                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                    value={districtSearch}
-                    onChange={(e) => {
-                      setDistrictSearch(e.target.value);
-                      setShowDistrictDropdown(true);
-                    }}
-                    onFocus={() => setShowDistrictDropdown(true)}
-                    onBlur={() => setTimeout(() => setShowDistrictDropdown(false), 200)}
-                  />
-                  {showDistrictDropdown && city && (
-                    <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg">
-                      {(availableDistricts[city] || [])
-                        .filter(d => d.toLowerCase().includes(districtSearch.toLowerCase()))
-                        .map(d => (
-                          <div
-                            key={d}
-                            onMouseDown={() => {
-                              setDistrict(d);
-                              setDistrictSearch(d);
-                              setShowDistrictDropdown(false);
-                            }}
-                            className="px-4 py-2 hover:bg-green-100 cursor-pointer text-sm"
-                          >
-                            {d}
-                          </div>
-                        ))}
-                      {(availableDistricts[city] || []).filter(d => d.toLowerCase().includes(districtSearch.toLowerCase())).length === 0 && (
-                        <div className="px-4 py-2 text-gray-500 text-sm">No districts found</div>
-                      )}
-                    </div>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                <FaLocationDot className="text-green-500" />
+              </div>
+              {useSearchMode ? (
+                <input
+                  type="text"
+                  placeholder="Search District..."
+                  disabled={!city}
+                  className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  value={districtSearch}
+                  onChange={(e) => {
+                    setDistrictSearch(e.target.value);
+                    setShowDistrictDropdown(true);
+                  }}
+                  onFocus={() => setShowDistrictDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowDistrictDropdown(false), 200)}
+                />
+              ) : (
+                <select
+                  disabled={!city}
+                  className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  value={district}
+                  onChange={(e) => {
+                    setDistrict(e.target.value);
+                    setDistrictSearch(e.target.value);
+                  }}
+                >
+                  <option value="">Select District</option>
+                  {(availableDistricts[city] || []).map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              )}
+              {showDistrictDropdown && useSearchMode && city && (
+                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-48 overflow-y-auto shadow-lg">
+                  {(availableDistricts[city] || [])
+                    .filter(d => d.toLowerCase().includes(districtSearch.toLowerCase()))
+                    .map(d => (
+                      <div
+                        key={d}
+                        onMouseDown={() => {
+                          setDistrict(d);
+                          setDistrictSearch(d);
+                          setShowDistrictDropdown(false);
+                        }}
+                        className="px-4 py-2 hover:bg-green-100 cursor-pointer text-sm"
+                      >
+                        {d}
+                      </div>
+                    ))}
+                  {(availableDistricts[city] || []).filter(d => d.toLowerCase().includes(districtSearch.toLowerCase())).length === 0 && (
+                    <div className="px-4 py-2 text-gray-500 text-sm">No districts found</div>
                   )}
                 </div>
-              </>
-            ) : (
-              <>
-                {/* City Select Dropdown (merged static + dynamic) */}
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
-                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
-                      <FaLocationDot className=" text-green-500" />
-                    </div>
-                  </div>
-                  <select
-                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
-                    value={city}
-                    onChange={(e) => {
-                      setCity(e.target.value);
-                      setDistrict("");
-                      setCitySearch(e.target.value);
-                      setDistrictSearch("");
-                    }}
-                  >
-                    <option value="">Select City</option>
-                    {availableCities.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* District Select Dropdown (merged static + dynamic) */}
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
-                    <div className="w-5 h-5 flex items-center-safe justify-center-safe">
-                      <FaLocationDot className=" text-green-500" />
-                    </div>
-                  </div>
-                  <select
-                    disabled={!city}
-                    className="w-full border border-gray-300 rounded-md pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                    value={district}
-                    onChange={(e) => {
-                      setDistrict(e.target.value);
-                      setDistrictSearch(e.target.value);
-                    }}
-                  >
-                    <option value="">Select District</option>
-                    {(availableDistricts[city] || []).map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
+              )}
+            </div>
           </div>
 
+          {/* Row 3: Category chips */}
+          <div className="flex flex-wrap gap-2">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                className={`px-4 py-1 rounded-full text-sm border ${selectedCategory === cat
+                  ? "bg-green-600 text-white border-green-600"
+                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                  } transition`}
+                onClick={() => setSelectedCategory(cat)}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
 
-          <div className="relative">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="w-full border border-gray-300 rounded-md pl-4 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+          {/* Row 4: Sort + toggles */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:items-center">
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full border border-gray-300 rounded-md pl-4 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+              >
+                <option value="Rating">Sort by Rating</option>
+                <option value="Reviews">Sort by Reviews</option>
+                <option value="Experience">Sort by Experience</option>
+                <option value="Price">Sort by Price</option>
+              </select>
+            </div>
+            <div className="flex items-center">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300"
+                  checked={topRated}
+                  onChange={(e) => setTopRated(e.target.checked)}
+                />
+                Top Rated (4.5+)
+              </label>
+            </div>
+            <div className="flex items-center">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300"
+                  checked={useSearchMode}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setUseSearchMode(enabled);
+                    if (enabled) {
+                      setCitySearch(city || "");
+                      setDistrictSearch(district || "");
+                    }
+                  }}
+                />
+                Type-to-search locations
+              </label>
+            </div>
+
+             <button
+              onClick={resetFilters}
+              className="px-4 py-2 bg-red-500 text-white rounded-md text-sm font-medium hover:bg-red-600 transition md:w-auto w-full"
             >
-              <option value="Rating">Sort by Rating</option>
-              <option value="Reviews">Sort by Reviews</option>
-              <option value="Experience">Sort by Experience</option>
-              <option value="Price">Sort by Price</option>
-              {/* Add other sorting options if you want */}
-            </select>
+              Clear Filters
+            </button>
           </div>
-          <div className="flex items-center">
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                className="rounded border-gray-300"
-                checked={topRated}
-                onChange={(e) => setTopRated(e.target.checked)}
-              />
-              Top Rated (4.5+)
-            </label>
-          </div>
-
-          {/* Toggle between search and dropdown modes */}
-          <div className="flex items-center">
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                className="rounded border-gray-300"
-                checked={useSearchMode}
-                onChange={(e) => {
-                  const enabled = e.target.checked;
-                  setUseSearchMode(enabled);
-                  if (enabled) {
-                    setCitySearch(city || "");
-                    setDistrictSearch(district || "");
-                  }
-                }}
-              />
-              Search mode on (toggle for dropdown selects)
-            </label>
-          </div>
-
-          <button
-            onClick={resetFilters}
-            className="px-4 py-2 bg-red-500 text-white rounded-md text-sm font-medium hover:bg-red-600 transition"
-          >
-            Clear Filters
-          </button>
         </div>
-
-
       </div>
 
       {/* Categories filters */}
-      <div className="max-w-7xl mx-auto mb-6 flex flex-wrap gap-2">
+      {/* <div className="max-w-7xl mx-auto mb-6 flex flex-wrap gap-2">
         {categories.map((cat) => (
           <button
             key={cat}
@@ -512,7 +520,7 @@ export default function Service() {
             {cat}
           </button>
         ))}
-      </div>
+      </div> */}
 
       {/* Showing X service providers */}
       <div className="max-w-7xl mx-auto mb-6 text-gray-700 text-sm">
@@ -521,7 +529,10 @@ export default function Service() {
         ) : error ? (
           <span className="text-red-600">{error}</span>
         ) : (
-          <span>Showing {filteredProviders.length} service providers</span>
+          <span>
+            Showing {filteredProviders.length}
+            {totalProviders != null ? ` of ${totalProviders}` : ''} service providers
+          </span>
         )}
       </div>
 
@@ -568,27 +579,10 @@ export default function Service() {
         <div className="max-w-7xl mx-auto mt-8 text-center">
           <button
             onClick={() => {
-              setPage(prev => prev + 1);
-              // Fetch next page with current filters
-              const filters = {};
-              if (selectedCategory && selectedCategory !== 'All Services') {
-                filters.specialization = selectedCategory;
-              }
-              if (searchTerm) {
-                filters.q = searchTerm;
-              }
-              if (city) {
-                filters.city = city;
-              }
-              if (district) {
-                filters.district = district;
-              }
-              if (topRated) {
-                filters.min_rating = 4.5;
-              }
-              // In a real scenario, you'd pass page/offset to backend
-              // For now, just fetch all again (backend should handle pagination)
-              fetchProviders(filters);
+              const filters = buildFilters();
+              const nextPage = page + 1;
+              setPage(nextPage);
+              fetchProviders(filters, nextPage, true);
             }}
             className="px-6 py-3 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 transition"
           >

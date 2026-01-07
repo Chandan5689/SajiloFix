@@ -29,7 +29,7 @@ import ProviderMyServices from './pages/Dashboard/Provider/ProviderMyServices'
 import ProviderProfile from './pages/Dashboard/Provider/ProviderProfile'
 import CustomerReviews from './pages/Dashboard/Provider/Reviews/CustomerReviews'
 import ProviderEarnings from './pages/Dashboard/Provider/Earnings/ProviderEarnings'
-import MyProfile from './pages/Dashboard/Provider/ProviderMyProfile/MyProfile'
+
 import Availability from './pages/Dashboard/Provider/Availability/Availability'
 import Login from './pages/Auth/Login/Login'
 import VerifyPhoneFlow from './pages/Auth/VerifyPhoneFlow';
@@ -236,15 +236,7 @@ function App() {
                                     </RequireCompleteRegistration>
                                 </ProtectedRoute>
                             } />
-                            {/* <Route path='/provider/my-profile' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <MyProfile />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } /> */}
+                            
                             <Route path='/provider/availability' element={
                                 <ProtectedRoute>
                                     <RequireCompleteRegistration>

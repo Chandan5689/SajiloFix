@@ -25,40 +25,35 @@ export default function DashboardPage() {
 
   // Fetch booking stats on mount
   useEffect(() => {
-    fetchBookingStats();
-  }, []);
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-  const fetchBookingStats = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Fetch bookings
-      const bookings = await bookingsService.getMyBookings();
-      
-      // Calculate stats
-      const totalBookings = bookings.length;
-      const activeJobs = bookings.filter(b => b.status === 'in_progress').length;
-      const completedJobs = bookings.filter(b => b.status === 'completed').length;
-      const totalSpent = bookings.reduce((sum, b) => sum + (parseFloat(b.final_price) || parseFloat(b.quoted_price) || 0), 0);
-      
-      setStats({
-        totalBookings,
-        activeJobs,
-        completedJobs,
-        totalSpent,
-      });
-      
-      // Get recent bookings (last 3)
-      const recent = bookings.slice(0, 3);
-      setRecentBookings(recent);
-    } catch (err) {
-      console.error("Error fetching booking stats:", err);
-      setError(err.error || "Failed to load booking stats");
-    } finally {
-      setLoading(false);
-    }
-  };
+        const [statsResp, bookingsResp] = await Promise.all([
+          bookingsService.getUserDashboardStats(),
+          bookingsService.getMyBookings({ page: 1, page_size: 5 }),
+        ]);
+
+        setStats({
+          totalBookings: statsResp.total_bookings ?? statsResp.totalBookings ?? 0,
+          activeJobs: statsResp.active_jobs ?? statsResp.activeJobs ?? 0,
+          completedJobs: statsResp.completed_jobs ?? statsResp.completedJobs ?? 0,
+          totalSpent: statsResp.total_spent ?? statsResp.totalSpent ?? 0,
+        });
+
+        const list = bookingsResp?.results ?? bookingsResp ?? [];
+        setRecentBookings(Array.isArray(list) ? list.slice(0, 3) : []);
+      } catch (err) {
+        console.error("Error fetching booking stats:", err);
+        setError(err.error || "Failed to load booking stats");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboard();
+  }, []);
 
   // Format currency
   const formatCurrency = (amount) => {

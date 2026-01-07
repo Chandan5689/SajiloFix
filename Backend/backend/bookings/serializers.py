@@ -51,6 +51,7 @@ class BookingImageSerializer(serializers.ModelSerializer):
 class BookingSerializer(serializers.ModelSerializer):
     service_title = serializers.CharField(source='service.title', read_only=True)
     provider_name = serializers.SerializerMethodField()
+    customer_name = serializers.SerializerMethodField()
     customer_email = serializers.EmailField(source='customer.email', read_only=True)
     images = BookingImageSerializer(many=True, read_only=True)
 
@@ -63,16 +64,47 @@ class BookingSerializer(serializers.ModelSerializer):
             'description', 'special_instructions', 'quoted_price', 'final_price',
             'customer_phone', 'customer_name', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
-            'cancellation_reason', 'provider_notes', 'images', 'customer_email', 'provider_name'
+            'cancellation_reason', 'provider_notes', 'images', 'customer_email', 'provider_name',
+            'customer_name'
         ]
         read_only_fields = [
             'id', 'customer', 'provider', 'service_title', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
-            'images', 'customer_email', 'provider_name'
+            'images', 'customer_email', 'provider_name', 'customer_name'
         ]
 
     def get_provider_name(self, obj):
         return obj.provider.get_full_name() or obj.provider.email
+
+    def get_customer_name(self, obj):
+        return obj.customer.get_full_name() or obj.customer.email
+
+
+class BookingListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for dashboard lists to reduce payload size."""
+
+    service_title = serializers.CharField(source='service.title', read_only=True)
+    provider_name = serializers.SerializerMethodField()
+    customer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Booking
+        fields = [
+            'id', 'service_title', 'status',
+            'preferred_date', 'preferred_time', 'scheduled_date', 'scheduled_time',
+            'quoted_price', 'final_price', 'customer_name', 'provider_name',
+            'service_address', 'service_city', 'service_district',
+            'description', 'special_instructions',
+            'customer_phone',
+            'created_at'
+        ]
+        read_only_fields = fields
+
+    def get_provider_name(self, obj):
+        return obj.provider.get_full_name() or obj.provider.email
+
+    def get_customer_name(self, obj):
+        return obj.customer.get_full_name() or obj.customer.email
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -151,6 +183,9 @@ class ProviderListSerializer(serializers.ModelSerializer):
     service_count = serializers.SerializerMethodField()
     starting_price = serializers.SerializerMethodField()
     starting_price_type = serializers.SerializerMethodField()
+    services_preview = serializers.SerializerMethodField()
+    price_range_min = serializers.SerializerMethodField()
+    price_range_max = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -158,7 +193,8 @@ class ProviderListSerializer(serializers.ModelSerializer):
             'id', 'first_name', 'last_name', 'email', 'phone_number',
             'profile_picture', 'bio', 'city', 'district', 
             'years_of_experience', 'average_rating', 'review_count',
-            'specializations', 'service_count', 'starting_price', 'starting_price_type'
+            'specializations', 'service_count', 'starting_price', 'starting_price_type',
+            'services_preview', 'price_range_min', 'price_range_max'
         ]
     
     def get_average_rating(self, obj):
@@ -173,11 +209,17 @@ class ProviderListSerializer(serializers.ModelSerializer):
         return Review.objects.filter(provider=obj).count()
     
     def get_specializations(self, obj):
-        """Get list of specializations for this provider"""
-        return [
-            spec.specialization.name 
-            for spec in obj.user_specializations.all()
-        ]
+        """Get list of speciality names that the provider selected during registration.
+        Primary source: UserSpeciality (direct selections during registration)
+        Fallback: Extract from services' speciality if user_specialities empty"""
+        # First try: Get from user_specialities (what provider selected during registration)
+        specializations = list(obj.user_specialities.values_list('speciality__name', flat=True).distinct())
+        
+        # Fallback: If no user specialities, extract from services' specialization's speciality
+        if not specializations:
+            specializations = list(obj.services.filter(is_active=True).values_list('specialization__speciality__name', flat=True).distinct())
+        
+        return specializations
     
     def get_service_count(self, obj):
         """Count active services offered"""
@@ -210,6 +252,44 @@ class ProviderListSerializer(serializers.ModelSerializer):
                 lowest_type = s.price_type
         return lowest_type
 
+    def _effective_price(self, service):
+        """Effective price picks minimum_charge if positive, otherwise base_price."""
+        if service.minimum_charge is not None and service.minimum_charge > 0:
+            return service.minimum_charge
+        return service.base_price
+
+    def get_price_range_min(self, obj) -> Optional[float]:
+        services = obj.services.filter(is_active=True).only('minimum_charge', 'base_price')
+        prices = [self._effective_price(s) for s in services if self._effective_price(s) is not None]
+        return min(prices) if prices else None
+
+    def get_price_range_max(self, obj) -> Optional[float]:
+        services = obj.services.filter(is_active=True).only('minimum_charge', 'base_price')
+        prices = [self._effective_price(s) for s in services if self._effective_price(s) is not None]
+        return max(prices) if prices else None
+
+    def get_services_preview(self, obj):
+        """Return up to 3 lowest-priced active services with key info."""
+        services = obj.services.filter(is_active=True).select_related('specialization').only(
+            'title', 'minimum_charge', 'base_price', 'price_type', 'specialization__name'
+        )
+        # sort by effective price ascending
+        annotated = [
+            (
+                self._effective_price(s),
+                {
+                    'title': s.title,
+                    'specialization_name': s.specialization.name if s.specialization else 'Service',
+                    'price': self._effective_price(s),
+                    'price_type': s.price_type,
+                }
+            )
+            for s in services
+            if self._effective_price(s) is not None
+        ]
+        annotated.sort(key=lambda x: (x[0] if x[0] is not None else 1e12, ))
+        return [item[1] for item in annotated[:3]]
+
 
 class ProviderDetailSerializer(serializers.ModelSerializer):
     """Serializer for detailed provider information"""
@@ -240,11 +320,17 @@ class ProviderDetailSerializer(serializers.ModelSerializer):
         return Review.objects.filter(provider=obj).count()
     
     def get_specializations(self, obj):
-        """Get list of specializations for this provider"""
-        return [
-            spec.specialization.name 
-            for spec in obj.user_specializations.all()
-        ]
+        """Get list of speciality names that the provider selected during registration.
+        Primary source: UserSpeciality (direct selections during registration)
+        Fallback: Extract from services' speciality if user_specialities empty"""
+        # First try: Get from user_specialities (what provider selected during registration)
+        specializations = list(obj.user_specialities.values_list('speciality__name', flat=True).distinct())
+        
+        # Fallback: If no user specialities, extract from services' specialization's speciality
+        if not specializations:
+            specializations = list(obj.services.filter(is_active=True).values_list('specialization__speciality__name', flat=True).distinct())
+        
+        return specializations
     
     def get_services(self, obj):
         """Get active services offered by this provider"""

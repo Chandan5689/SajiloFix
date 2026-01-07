@@ -55,10 +55,14 @@ class Service(models.Model):
     # Service details
     title = models.CharField(
         max_length=200,
+        blank=True,
+        default="",
         help_text="Service name (e.g., 'Emergency Plumbing Repair')"
     )
     
     description = models.TextField(
+        blank=True,
+        default="",
         help_text="Detailed description of what's included in this service"
     )
     
@@ -135,8 +139,8 @@ class Service(models.Model):
         ordering = ['-created_at']
         verbose_name = 'Service'
         verbose_name_plural = 'Services'
-        # One provider can't create duplicate services
-        unique_together = ['provider', 'title']
+        # One provider can't offer multiple services in the same specialization
+        unique_together = ['provider', 'specialization']
     
     def __str__(self):
         return f"{self.title} by {self.provider.get_full_name() or self.provider.email}"

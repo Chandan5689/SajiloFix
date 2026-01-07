@@ -30,6 +30,10 @@ export default function ProviderMyBookings() {
     const [selectedBooking, setSelectedBooking] = useState(null);
     const [bookings, setBookings] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const pageSize = 10;
     const [error, setError] = useState(null);
     const [actionInProgress, setActionInProgress] = useState(null);
     const [declineReason, setDeclineReason] = useState("");
@@ -50,19 +54,32 @@ export default function ProviderMyBookings() {
         fetchBookings();
     }, []);
 
-    const fetchBookings = async () => {
+    const fetchBookings = async (targetPage = 1, append = false) => {
         try {
-            setLoading(true);
+            if (append) {
+                setLoadingMore(true);
+            } else {
+                setLoading(true);
+            }
             setError(null);
-            const data = await bookingsService.getProviderBookings();
-            setBookings(Array.isArray(data) ? data : []);
+            const data = await bookingsService.getProviderBookings({ page: targetPage, page_size: pageSize });
+            const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+            setBookings((prev) => append ? [...prev, ...list] : list);
+            setHasMore(Boolean(data?.next));
+            setPage(targetPage);
         } catch (err) {
             console.error("Error fetching provider bookings:", err);
             setError(err.error || "Failed to load bookings");
-            setBookings([]);
+            if (!append) setBookings([]);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
+    };
+
+    const handleLoadMore = () => {
+        if (!hasMore || loadingMore) return;
+        fetchBookings(page + 1, true);
     };
 
     // Format date and time
@@ -293,7 +310,7 @@ export default function ProviderMyBookings() {
         serviceLng
     );
     const radiusKm = selectedBooking?.service_radius ?? selectedBooking?.radius;
-    const isHourly = selectedBooking?.service_price_type === 'hourly';
+    const isHourly = selectedBooking?.service?.price_type === 'hourly';
     const estHours = selectedBooking?.estimated_hours;
     const isEmergency = !!selectedBooking?.is_emergency;
     const customerRating = selectedBooking?.customer_rating;
@@ -309,8 +326,7 @@ export default function ProviderMyBookings() {
         selectedBooking?.specialization?.name;
     const serviceTitle =
         selectedBooking?.service_title ?? selectedBooking?.service?.title;
-    const priceType =
-        selectedBooking?.service_price_type ?? selectedBooking?.service?.price_type;
+    const priceType = selectedBooking?.service?.price_type;
     const mapLinkService =
         serviceLat != null && serviceLng != null
             ? `https://www.openstreetmap.org/?mlat=${serviceLat}&mlon=${serviceLng}#map=17/${serviceLat}/${serviceLng}`
@@ -471,6 +487,18 @@ export default function ProviderMyBookings() {
                     </div>
                 )}
             </div>
+
+            {hasMore && (
+                <div className="mt-6 text-center">
+                    <button
+                        onClick={handleLoadMore}
+                        disabled={loadingMore}
+                        className="px-4 py-2 bg-gray-800 text-white rounded-md text-sm font-semibold hover:bg-gray-900 disabled:opacity-50"
+                    >
+                        {loadingMore ? "Loading..." : "Load More"}
+                    </button>
+                </div>
+            )}
 
             {/* Modal for Decline Confirmation */}
             {showDeclineModal && selectedBooking && (

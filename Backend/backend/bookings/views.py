@@ -2,19 +2,25 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.db.models import Q, Avg, Count
+from django.db.models import Q, Avg, Count, Sum, Case, When, Value, F, DecimalField
+from django.db.models.functions import Coalesce
+from django.core.cache import cache
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from users.authentication import ClerkAuthentication
 from .models import Service, Booking, BookingImage, Payment, Review, ProviderAvailability
 from .serializers import (
 	ServiceSerializer,
 	BookingSerializer,
+	BookingListSerializer,
 	BookingImageSerializer,
 	PaymentSerializer,
 	ReviewSerializer,
@@ -24,6 +30,15 @@ from .serializers import (
 )
 
 User = get_user_model()
+NPT = ZoneInfo("Asia/Kathmandu")
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+	"""Standard pagination for dashboards"""
+	page_size = 20
+	page_query_param = 'page'
+	page_size_query_param = 'page_size'
+	max_page_size = 100
 
 
 class IsServiceSeeker(BasePermission):
@@ -46,14 +61,14 @@ class MyBookingsView(generics.ListAPIView):
 	"""List bookings for the current customer"""
 	authentication_classes = [ClerkAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
-	serializer_class = BookingSerializer
+	serializer_class = BookingListSerializer
+	pagination_class = StandardResultsSetPagination
 
 	def get_queryset(self):
 		return (
 			Booking.objects
 			.filter(customer=self.request.user)
 			.select_related('service', 'provider', 'customer')
-			.prefetch_related('images')
 			.order_by('-created_at')
 		)
 
@@ -62,14 +77,14 @@ class ProviderBookingsView(generics.ListAPIView):
 	"""List bookings for the current provider"""
 	authentication_classes = [ClerkAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
-	serializer_class = BookingSerializer
+	serializer_class = BookingListSerializer
+	pagination_class = StandardResultsSetPagination
 
 	def get_queryset(self):
 		return (
 			Booking.objects
 			.filter(provider=self.request.user)
 			.select_related('service', 'provider', 'customer')
-			.prefetch_related('images')
 			.order_by('-created_at')
 		)
 
@@ -151,13 +166,35 @@ class ScheduleBookingView(APIView):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
 		if booking.status not in ['confirmed', 'pending']:
 			return Response({'error': 'Only confirmed/pending bookings can be scheduled'}, status=status.HTTP_400_BAD_REQUEST)
-		scheduled_date = request.data.get('scheduled_date')
-		scheduled_time = request.data.get('scheduled_time')
-		if not scheduled_date or not scheduled_time:
+		scheduled_date_str = request.data.get('scheduled_date')
+		scheduled_time_str = request.data.get('scheduled_time')
+		if not scheduled_date_str or not scheduled_time_str:
 			return Response({'error': 'scheduled_date and scheduled_time are required'}, status=status.HTTP_400_BAD_REQUEST)
 		try:
-			booking.scheduled_date = scheduled_date
-			booking.scheduled_time = scheduled_time
+			sched_date = datetime.strptime(scheduled_date_str, "%Y-%m-%d").date()
+		except ValueError:
+			return Response({'error': 'Invalid scheduled_date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+
+		sched_time = None
+		for fmt in ["%H:%M:%S", "%H:%M"]:
+			try:
+				sched_time = datetime.strptime(scheduled_time_str, fmt).time()
+				break
+			except ValueError:
+				continue
+		if sched_time is None:
+			return Response({'error': 'Invalid scheduled_time format. Use HH:MM or HH:MM:SS'}, status=status.HTTP_400_BAD_REQUEST)
+
+		now_npt = timezone.now().astimezone(NPT)
+		requested_dt = datetime.combine(sched_date, sched_time, tzinfo=NPT)
+		if requested_dt <= now_npt:
+			return Response({
+				'error': f'Scheduled time is in the past. Current Nepal time: {now_npt.strftime("%Y-%m-%d %H:%M:%S")}'
+			}, status=status.HTTP_400_BAD_REQUEST)
+
+		try:
+			booking.scheduled_date = sched_date
+			booking.scheduled_time = sched_time
 			booking.status = 'scheduled'
 			booking.save()
 		except Exception as e:
@@ -352,6 +389,16 @@ class CreateBookingView(generics.CreateAPIView):
 		service = serializer.validated_data.get('service')
 		if not service:
 			raise ValueError('Service is required')
+		preferred_date = serializer.validated_data.get('preferred_date')
+		preferred_time = serializer.validated_data.get('preferred_time')
+		if preferred_date and preferred_time:
+			try:
+				requested_dt = datetime.combine(preferred_date, preferred_time, tzinfo=NPT)
+			except Exception:
+				raise ValidationError({'preferred_time': 'Invalid preferred date/time'})
+			now_npt = timezone.now().astimezone(NPT)
+			if requested_dt <= now_npt:
+				raise ValidationError({'preferred_time': f'Selected time is in the past. Current Nepal time: {now_npt.strftime("%Y-%m-%d %H:%M:%S")}'})
 		serializer.save(customer=self.request.user, provider=service.provider)
 
 
@@ -423,6 +470,77 @@ class ProviderEarningsView(APIView):
 		})
 
 
+class UserDashboardStatsView(APIView):
+	"""Lightweight, cached stats for user dashboard."""
+	authentication_classes = [ClerkAuthentication]
+	permission_classes = [IsAuthenticated, IsServiceSeeker]
+
+	def get(self, request):
+		cache_key = f"user_dashboard_stats:{request.user.id}"
+		cached = cache.get(cache_key)
+		if cached:
+			return Response(cached)
+
+		qs = Booking.objects.filter(customer=request.user)
+		active_statuses = ['pending', 'confirmed', 'scheduled', 'in_progress', 'provider_completed', 'awaiting_customer']
+		agg = qs.aggregate(
+			total_bookings=Count('id'),
+			active_jobs=Count('id', filter=Q(status__in=active_statuses)),
+			completed_jobs=Count('id', filter=Q(status='completed')),
+			total_spent=Sum(
+				Coalesce(
+					F('final_price'),
+					F('quoted_price'),
+					Value(0),
+					output_field=DecimalField(max_digits=12, decimal_places=2)
+				),
+				output_field=DecimalField(max_digits=12, decimal_places=2)
+			),
+		)
+		data = {
+			"total_bookings": agg.get('total_bookings') or 0,
+			"active_jobs": agg.get('active_jobs') or 0,
+			"completed_jobs": agg.get('completed_jobs') or 0,
+			"total_spent": float(agg.get('total_spent') or 0),
+		}
+		cache.set(cache_key, data, timeout=60)
+		return Response(data)
+
+
+class ProviderDashboardStatsView(APIView):
+	"""Lightweight, cached stats for provider dashboard."""
+	authentication_classes = [ClerkAuthentication]
+	permission_classes = [IsAuthenticated, IsServiceProvider]
+
+	def get(self, request):
+		cache_key = f"provider_dashboard_stats:{request.user.id}"
+		cached = cache.get(cache_key)
+		if cached:
+			return Response(cached)
+
+		booking_qs = Booking.objects.filter(provider=request.user)
+		active_statuses = ['pending', 'confirmed', 'scheduled', 'in_progress']
+		review_qs = Review.objects.filter(provider=request.user)
+		payment_qs = Payment.objects.filter(provider=request.user, status='completed')
+
+		agg_bookings = booking_qs.aggregate(
+			total_jobs=Count('id', filter=Q(status='completed')),
+			active_jobs=Count('id', filter=Q(status__in=active_statuses)),
+		)
+		agg_payments = payment_qs.aggregate(total_earnings=Sum('provider_amount'))
+		agg_reviews = review_qs.aggregate(avg_rating=Avg('rating'), review_count=Count('id'))
+
+		data = {
+			"total_jobs": agg_bookings.get('total_jobs') or 0,
+			"active_jobs": agg_bookings.get('active_jobs') or 0,
+			"total_earnings": float(agg_payments.get('total_earnings') or 0),
+			"average_rating": round(agg_reviews.get('avg_rating') or 0, 1),
+			"review_count": agg_reviews.get('review_count') or 0,
+		}
+		cache.set(cache_key, data, timeout=60)
+		return Response(data)
+
+
 class CreateReviewView(generics.CreateAPIView):
 	"""Create a review for a completed booking (customer only)"""
 	authentication_classes = [ClerkAuthentication]
@@ -465,6 +583,7 @@ class MyProviderReviewsView(generics.ListAPIView):
 	authentication_classes = [ClerkAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
 	serializer_class = ReviewSerializer
+	pagination_class = StandardResultsSetPagination
 
 	def get_queryset(self):
 		qs = Review.objects.filter(provider=self.request.user).select_related('booking', 'customer', 'provider').order_by('-created_at')
@@ -504,9 +623,15 @@ class MyCustomerReviewsView(generics.ListAPIView):
 	authentication_classes = [ClerkAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
 	serializer_class = ReviewSerializer
+	pagination_class = StandardResultsSetPagination
 
 	def get_queryset(self):
-		return Review.objects.filter(customer=self.request.user).select_related('booking', 'customer', 'provider').order_by('-created_at')
+		return (
+			Review.objects
+			.filter(customer=self.request.user)
+			.select_related('booking', 'customer', 'provider')
+			.order_by('-created_at')
+		)
 
 
 class RespondReviewView(APIView):
@@ -767,3 +892,195 @@ class ProviderBookedSlotsView(APIView):
 			'date': date_str,
 			'booked_slots': booked_slots
 		}, status=status.HTTP_200_OK)
+
+class CheckBookingConflictView(APIView):
+	"""
+	Check for booking conflicts before creating a new booking.
+	
+	POST /bookings/check-conflict/
+	Required params:
+	- provider_id: int
+	- preferred_date: string (YYYY-MM-DD)
+	Optional params:
+	- preferred_time: string (HH:MM:SS)
+	- service_id: int
+	
+	Returns:
+	{
+		'valid': bool,
+		'conflicts': [],
+		'warnings': [],
+		'suggestions': {
+			'alternative_times': [],
+			'alternative_dates': [],
+		}
+	}
+	"""
+	authentication_classes = [ClerkAuthentication]
+	permission_classes = [IsAuthenticated, IsServiceSeeker]
+
+	def post(self, request):
+		provider_id = request.data.get('provider_id')
+		preferred_date = request.data.get('preferred_date')
+		preferred_time = request.data.get('preferred_time')
+		service_id = request.data.get('service_id')
+
+		if not provider_id or not preferred_date:
+			return Response(
+				{'error': 'provider_id and preferred_date are required'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+		try:
+			provider = get_object_or_404(User, id=provider_id, user_type='offer')
+		except User.DoesNotExist:
+			return Response(
+				{'error': 'Provider not found'},
+				status=status.HTTP_404_NOT_FOUND
+			)
+
+		# Import the conflict service
+		from .services import BookingConflictService
+
+		try:
+			service = Service.objects.get(id=service_id, provider=provider) if service_id else None
+		except Service.DoesNotExist:
+			return Response(
+				{'error': 'Service not found'},
+				status=status.HTTP_404_NOT_FOUND
+			)
+
+		# Validate the booking request
+		validation_result = BookingConflictService.validate_booking_request(
+			customer=request.user,
+			provider=provider,
+			service=service,
+			preferred_date=preferred_date,
+			preferred_time=preferred_time
+		)
+
+		return Response(validation_result, status=status.HTTP_200_OK)
+
+
+class GetAvailableTimeSlotsView(APIView):
+	"""
+	Get available time slots for a provider on a specific date.
+	
+	GET /bookings/available-slots/
+	Required params:
+	- provider_id: int
+	- date: string (YYYY-MM-DD)
+	
+	Returns:
+	{
+		'available_slots': [
+			{'time': 'HH:MM:SS', 'label': '09:00 AM', 'available': true/false}
+		],
+		'booked_times': [
+			{'time': 'HH:MM:SS', 'booking_id': int, 'customer': str}
+		],
+		'message': str
+	}
+	"""
+	authentication_classes = [ClerkAuthentication]
+	permission_classes = [IsAuthenticated, IsServiceSeeker]
+
+	def get(self, request):
+		provider_id = request.query_params.get('provider_id')
+		date_str = request.query_params.get('date')
+
+		if not provider_id or not date_str:
+			return Response(
+				{'error': 'provider_id and date are required'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+		try:
+			provider = get_object_or_404(User, id=provider_id, user_type='offer')
+		except User.DoesNotExist:
+			return Response(
+				{'error': 'Provider not found'},
+				status=status.HTTP_404_NOT_FOUND
+			)
+
+		from .services import BookingConflictService
+
+		try:
+			result = BookingConflictService.get_available_time_slots(
+				provider=provider,
+				date=date_str
+			)
+			return Response(result, status=status.HTTP_200_OK)
+		except Exception as e:
+			return Response(
+				{'error': str(e)},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+
+class GetAlternativeDatesView(APIView):
+	"""
+	Get alternative dates with available slots near a preferred date.
+	
+	GET /bookings/alternative-dates/
+	Required params:
+	- provider_id: int
+	- preferred_date: string (YYYY-MM-DD)
+	
+	Optional params:
+	- days_ahead: int (default 7)
+	
+	Returns:
+	{
+		'alternatives': [
+			{
+				'date': 'YYYY-MM-DD',
+				'day_name': 'Monday',
+				'available_slots_count': int,
+				'total_slots': int
+			}
+		],
+		'message': str
+	}
+	"""
+	authentication_classes = [ClerkAuthentication]
+	permission_classes = [IsAuthenticated, IsServiceSeeker]
+
+	def get(self, request):
+		provider_id = request.query_params.get('provider_id')
+		preferred_date = request.query_params.get('preferred_date')
+		days_ahead = request.query_params.get('days_ahead', 7)
+
+		if not provider_id or not preferred_date:
+			return Response(
+				{'error': 'provider_id and preferred_date are required'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+		try:
+			provider = get_object_or_404(User, id=provider_id, user_type='offer')
+		except User.DoesNotExist:
+			return Response(
+				{'error': 'Provider not found'},
+				status=status.HTTP_404_NOT_FOUND
+			)
+
+		from .services import BookingConflictService
+
+		try:
+			days_ahead = int(days_ahead)
+		except (ValueError, TypeError):
+			days_ahead = 7
+
+		try:
+			result = BookingConflictService.get_alternative_dates(
+				provider=provider,
+				preferred_date=preferred_date,
+				days_ahead=days_ahead
+			)
+			return Response(result, status=status.HTTP_200_OK)
+		except Exception as e:
+			return Response(
+				{'error': str(e)},
+				status=status.HTTP_400_BAD_REQUEST
+			)

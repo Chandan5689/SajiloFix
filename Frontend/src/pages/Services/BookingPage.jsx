@@ -3,8 +3,43 @@ import { useState, useEffect, useRef } from "react";
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import RatingBadge from "../../components/RatingBadge";
+import BookingConflictWarning from "../../components/BookingConflictWarning";
 import api from "../../api/axios";
 import bookingsService from "../../services/bookingsService";
+
+const getNepalNowParts = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kathmandu',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const lookup = {};
+  parts.forEach((p) => {
+    if (p.type !== 'literal') lookup[p.type] = p.value;
+  });
+
+  return {
+    date: `${lookup.year}-${lookup.month}-${lookup.day}`,
+    time: `${lookup.hour}:${lookup.minute}:${lookup.second}`,
+  };
+};
+
+const isPastNepalDateTime = (dateStr, timeStr, nepalNow) => {
+  if (!dateStr || !timeStr || !nepalNow?.date || !nepalNow?.time) return false;
+  if (dateStr < nepalNow.date) return true;
+  if (dateStr > nepalNow.date) return false;
+  const toSeconds = (t) => {
+    const [h, m, s = '0'] = t.split(':').map((n) => parseInt(n, 10) || 0);
+    return h * 3600 + m * 60 + s;
+  };
+  return toSeconds(timeStr) <= toSeconds(nepalNow.time);
+};
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -46,13 +81,21 @@ export default function BookingPage() {
   const [mapSearchQuery, setMapSearchQuery] = useState('');
   const [mapSearchLoading, setMapSearchLoading] = useState(false);
   const [mapSearchError, setMapSearchError] = useState(null);
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [addressSuggestLoading, setAddressSuggestLoading] = useState(false);
+  const [addressSuggestError, setAddressSuggestError] = useState(null);
+  const [addressDropdownOpen, setAddressDropdownOpen] = useState(false);
+  const [selectedLocationName, setSelectedLocationName] = useState(''); // Store human-readable address from reverse geocode
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const serviceMarkerRef = useRef(null);
+  const serviceRadiusCircleRef = useRef(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdBooking, setCreatedBooking] = useState(null);
-
-  const minDate = new Date().toISOString().split('T')[0];
+  const [conflictData, setConflictData] = useState(null);
+  const [checkingConflict, setCheckingConflict] = useState(false);
+  const [nepalNow, setNepalNow] = useState(getNepalNowParts());
+  const minDate = nepalNow.date;
 
   // Fetch provider details + availability (once per provider)
   useEffect(() => {
@@ -93,6 +136,14 @@ export default function BookingPage() {
     return () => { isMounted = false; };
   }, [id]);
 
+  // Refresh Nepal current date/time every minute for accurate gating
+  useEffect(() => {
+    const tick = () => setNepalNow(getNepalNowParts());
+    tick();
+    const intervalId = setInterval(tick, 60000);
+    return () => clearInterval(intervalId);
+  }, []);
+
   // Fetch booked slots when date changes (non-blocking for whole page)
   useEffect(() => {
     let isMounted = true;
@@ -121,6 +172,42 @@ export default function BookingPage() {
     return () => { isMounted = false; };
   }, [id, preferredDate]);
 
+  // Check for booking conflicts when date or time changes
+  useEffect(() => {
+    let isMounted = true;
+    const checkConflicts = async () => {
+      if (!provider || !preferredDate) {
+        setConflictData(null);
+        return;
+      }
+      
+      try {
+        setCheckingConflict(true);
+        const result = await bookingsService.checkBookingConflict(
+          provider.id,
+          preferredDate,
+          preferredTime || null,
+          selectedServiceId || null
+        );
+        
+        if (isMounted) {
+          setConflictData(result);
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        console.error('Error checking booking conflict:', err);
+        // Don't show error for conflict check - it's informational
+      } finally {
+        if (isMounted) {
+          setCheckingConflict(false);
+        }
+      }
+    };
+
+    checkConflicts();
+    return () => { isMounted = false; };
+  }, [provider, preferredDate, preferredTime, selectedServiceId]);
+
   // Generate hourly time slots (8 AM to 5 PM) with 24h value for backend
   const generateTimeSlots = () => {
     const slots = [];
@@ -142,7 +229,7 @@ export default function BookingPage() {
     return daysOfWeek[date.getDay()];
   };
 
-  // Simple geocoding via OpenStreetMap Nominatim
+  // Simple geocoding via OpenStreetMap Nominatim (address → lat/lng)
   const geocodeAddress = async (query) => {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=np&q=${encodeURIComponent(query)}`;
     const res = await fetch(url, {
@@ -154,9 +241,47 @@ export default function BookingPage() {
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) {
       const first = data[0];
-      return { lat: parseFloat(first.lat), lng: parseFloat(first.lon) };
+      return { 
+        lat: parseFloat(first.lat), 
+        lng: parseFloat(first.lon),
+        display_name: first.display_name || null
+      };
     }
     return null;
+  };
+
+  // Reverse geocoding via OpenStreetMap Nominatim (lat/lng → address)
+  const reverseGeocodeLocation = async (lat, lng) => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
+      const res = await fetch(url, {
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      if (!res.ok) throw new Error('Failed to reverse geocode');
+      const data = await res.json();
+      return data?.display_name || null;
+    } catch (err) {
+      console.error('Reverse geocoding failed:', err);
+      return null;
+    }
+  };
+
+  // Fetch address suggestions for autocomplete (top 5)
+  const fetchAddressSuggestions = async (query) => {
+    if (!query || query.trim().length < 3) return [];
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=np&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error('Failed to fetch suggestions');
+    const data = await res.json();
+    return Array.isArray(data)
+      ? data.map((item) => ({
+          label: item.display_name,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon),
+        }))
+      : [];
   };
 
   // Haversine distance in kilometers
@@ -169,6 +294,25 @@ export default function BookingPage() {
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return +(R * c).toFixed(2);
+  };
+
+  // Apply a selected location to state, marker, and map
+  const applySelectedLocation = (lat, lng, label = null) => {
+    setServiceLat(lat);
+    setServiceLng(lng);
+    if (label) {
+      setSelectedLocationName(label);
+      setAddress(label);
+    }
+    setAddressDropdownOpen(false);
+    setAddressSuggestions([]);
+    setAddressSuggestError(null);
+    if (serviceMarkerRef.current) {
+      serviceMarkerRef.current.setLatLng([lat, lng]);
+    }
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([lat, lng], 15, { animate: true });
+    }
   };
 
   const handleMapSearch = async () => {
@@ -187,8 +331,8 @@ export default function BookingPage() {
         setMapSearchError('No results found. Try a more specific address.');
         return;
       }
-      setServiceLat(coords.lat);
-      setServiceLng(coords.lng);
+      applySelectedLocation(coords.lat, coords.lng, coords.display_name);
+      setMapSearchQuery(''); // Clear search after setting location
     } catch (err) {
       console.error('Map search failed', err);
       setMapSearchError('Failed to search location');
@@ -196,6 +340,47 @@ export default function BookingPage() {
       setMapSearchLoading(false);
     }
   };
+
+  const handleSelectAddressSuggestion = (item) => {
+    if (!item) return;
+    applySelectedLocation(item.lat, item.lng, item.label);
+    setAddressSuggestions([]);
+    setAddressDropdownOpen(false);
+  };
+
+  // Debounced address suggestions as user types in the service address field
+  useEffect(() => {
+    const query = address?.trim();
+    if (!query || query.length < 3) {
+      setAddressSuggestions([]);
+      setAddressSuggestError(null);
+      setAddressDropdownOpen(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        setAddressSuggestLoading(true);
+        const suggestions = await fetchAddressSuggestions(query);
+        if (cancelled) return;
+        setAddressSuggestions(suggestions);
+        setAddressSuggestError(null);
+        setAddressDropdownOpen(suggestions.length > 0);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Suggestion fetch failed', err);
+        setAddressSuggestError('Could not fetch suggestions');
+      } finally {
+        if (!cancelled) setAddressSuggestLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [address]);
 
   const validateStep = (step) => {
     // Clear previous error
@@ -207,6 +392,10 @@ export default function BookingPage() {
       }
       if (!preferredDate || !preferredTime) {
         setError("Please select preferred date and time");
+        return false;
+      }
+      if (preferredDate < minDate) {
+        setError("Please select today or a future date (Nepal time)");
         return false;
       }
       const dayCheck = isProviderAvailableOnDay(preferredDate);
@@ -319,18 +508,31 @@ export default function BookingPage() {
     const marker = L.marker(center, { draggable: true }).addTo(map);
     serviceMarkerRef.current = marker;
 
+    // Helper to update location and reverse geocode
+    const updateLocationAndReverseGeocode = async (lat, lng) => {
+      setServiceLat(lat);
+      setServiceLng(lng);
+      // Reverse geocode to get address name
+      const addressName = await reverseGeocodeLocation(lat, lng);
+      if (addressName) {
+        setSelectedLocationName(addressName);
+        // Only update address field if it's empty or user hasn't manually edited it
+        if (!address || address.trim() === '') {
+          setAddress(addressName);
+        }
+      }
+    };
+
     marker.on('dragend', (e) => {
       const pos = e.target.getLatLng();
-      setServiceLat(pos.lat);
-      setServiceLng(pos.lng);
+      updateLocationAndReverseGeocode(pos.lat, pos.lng);
     });
 
     // Click to set marker
     map.on('click', (e) => {
       const { lat, lng } = e.latlng;
       marker.setLatLng([lat, lng]);
-      setServiceLat(lat);
-      setServiceLng(lng);
+      updateLocationAndReverseGeocode(lat, lng);
     });
 
     mapInstanceRef.current = map;
@@ -349,6 +551,47 @@ export default function BookingPage() {
       mapInstanceRef.current.setView([serviceLat, serviceLng], 14, { animate: true });
     }
   }, [serviceLat, serviceLng]);
+
+  // Update marker tooltip with the latest selected address label
+  useEffect(() => {
+    const marker = serviceMarkerRef.current;
+    if (!marker) return;
+    marker.unbindTooltip();
+    const label = selectedLocationName || 'Selected location';
+    marker.bindTooltip(label, { direction: 'top', offset: [0, -10] });
+  }, [selectedLocationName]);
+
+  // Derived service/provider values (safe defaults so hooks above remain stable)
+  const providerServices = provider?.services || [];
+  const providerName = `${provider?.first_name ?? ''} ${provider?.last_name ?? ''}`.trim();
+  const providerSpecialty = provider?.specializations?.[0] || 'Service Provider';
+  const selectedService = providerServices.find((s) => String(s.id) === String(selectedServiceId));
+  const priceNumber = selectedService?.base_price ?? providerServices[0]?.base_price ?? null;
+  const priceType = selectedService?.price_type ?? providerServices[0]?.price_type ?? 'fixed';
+  const minimumCharge = selectedService?.minimum_charge ?? providerServices[0]?.minimum_charge ?? 0;
+  const isHourly = priceType === 'hourly';
+  const hourlyRate = priceNumber != null ? Number(priceNumber) : null;
+  const hoursNum = Number(estimatedHours) || 0;
+
+  // Draw/refresh service radius circle on the map
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (serviceRadiusCircleRef.current) {
+      map.removeLayer(serviceRadiusCircleRef.current);
+      serviceRadiusCircleRef.current = null;
+    }
+    if (serviceLat != null && serviceLng != null && selectedService?.service_radius) {
+      const circle = L.circle([serviceLat, serviceLng], {
+        radius: Number(selectedService.service_radius) * 1000,
+        color: '#16a34a',
+        fillColor: '#bbf7d0',
+        fillOpacity: 0.2,
+        weight: 1,
+      }).addTo(map);
+      serviceRadiusCircleRef.current = circle;
+    }
+  }, [serviceLat, serviceLng, selectedService?.service_radius]);
 
   // Check if provider is available on a specific day of the week
   const isProviderAvailableOnDay = (dateString) => {
@@ -385,6 +628,10 @@ export default function BookingPage() {
 
   // Check if a time slot is available based on provider schedule and booked slots (single-slot check)
   const isSlotAvailable = (slotValue) => {
+    if (isPastNepalDateTime(preferredDate, slotValue, nepalNow)) {
+      return false;
+    }
+
     if (!preferredDate || !providerAvailability) return true; // Default to available
     
     // Get day of week for selected date
@@ -411,7 +658,7 @@ export default function BookingPage() {
     if (breakStart && breakEnd && slotValue >= breakStart && slotValue < breakEnd) {
       return false;
     }
-    
+
     // Check if slot is already booked
     const isBooked = bookedSlots.some(slot => slot.time === slotValue);
     if (isBooked) return false;
@@ -445,15 +692,18 @@ export default function BookingPage() {
     );
   }
 
-  const providerName = `${provider.first_name} ${provider.last_name}`.trim();
-  const providerSpecialty = provider.specializations?.[0] || 'Service Provider';
-  const selectedService = provider.services?.find((s) => String(s.id) === String(selectedServiceId));
-  const priceNumber = selectedService?.base_price ?? provider.services?.[0]?.base_price ?? null;
-  const priceType = selectedService?.price_type ?? provider.services?.[0]?.price_type ?? 'fixed';
-  const minimumCharge = selectedService?.minimum_charge ?? provider.services?.[0]?.minimum_charge ?? 0;
-  const isHourly = priceType === 'hourly';
-  const hourlyRate = priceNumber != null ? Number(priceNumber) : null;
-  const hoursNum = Number(estimatedHours) || 0;
+  // Handle selecting an alternative time slot
+  const handleSelectAlternativeTime = (time) => {
+    setPreferredTime(time);
+    setError(null);
+  };
+
+  // Handle selecting an alternative date
+  const handleSelectAlternativeDate = (date) => {
+    setPreferredDate(date);
+    setPreferredTime(''); // Reset time when date changes
+    setError(null);
+  };
 
   const allTimeSlots = generateTimeSlots();
   const dayAvailability = isProviderAvailableOnDay(preferredDate);
@@ -462,19 +712,35 @@ export default function BookingPage() {
     available: isSlotAvailable(slot.value),
     booked: bookedSlots.some(s => s.time === slot.value)
   }));
+  const availableSlotsCount = timeSlots.filter((s) => s.available).length;
 
   const preferredTimeLabel = preferredTime
     ? (timeSlots.find((t) => t.value === preferredTime)?.label || preferredTime)
     : "";
 
+  const isPastNepalSlot = isPastNepalDateTime(preferredDate, preferredTime, nepalNow);
+
   const dateTimeSummary =
     preferredDate && preferredTime
-      ? `${preferredDate} at ${preferredTimeLabel}${isHourly && hoursNum > 0 ? ` (${hoursNum} hour${hoursNum !== 1 ? 's' : ''})` : ''}`
+      ? `${preferredDate} at ${preferredTimeLabel}`
       : "Not selected";
   const estimatedTotal = isHourly && hourlyRate != null ? Number((hoursNum * hourlyRate).toFixed(2)) : (hourlyRate != null ? Number(hourlyRate) : null);
   const priceLabel = priceNumber != null
     ? `NPR ${priceNumber}${isHourly ? '/hour' : ''}`
     : 'N/A';
+
+  // Booking summary math
+  const effectiveBase = estimatedTotal != null ? estimatedTotal : (priceNumber != null ? Number(priceNumber) : null);
+  const vatRate = 0.13;
+  // VAT removed from display for now; keep calculation comment for future use
+  // const vatAmount = effectiveBase != null ? Number((effectiveBase * vatRate).toFixed(2)) : null;
+  const vatAmount = null;
+  const totalAmount = effectiveBase;
+  const appointmentDateLabel = preferredDate || '—';
+  const appointmentTimeLabel = preferredTimeLabel || '—';
+  const appointmentDuration = isHourly && hoursNum > 0 ? `${hoursNum} hour${hoursNum !== 1 ? 's' : ''}` : selectedService?.estimated_duration ? `${selectedService.estimated_duration} hrs` : '—';
+  const summaryServiceName = selectedService?.specialization_name || selectedService?.title || providerSpecialty;
+  const formatNpr = (val) => (val != null ? `NPR ${Number(val).toLocaleString('en-US')}` : '—');
 
   const submitBooking = async () => {
     if (!selectedServiceId) {
@@ -505,6 +771,11 @@ export default function BookingPage() {
 
     if (!preferredDate || !preferredTime) {
       setError("Please select preferred date and time");
+      return;
+    }
+
+    if (isPastNepalDateTime(preferredDate, preferredTime, nepalNow)) {
+      setError(`Selected time is in the past for Nepal time (${nepalNow.time}). Please pick a future slot.`);
       return;
     }
 
@@ -577,37 +848,38 @@ export default function BookingPage() {
   };
 
   return (
-    <div className=" bg-gray-50 p-6 flex justify-center">
-      <div className="bg-white rounded-md shadow-md max-w-3xl w-full p-6 ">
-        {/* Header with provider info */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <img
-              src={provider.profile_picture || "https://randomuser.me/api/portraits/men/32.jpg"}
-              alt={providerName}
-              className="w-14 h-14 rounded-full object-cover"
-            />
-            <div>
-              <h2 className="text-xl font-semibold">Book {providerName}</h2>
-              <p className="text-blue-600">
-                {providerSpecialty} &bull; {priceLabel}
-              </p>
-              <RatingBadge
-                providerId={provider.id}
-                fallbackRating={provider.average_rating}
-                fallbackCount={provider.review_count}
-                compact
+    <div className="bg-gray-50 min-h-screen p-6 md:p-10">
+      <div className="max-w-6xl mx-auto grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <div className="bg-white rounded-2xl shadow-lg w-full p-6 lg:p-7">
+          {/* Header with provider info */}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <img
+                src={provider.profile_picture || "https://randomuser.me/api/portraits/men/32.jpg"}
+                alt={providerName}
+                className="w-14 h-14 rounded-full object-cover"
               />
+              <div className="space-y-1">
+                <h2 className="text-2xl font-semibold text-gray-900">Book {providerName}</h2>
+                <p className="text-blue-600 font-semibold">
+                  {providerSpecialty} • {priceLabel}
+                </p>
+                <RatingBadge
+                  providerId={provider.id}
+                  fallbackRating={provider.average_rating}
+                  fallbackCount={provider.review_count}
+                  compact
+                />
+              </div>
             </div>
+            <button
+              onClick={() => navigate(-1)}
+              className="text-gray-500 hover:text-gray-800 text-2xl font-bold leading-none"
+              aria-label="Close booking form"
+            >
+              &times;
+            </button>
           </div>
-          <button
-            onClick={() => navigate(-1)}
-            className="text-gray-500 hover:text-gray-800 text-2xl font-bold leading-none"
-            aria-label="Close booking form"
-          >
-            &times;
-          </button>
-        </div>
 
         {/* Progress indicator */}
         <div className="flex items-center gap-3 mb-4 text-sm font-medium text-gray-700">
@@ -634,7 +906,7 @@ export default function BookingPage() {
               {/* Service Picker (from provider services) */}
               <div>
                 <label htmlFor="serviceType" className="block font-medium mb-1">
-                  Service *
+                  Select Service Type *
                 </label>
                 <select
                   id="serviceType"
@@ -646,13 +918,29 @@ export default function BookingPage() {
                   <option value="" disabled>
                     Select a service
                   </option>
-                  {provider.services?.map((srv) => (
-                    <option key={srv.id} value={srv.id}>
-                      {srv.title} {srv.base_price ? `• NPR ${srv.base_price}` : ""}
-                      {srv.price_type ? ` (${srv.price_type})` : ""}
-                    </option>
-                  ))}
+                  {provider.services?.map((srv) => {
+                    const serviceSpecialization = srv.specialization_name || srv.specialization?.name || provider.specializations?.[0] || 'Service';
+                    const priceDisplay = srv.base_price ? `NPR ${srv.base_price}` : 'Contact for price';
+                    const priceTypeLabel = srv.price_type === 'hourly' ? '/hour' : 'fixed';
+                    return (
+                      <option key={srv.id} value={srv.id}>
+                        {serviceSpecialization} • {priceDisplay} ({priceTypeLabel})
+                      </option>
+                    );
+                  })}
                 </select>
+                {selectedService && (
+                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <p className="text-xs text-gray-600 mb-1">Selected Service Details:</p>
+                    <p className="font-semibold text-gray-900">
+                      {selectedService.specialization_name || selectedService.specialization?.name || providerSpecialty}
+                    </p>
+                    <p className="text-sm text-blue-600 font-semibold mt-1">
+                      {selectedService.base_price ? `NPR ${selectedService.base_price}` : 'Contact for price'}
+                      {selectedService.price_type ? ` (${selectedService.price_type})` : ''}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Price Estimate */}
@@ -764,6 +1052,7 @@ export default function BookingPage() {
                       <span className="ml-2 text-xs text-gray-500">(checking availability...)</span>
                     )}
                   </label>
+                 
                     <select
                       id="preferredTime"
                       required
@@ -798,6 +1087,16 @@ export default function BookingPage() {
                     )}
                 </div>
               </div>
+
+              {/* Booking Conflict Detection Warning */}
+              {preferredDate && preferredTime && availableSlotsCount > 0 && (
+                <BookingConflictWarning
+                  conflictData={conflictData}
+                  onSelectAlternativeTime={handleSelectAlternativeTime}
+                  onSelectAlternativeDate={handleSelectAlternativeDate}
+                  isPastSlot={isPastNepalSlot}
+                />
+              )}
             </>
           )}
 
@@ -848,7 +1147,7 @@ export default function BookingPage() {
                       onChange={(e) => setEmail(e.target.value)}
                     />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label htmlFor="address" className="block font-medium mb-1">
                       Service Address *
                     </label>
@@ -860,7 +1159,29 @@ export default function BookingPage() {
                       className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400"
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
+                      onFocus={() => setAddressDropdownOpen(addressSuggestions.length > 0)}
+                      onBlur={() => setTimeout(() => setAddressDropdownOpen(false), 150)}
                     />
+                    {addressSuggestLoading && (
+                      <p className="text-xs text-gray-500 mt-1">Fetching location suggestions...</p>
+                    )}
+                    {addressSuggestError && (
+                      <p className="text-xs text-red-600 mt-1">{addressSuggestError}</p>
+                    )}
+                    {addressDropdownOpen && addressSuggestions.length > 0 && (
+                      <div className="mt-1 border border-gray-200 rounded-md shadow bg-white max-h-48 overflow-y-auto divide-y divide-gray-100 z-20 relative">
+                        {addressSuggestions.map((s, idx) => (
+                          <div
+                            key={`${s.label}-${idx}`}
+                            className="px-3 py-2 text-sm cursor-pointer hover:bg-green-50"
+                            onMouseDown={() => handleSelectAddressSuggestion(s)}
+                          >
+                            <p className="text-gray-900 font-semibold line-clamp-1">{s.label}</p>
+                            <p className="text-xs text-gray-500">{s.lat.toFixed(5)}, {s.lng.toFixed(5)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="serviceCity" className="block font-medium mb-1">
@@ -904,8 +1225,7 @@ export default function BookingPage() {
                               setServiceLng(null);
                               return;
                             }
-                            setServiceLat(coords.lat);
-                            setServiceLng(coords.lng);
+                            applySelectedLocation(coords.lat, coords.lng, coords.display_name || address);
                           } catch (err) {
                             console.error('Geocode failed', err);
                             setGeocodeError('Failed to locate address');
@@ -929,8 +1249,13 @@ export default function BookingPage() {
                           navigator.geolocation.getCurrentPosition(
                             (pos) => {
                               const { latitude, longitude } = pos.coords;
-                              setServiceLat(latitude);
-                              setServiceLng(longitude);
+                              applySelectedLocation(latitude, longitude, selectedLocationName || address);
+                              reverseGeocodeLocation(latitude, longitude).then((name) => {
+                                if (name) {
+                                  setSelectedLocationName(name);
+                                  setAddress((prev) => (prev && prev.trim().length > 0 ? prev : name));
+                                }
+                              });
                               setGeocodeLoading(false);
                             },
                             (err) => {
@@ -961,25 +1286,51 @@ export default function BookingPage() {
 
               {/* Distance & Radius */}
               <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-                <h3 className="font-semibold text-gray-900 mb-2">Distance & Coverage</h3>
-                <div className="text-sm text-gray-800 space-y-1">
-                  <p>
-                    Provider location: {providerLat != null && providerLng != null ? `${providerLat}, ${providerLng}` : 'Not located'}
-                  </p>
-                  <p>
-                    Service location: {serviceLat != null && serviceLng != null ? `${serviceLat}, ${serviceLng}` : 'Not located'}
-                  </p>
-                  <p>
-                    Distance: {distanceKm != null ? `${distanceKm} km` : '—'}
-                  </p>
+                <h3 className="font-semibold text-gray-900 mb-3">📍 Selected Location Details</h3>
+                <div className="space-y-3">
+                  {/* Service Location */}
+                  <div className="bg-white border border-green-200 rounded p-3">
+                    <p className="text-xs text-gray-600 font-semibold mb-1">SERVICE LOCATION</p>
+                    {selectedLocationName || address ? (
+                      <p className="text-sm font-semibold text-gray-900 mb-1">{selectedLocationName || address}</p>
+                    ) : (
+                      <p className="text-sm text-gray-500 italic">Not selected</p>
+                    )}
+                    {serviceLat != null && serviceLng != null && (
+                      <p className="text-xs text-gray-600">
+                        Coordinates: <span className="font-mono">{serviceLat.toFixed(6)}, {serviceLng.toFixed(6)}</span>
+                      </p>
+                    )}
+                    {(serviceLat == null || serviceLng == null) && (
+                      <p className="text-xs text-orange-600">Click on the map or search to set location</p>
+                    )}
+                  </div>
+
+                  {/* Provider Location */}
+                  <div className="bg-white border border-blue-200 rounded p-3">
+                    <p className="text-xs text-gray-600 font-semibold mb-1">PROVIDER LOCATION</p>
+                    {providerLat != null && providerLng != null && (
+                      <p className="text-xs text-gray-600">
+                        <span className="font-mono">{providerLat.toFixed(6)}, {providerLng.toFixed(6)}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Distance */}
+                  {serviceLat != null && serviceLng != null && distanceKm != null && (
+                    <div className="bg-white border border-purple-200 rounded p-3">
+                      <p className="text-xs text-gray-600 font-semibold mb-1">CALCULATED DISTANCE</p>
+                      <p className="text-lg font-bold text-purple-700">{distanceKm} km</p>
+                      {selectedService?.service_radius && (
+                        <p className={`text-xs mt-2 font-semibold ${distanceKm <= selectedService.service_radius ? 'text-green-700' : 'text-red-700'}`}>
+                          {distanceKm <= selectedService.service_radius
+                            ? `✓ Within service radius (${selectedService.service_radius} km)`
+                            : `✗ Outside service radius (${selectedService.service_radius} km). Provider may add travel charges.`}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {selectedService?.service_radius && distanceKm != null && (
-                  <p className={`mt-2 text-xs ${distanceKm <= selectedService.service_radius ? 'text-green-700' : 'text-red-700'}`}>
-                    {distanceKm <= selectedService.service_radius
-                      ? `Within service radius (${selectedService.service_radius} km)`
-                      : `Outside service radius (${selectedService.service_radius} km). Provider may decline or add travel charges.`}
-                  </p>
-                )}
               </div>
 
               {/* Inline Map Picker */}
@@ -1007,6 +1358,23 @@ export default function BookingPage() {
                     className={`px-4 py-2 rounded-md text-sm font-semibold border ${mapSearchLoading ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white border-green-600 hover:bg-green-700'}`}
                   >
                     {mapSearchLoading ? 'Searching...' : 'Search & Set'}
+                  </button>
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-md text-sm font-semibold border bg-white text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      const map = mapInstanceRef.current;
+                      if (!map) return;
+                      const target = (serviceLat != null && serviceLng != null)
+                        ? [serviceLat, serviceLng]
+                        : (providerLat != null && providerLng != null ? [providerLat, providerLng] : [27.7172, 85.3240]);
+                      map.setView(target, 15, { animate: true });
+                      if (serviceMarkerRef.current && serviceLat != null && serviceLng != null) {
+                        serviceMarkerRef.current.setLatLng(target);
+                      }
+                    }}
+                  >
+                    Zoom to location
                   </button>
                 </div>
                 {mapSearchError && (
@@ -1187,11 +1555,13 @@ export default function BookingPage() {
               {/* Booking Summary */}
               <div className="bg-gray-50 border border-gray-300 rounded p-4 space-y-2 text-sm text-gray-700">
                 <h3 className="font-semibold text-gray-900 mb-2">Review & Confirm</h3>
-                <div className="flex justify-between"><span>Service:</span><span>{selectedService?.title || "Not selected"}</span></div>
+                <div className="flex justify-between"><span>Service:</span><span>{selectedService?.specialization_name || selectedService?.specialization?.name || providerSpecialty}</span></div>
                 <div className="flex justify-between"><span>Date &amp; Time:</span><span>{dateTimeSummary}</span></div>
+                <div className="flex justify-between"><span>Duration:</span><span>{appointmentDuration}</span></div>
                 <div className="flex justify-between"><span>Location:</span><span>{address || '—'}</span></div>
                 <div className="flex justify-between"><span>City/District:</span><span>{serviceCity || '—'} {serviceDistrict ? `(${serviceDistrict})` : ''}</span></div>
-                <div className="flex justify-between"><span>Contact:</span><span>{fullName} / {phone}</span></div>
+                <div className="flex justify-between"><span>Contact Name:</span><span>{fullName || '—'}</span></div>
+                <div className="flex justify-between"><span>Contact Phone:</span><span>{phone || '—'}</span></div>
                 <div className="flex justify-between"><span>Rate:</span><span className="text-blue-600 font-semibold">{priceLabel}</span></div>
                 <div className="flex justify-between"><span>{isHourly ? 'Estimated Total:' : 'Total:'}</span><span className="font-semibold text-gray-900">{isHourly && hourlyRate != null ? `NPR ${estimatedTotal}${minimumCharge > 0 && estimatedTotal < minimumCharge ? ` (min NPR ${minimumCharge})` : ''}` : (hourlyRate != null ? `NPR ${hourlyRate}` : 'N/A')}</span></div>
                 {specialInstructions && (
@@ -1236,6 +1606,62 @@ export default function BookingPage() {
           </div>
         </form>
       </div>
+
+      <aside className="bg-white rounded-2xl shadow-lg p-5 lg:p-6 h-fit sticky top-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-3">Booking Summary</h3>
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm text-gray-600">Service</p>
+            <p className="text-base font-semibold text-gray-900">{summaryServiceName}</p>
+          </div>
+
+          <div className="border-y border-gray-200 py-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Base Price</span>
+              <span className="font-semibold text-gray-900">{formatNpr(effectiveBase)}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-800">Estimated Amount</span>
+            <span className="text-xl font-bold text-blue-700">{totalAmount != null ? formatNpr(totalAmount) : '—'}</span>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+            <p className="text-sm font-semibold text-blue-900">Appointment Details</p>
+            <div className="space-y-1 text-sm text-gray-800">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600">Date</span>
+                <span className="font-semibold">{appointmentDateLabel}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600">Time</span>
+                <span className="font-semibold">{appointmentTimeLabel}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600">Duration</span>
+                <span className="font-semibold">{appointmentDuration}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* <div className="space-y-2 text-sm text-gray-700">
+            <div className="flex items-center gap-2">
+              <span className="text-green-600">🛡️</span>
+              <span>Service Guarantee Included</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-blue-600">🛠️</span>
+              <span>Professional Equipment Provided</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-purple-600">⏱️</span>
+              <span>On-time Arrival Guaranteed</span>
+            </div>
+          </div> */}
+        </div>
+      </aside>
+    </div>
 
       {/* Success Modal */}
       {showSuccessModal && createdBooking && (

@@ -3,7 +3,7 @@ import StarRating from './StarRating';
 import { FaUser } from 'react-icons/fa';
 import bookingsService from '../../../../services/bookingsService';
 
-const ReviewList = ({ reviews, loading = false }) => {
+const ReviewList = ({ reviews, loading = false, totalCount = null }) => {
     const [responding, setResponding] = useState({}); // { [id]: boolean }
     const [responses, setResponses] = useState({});   // { [id]: string }
     const [errors, setErrors] = useState({});         // { [id]: string }
@@ -38,7 +38,9 @@ const ReviewList = ({ reviews, loading = false }) => {
         <div className="bg-white rounded-lg shadow-xl p-6">
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-semibold text-gray-900">Customer Reviews</h2>
-                <span className="text-sm text-gray-600">Showing {reviews.length} of {reviews.length} reviews</span>
+                <span className="text-sm text-gray-600">
+                    Showing {reviews.length}{totalCount != null ? ` of ${totalCount}` : ''} reviews
+                </span>
             </div>
 
             <div className="space-y-6">
@@ -49,7 +51,9 @@ const ReviewList = ({ reviews, loading = false }) => {
                         <p>No reviews found for this filter</p>
                     </div>
                 ) : (
-                    reviews.map((review) => (
+                    reviews.map((review) => {
+                        const customerName = review.customer_name || review.customer?.full_name || review.customer?.name || 'Customer';
+                        return (
                         <div key={review.id} className="border rounded-lg p-6 border-gray-200 pb-6 last:border-b-0 last:pb-0">
                             <div className="flex flex-col sm:flex-row justify-between items-start mb-2">
                                 <div className='flex'>
@@ -58,7 +62,7 @@ const ReviewList = ({ reviews, loading = false }) => {
                                         <FaUser className='' />
                                     </div>
                                     <div className='ml-2'>
-                                        <h3 className="font-semibold text-gray-900">{review.customer_name || review.customer?.full_name || 'Customer'}</h3>
+                                        <h3 className="font-semibold text-gray-900">{customerName}</h3>
                                         <div className="flex items-center space-x-2 mt-1">
                                             <StarRating rating={review.rating} />
                                             <span className="text-sm text-gray-500">{review.created_at ? new Date(review.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''}</span>
@@ -110,7 +114,8 @@ const ReviewList = ({ reviews, loading = false }) => {
                                 </div>
                             )}
                         </div>
-                    ))
+                        );
+                    })
                 )}
 
             </div>
