@@ -7,6 +7,8 @@ from .views import (
     UploadBookingImagesView,
     MyPaymentsView,
     ProviderEarningsView,
+    UserDashboardStatsView,
+    ProviderDashboardStatsView,
     CreateReviewView,
     MyProviderReviewsView,
     MyCustomerReviewsView,
@@ -31,6 +33,9 @@ from .views import (
     ProviderBookedSlotsView,
     ProviderListView,
     ProviderDetailView,
+    CheckBookingConflictView,
+    GetAvailableTimeSlotsView,
+    GetAlternativeDatesView,
 )
 
 urlpatterns = [
@@ -52,6 +57,10 @@ urlpatterns = [
     # Payments
     path('payments/my/', MyPaymentsView.as_view(), name='payments-my'),
     path('payments/provider/earnings/', ProviderEarningsView.as_view(), name='payments-provider-earnings'),
+
+    # Dashboard stats
+    path('dashboard/stats/user/', UserDashboardStatsView.as_view(), name='dashboard-stats-user'),
+    path('dashboard/stats/provider/', ProviderDashboardStatsView.as_view(), name='dashboard-stats-provider'),
 
     # Reviews
     path('bookings/<int:booking_id>/review/create/', CreateReviewView.as_view(), name='review-create'),
@@ -76,4 +85,9 @@ urlpatterns = [
     path('providers/<int:id>/', ProviderDetailView.as_view(), name='providers-detail'),
     path('providers/<int:provider_id>/availability/', ProviderAvailabilityPublicView.as_view(), name='provider-availability-public'),
     path('providers/<int:provider_id>/booked-slots/', ProviderBookedSlotsView.as_view(), name='provider-booked-slots'),
+
+    # Booking Conflict Detection
+    path('check-conflict/', CheckBookingConflictView.as_view(), name='check-booking-conflict'),
+    path('available-slots/', GetAvailableTimeSlotsView.as_view(), name='get-available-slots'),
+    path('alternative-dates/', GetAlternativeDatesView.as_view(), name='get-alternative-dates'),
 ]
