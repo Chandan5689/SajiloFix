@@ -95,7 +95,9 @@ class BookingDetailView(generics.RetrieveAPIView):
 	permission_classes = [IsAuthenticated]
 	serializer_class = BookingSerializer
 	queryset = (
-		Booking.objects.select_related('service', 'provider', 'customer').prefetch_related('images')
+		Booking.objects
+		.select_related('service', 'provider', 'customer')
+		.prefetch_related('images', 'booking_services__service')
 	)
 
 	def get_queryset(self):
@@ -386,9 +388,8 @@ class CreateBookingView(generics.CreateAPIView):
 	serializer_class = BookingSerializer
 
 	def perform_create(self, serializer):
-		service = serializer.validated_data.get('service')
-		if not service:
-			raise ValueError('Service is required')
+		# BookingSerializer creates BookingService snapshots and sets provider
+		primary_service = serializer.validated_data.get('service')
 		preferred_date = serializer.validated_data.get('preferred_date')
 		preferred_time = serializer.validated_data.get('preferred_time')
 		if preferred_date and preferred_time:
@@ -399,7 +400,7 @@ class CreateBookingView(generics.CreateAPIView):
 			now_npt = timezone.now().astimezone(NPT)
 			if requested_dt <= now_npt:
 				raise ValidationError({'preferred_time': f'Selected time is in the past. Current Nepal time: {now_npt.strftime("%Y-%m-%d %H:%M:%S")}'})
-		serializer.save(customer=self.request.user, provider=service.provider)
+		serializer.save(customer=self.request.user, provider=primary_service.provider)
 
 
 class UploadBookingImagesView(APIView):

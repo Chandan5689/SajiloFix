@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.db.models import Avg, Count
 from typing import Optional
-from .models import Service, Booking, BookingImage, Payment, Review, ProviderAvailability
+from .models import Service, Booking, BookingImage, Payment, Review, ProviderAvailability, BookingService
 
 User = get_user_model()
 
@@ -18,7 +18,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'provider', 'provider_name', 'provider_city', 'provider_district', 'specialization', 'specialization_name',
             'title', 'description', 'base_price', 'price_type', 'minimum_charge',
-            'estimated_duration', 'service_radius', 'requires_site_visit',
+            'estimated_duration', 'estimated_duration_min', 'estimated_duration_max', 'service_radius', 'requires_site_visit',
             'emergency_service', 'additional_charges_note', 'is_active',
             'created_at', 'updated_at'
         ]
@@ -48,12 +48,33 @@ class BookingImageSerializer(serializers.ModelSerializer):
         return obj.get_uploader_name()
 
 
+class BookingServiceSerializer(serializers.ModelSerializer):
+    service_title = serializers.CharField(source='service.title', read_only=True)
+    specialization_name = serializers.CharField(source='service.specialization.name', read_only=True)
+
+    class Meta:
+        model = BookingService
+        fields = [
+            'id', 'service', 'service_title', 'specialization_name',
+            'price_at_booking', 'price_type_at_booking', 'minimum_charge_at_booking',
+            'estimated_duration_at_booking', 'order', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'service_title', 'specialization_name', 'created_at', 'updated_at']
+
+
 class BookingSerializer(serializers.ModelSerializer):
     service_title = serializers.CharField(source='service.title', read_only=True)
     provider_name = serializers.SerializerMethodField()
     customer_name = serializers.SerializerMethodField()
     customer_email = serializers.EmailField(source='customer.email', read_only=True)
     images = BookingImageSerializer(many=True, read_only=True)
+    booking_services = BookingServiceSerializer(many=True, read_only=True)
+    services = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        help_text="List of service IDs to include in this booking (all must belong to same provider)"
+    )
 
     class Meta:
         model = Booking
@@ -65,12 +86,12 @@ class BookingSerializer(serializers.ModelSerializer):
             'customer_phone', 'customer_name', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
             'cancellation_reason', 'provider_notes', 'images', 'customer_email', 'provider_name',
-            'customer_name'
+            'customer_name', 'booking_services', 'services'
         ]
         read_only_fields = [
             'id', 'customer', 'provider', 'service_title', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
-            'images', 'customer_email', 'provider_name', 'customer_name'
+            'images', 'customer_email', 'provider_name', 'customer_name', 'booking_services'
         ]
 
     def get_provider_name(self, obj):
@@ -78,6 +99,46 @@ class BookingSerializer(serializers.ModelSerializer):
 
     def get_customer_name(self, obj):
         return obj.customer.get_full_name() or obj.customer.email
+
+    def create(self, validated_data):
+        # Extract optional services list (for multi-service bookings)
+        service_ids = validated_data.pop('services', None)
+        primary_service = validated_data.get('service', None)
+
+        if service_ids:
+            services = list(Service.objects.filter(id__in=service_ids, is_active=True))
+            if len(services) != len(set(service_ids)):
+                raise serializers.ValidationError({'services': 'One or more services not found or inactive.'})
+            # Ensure all services belong to the same provider
+            provider_ids = {s.provider_id for s in services}
+            if len(provider_ids) != 1:
+                raise serializers.ValidationError({'services': 'All services must belong to the same provider.'})
+            # Use first as primary (legacy field compatibility)
+            primary_service = services[0]
+        elif primary_service is None:
+            raise serializers.ValidationError({'service': 'Service is required.'})
+        else:
+            services = [primary_service]
+
+        # Set provider from primary service
+        validated_data['service'] = primary_service
+        validated_data['provider'] = primary_service.provider
+
+        booking = Booking.objects.create(**validated_data)
+
+        # Create BookingService snapshot entries
+        for order, svc in enumerate(services):
+            BookingService.objects.create(
+                booking=booking,
+                service=svc,
+                price_at_booking=svc.base_price,
+                price_type_at_booking=svc.price_type,
+                minimum_charge_at_booking=svc.minimum_charge,
+                estimated_duration_at_booking=svc.estimated_duration,
+                order=order
+            )
+
+        return booking
 
 
 class BookingListSerializer(serializers.ModelSerializer):

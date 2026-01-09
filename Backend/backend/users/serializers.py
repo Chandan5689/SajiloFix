@@ -52,7 +52,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'id', 'email', 'username', 'first_name', 'last_name', 'full_name',
+            'id', 'email', 'username', 'first_name', 'middle_name', 'last_name', 'full_name',
             'phone_number', 'user_type', 'profile_picture', 'profile_picture_url',
             'location', 'address', 'city', 'district', 'postal_code', 'latitude', 'longitude', 'bio', 'business_name', 'years_of_experience',
             'service_area', 'is_verified', 'phone_verified', 
@@ -64,7 +64,8 @@ class UserSerializer(serializers.ModelSerializer):
     
     def get_full_name(self, obj):
         """Return full name of the user"""
-        return f"{obj.first_name} {obj.last_name}".strip()
+        parts = [obj.first_name, obj.middle_name, obj.last_name]
+        return ' '.join([p for p in parts if p]).strip()
     
     def get_profile_picture_url(self, obj):
         """Return absolute URL for profile picture"""

@@ -94,10 +94,28 @@ class Service(models.Model):
     )
     
     # Service details
-    estimated_duration = models.PositiveIntegerField(
+    estimated_duration = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
         null=True,
         blank=True,
-        help_text="Estimated duration in minutes (e.g., 60 for 1 hour)"
+        help_text="Estimated duration in hours (average of min and max)"
+    )
+    
+    estimated_duration_min = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Minimum estimated duration in hours"
+    )
+    
+    estimated_duration_max = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Maximum estimated duration in hours"
     )
     
     service_radius = models.PositiveIntegerField(
@@ -402,6 +420,82 @@ class Booking(models.Model):
     def is_editable(self):
         """Check if booking can be edited"""
         return self.status in ['pending', 'confirmed']
+
+
+class BookingService(models.Model):
+    """
+    BookingService Model - Through table for multiple services in a single booking
+    
+    This allows customers to book multiple services from the same provider in one booking.
+    Example: A plumber books "Pipe Repair" + "Faucet Installation" in one appointment.
+    
+    Each service can have its own price, duration, and details while being part of the same booking.
+    """
+    
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name='booking_services',
+        help_text="The booking this service is part of"
+    )
+    
+    service = models.ForeignKey(
+        Service,
+        on_delete=models.PROTECT,  # Can't delete service if it's in a booking
+        related_name='booking_service_entries',
+        help_text="The service being booked"
+    )
+    
+    # Snapshot of pricing at time of booking (in case service price changes)
+    price_at_booking = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Base price when this service was added to booking"
+    )
+    
+    price_type_at_booking = models.CharField(
+        max_length=20,
+        choices=[
+            ('fixed', 'Fixed Price'),
+            ('hourly', 'Per Hour'),
+            ('negotiable', 'Negotiable'),
+        ],
+        default='fixed',
+        help_text="Price type when this service was added to booking"
+    )
+    
+    minimum_charge_at_booking = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        help_text="Minimum charge when this service was added to booking"
+    )
+    
+    estimated_duration_at_booking = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Estimated duration (in hours) when this service was added to booking"
+    )
+    
+    # Order in which services appear
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text="Order in which services are listed in the booking"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['order', 'created_at']
+        verbose_name = 'Booking Service'
+        verbose_name_plural = 'Booking Services'
+        unique_together = ('booking', 'service')  # Prevent duplicate services in same booking
+    
+    def __str__(self):
+        return f"{self.service.title} in Booking #{self.booking.id}"
 
 
 class BookingImage(models.Model):

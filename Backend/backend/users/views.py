@@ -119,6 +119,7 @@ class UpdateUserTypeView(APIView):
     """Update user type and provider information"""
     authentication_classes = [ClerkAuthentication]
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
     
     def post(self, request):
         user_type = request.data.get('user_type')
@@ -130,8 +131,36 @@ class UpdateUserTypeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Update user name fields if provided
+        if request.data.get('first_name'):
+            user.first_name = request.data.get('first_name')
+        if request.data.get('middle_name'):
+            user.middle_name = request.data.get('middle_name')
+        if request.data.get('last_name'):
+            user.last_name = request.data.get('last_name')
+        
+        # Update profile picture if provided
+        if 'profile_picture' in request.FILES:
+            user.profile_picture = request.FILES['profile_picture']
+        
         # Persist selected user type
         user.user_type = user_type
+        
+        # Update name fields (optional but preferred over default)
+        first_name = request.data.get('first_name', '').strip()
+        middle_name = request.data.get('middle_name', '').strip()
+        last_name = request.data.get('last_name', '').strip()
+        
+        if first_name:
+            user.first_name = first_name[:150]
+        if middle_name:
+            user.middle_name = middle_name[:150]
+        if last_name:
+            user.last_name = last_name[:150]
+        
+        # Handle profile picture if provided
+        if 'profile_picture' in request.FILES:
+            user.profile_picture = request.FILES['profile_picture']
         
         # Location is for all users (accept detailed fields and structured payload)
         loc_payload = request.data.get('location_payload')
@@ -185,17 +214,19 @@ class UpdateUserTypeView(APIView):
             user.service_area = request.data.get('service_area', user.service_area)
 
             # Handle specialities/specializations only if supplied
-            speciality_ids = request.data.get('specialities', None)
-            # Normalize to list of ints if provided
+            # Support multiple values in multipart/form-data (QueryDict.getlist)
+            speciality_ids = request.data.getlist('specialities') if hasattr(request.data, 'getlist') else request.data.get('specialities', None)
+            # Normalize to list of strings
             if isinstance(speciality_ids, str):
-                # support comma-separated string
                 speciality_ids = [s for s in speciality_ids.split(',') if s]
-            specialization_ids = request.data.get('specializations', None)
+
+            specialization_ids = request.data.getlist('specializations') if hasattr(request.data, 'getlist') else request.data.get('specializations', None)
             if isinstance(specialization_ids, str):
                 specialization_ids = [s for s in specialization_ids.split(',') if s]
 
             # Enforce: For providers, at least one specialization per selected speciality
-            if speciality_ids is not None:
+            # Check if speciality_ids is both not None AND actually has values (not empty list from getlist)
+            if speciality_ids and len(speciality_ids) > 0:
                 # Convert IDs to integers where possible
                 try:
                     speciality_ids_int = {int(sid) for sid in speciality_ids}
@@ -247,9 +278,8 @@ class UpdateUserTypeView(APIView):
                 UserSpecialization.objects.filter(user=user).delete()
                 for sp in spec_qs:
                     UserSpecialization.objects.create(user=user, specialization=sp)
-            else:
-                # If specialities not provided but specializations are, ensure they are consistent and persist
-                if specialization_ids is not None:
+            elif specialization_ids and len(specialization_ids) > 0:
+                # If specialities not provided (or empty) but specializations are, ensure they are consistent and persist
                     try:
                         spec_qs = Specialization.objects.filter(id__in=specialization_ids).select_related('speciality')
                     except (ValueError, TypeError):
