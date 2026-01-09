@@ -117,9 +117,21 @@ export default function ProviderProfile() {
     };
 
     const handleSpecialityToggle = (id) => {
-        setSelectedSpecialities(prev => 
-            prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
-        );
+        setSelectedSpecialities(prev => {
+            const isRemoving = prev.includes(id);
+            if (isRemoving) {
+                // When removing a speciality, also remove all its specializations
+                const specsToRemove = specializations
+                    .filter(spec => spec.speciality === id)
+                    .map(spec => spec.id);
+                setSelectedSpecializations(prevSpecs => 
+                    prevSpecs.filter(specId => !specsToRemove.includes(specId))
+                );
+                return prev.filter(s => s !== id);
+            } else {
+                return [...prev, id];
+            }
+        });
     };
 
     const handleSpecializationToggle = (id) => {
@@ -139,6 +151,24 @@ export default function ProviderProfile() {
         try {
             setSaving(true);
             setError(null);
+            
+            // Validate that each selected speciality has at least one specialization
+            const specialitiesWithoutSpecs = selectedSpecialities.filter(specialityId => {
+                const specsForThisSpeciality = specializations
+                    .filter(spec => spec.speciality === specialityId)
+                    .map(spec => spec.id);
+                return !specsForThisSpeciality.some(specId => selectedSpecializations.includes(specId));
+            });
+            
+            if (specialitiesWithoutSpecs.length > 0) {
+                const missingNames = specialities
+                    .filter(s => specialitiesWithoutSpecs.includes(s.id))
+                    .map(s => s.name)
+                    .join(', ');
+                setError(`Please select at least one specialization for: ${missingNames}`);
+                setSaving(false);
+                return;
+            }
 
             // Create FormData for profile update (backend expects multipart/form-data)
             const profileFormData = new FormData();
@@ -161,12 +191,64 @@ export default function ProviderProfile() {
                 },
             });
 
-            // Update specialities and specializations (this endpoint accepts JSON)
-            await api.post('/auth/update-user-type/', {
-                user_type: 'offer',
-                specialities: selectedSpecialities,
-                specializations: selectedSpecializations,
+            // Update specialities and specializations (send only specializations; backend derives specialities)
+            const userTypeFormData = new FormData();
+            userTypeFormData.append('user_type', 'offer');
+            
+            // Log what we're sending
+            console.log('Selected Specialities:', selectedSpecialities);
+            console.log('Selected Specializations:', selectedSpecializations);
+            
+            // Debug: Show which specializations belong to which speciality
+            const selectedSpecsDetails = specializations.filter(s => selectedSpecializations.includes(s.id));
+            console.log('Specialization details:', selectedSpecsDetails);
+            
+            // Group by speciality to see the mapping
+            const groupedBySpeciality = {};
+            selectedSpecsDetails.forEach(spec => {
+                if (!groupedBySpeciality[spec.speciality]) {
+                    groupedBySpeciality[spec.speciality] = [];
+                }
+                groupedBySpeciality[spec.speciality].push({
+                    id: spec.id,
+                    name: spec.name,
+                    speciality_id: spec.speciality
+                });
             });
+            console.log('Specializations grouped by speciality:', groupedBySpeciality);
+            console.log('Expected specialities:', selectedSpecialities);
+            
+            // Detailed check for each speciality
+            selectedSpecialities.forEach(specId => {
+                const specsForThis = groupedBySpeciality[specId] || [];
+                console.log(`Speciality ${specId} has ${specsForThis.length} specializations:`, specsForThis);
+            });
+            
+            // Check for missing
+            const missingSpecialities = selectedSpecialities.filter(specId => !groupedBySpeciality[specId]);
+            if (missingSpecialities.length > 0) {
+                console.error('ERROR: These specialities have no specializations selected:', missingSpecialities);
+            }
+            
+            // Append specializations as array
+            selectedSpecializations.forEach(specId => {
+                userTypeFormData.append('specializations', specId);
+            });
+            
+            // Debug: Log all FormData entries
+            console.log('FormData being sent:');
+            for (let pair of userTypeFormData.entries()) {
+                console.log(pair[0] + ': ' + pair[1]);
+            }
+            
+            await api.post('/auth/update-user-type/', userTypeFormData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+
+            // Notify other views (e.g., My Services) to refresh data
+            window.dispatchEvent(new Event('provider-profile-updated'));
 
             setSuccessMessage('Profile updated successfully! Your changes are now available in My Services.');
             setIsEditing(false);
@@ -177,7 +259,11 @@ export default function ProviderProfile() {
             setTimeout(() => setSuccessMessage(null), 5000);
         } catch (err) {
             console.error('Error updating profile:', err);
-            setError(err.response?.data?.error || 'Failed to update profile');
+            console.error('Error response:', err.response?.data);
+            if (err.response?.data?.missing_speciality_ids) {
+                console.error('Backend says these speciality IDs are missing specializations:', err.response.data.missing_speciality_ids);
+            }
+            setError(err.response?.data?.error || err.response?.data?.message || 'Failed to update profile');
         } finally {
             setSaving(false);
         }
@@ -405,17 +491,19 @@ export default function ProviderProfile() {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Service Area
+                                Service Area (km)
                             </label>
                             <input
-                                type="text"
+                                type="number"
                                 name="service_area"
                                 value={formData.service_area}
                                 onChange={handleInputChange}
                                 disabled={!isEditing}
+                                min="0"
                                 className={`w-full p-3 border border-gray-300 rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
-                                placeholder="e.g., Kathmandu Valley"
+                                placeholder="e.g., 20"
                             />
+                            <p className="text-xs text-gray-500 mt-1">Enter your general service area radius in kilometers</p>
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-2">

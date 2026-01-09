@@ -93,10 +93,10 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
   // Build profile data from context (cached) or fallback to prop or default
   const contextProfile = userProfile
     ? {
-        name:
-          userProfile.first_name && userProfile.last_name
-            ? `${userProfile.first_name} ${userProfile.last_name}`
-            : userProfile.email?.split("@")[0] || "Service Provider",
+        name: userProfile.full_name ||
+          (userProfile.first_name || userProfile.last_name
+            ? [userProfile.first_name, userProfile.middle_name, userProfile.last_name].filter(Boolean).join(' ')
+            : userProfile.email?.split("@")[0] || "Service Provider"),
         specialization:
           userProfile.user_specializations?.map((s) => s.specialization?.name).join(", ") || "Service Provider",
         rating: profileData?.rating ?? sidebarStats?.average_rating ?? 0,

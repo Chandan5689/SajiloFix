@@ -4,6 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import RatingBadge from "../../components/RatingBadge";
 import BookingConflictWarning from "../../components/BookingConflictWarning";
+import { useUserProfile } from "../../context/UserProfileContext";
 import api from "../../api/axios";
 import bookingsService from "../../services/bookingsService";
 
@@ -44,16 +45,16 @@ const isPastNepalDateTime = (dateStr, timeStr, nepalNow) => {
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { userProfile } = useUserProfile();
 
   // State variables
   const [provider, setProvider] = useState(null);
   const [loading, setLoading] = useState(true); // initial page load for provider details
   const [error, setError] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
-  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [selectedServiceIds, setSelectedServiceIds] = useState([]);
   const [preferredDate, setPreferredDate] = useState('');
   const [preferredTime, setPreferredTime] = useState('');
-  const [estimatedHours, setEstimatedHours] = useState('1');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -86,6 +87,15 @@ export default function BookingPage() {
   const [addressSuggestError, setAddressSuggestError] = useState(null);
   const [addressDropdownOpen, setAddressDropdownOpen] = useState(false);
   const [selectedLocationName, setSelectedLocationName] = useState(''); // Store human-readable address from reverse geocode
+  const [prefilledFromProfile, setPrefilledFromProfile] = useState(false);
+  const toggleServiceSelection = (serviceId) => {
+    setSelectedServiceIds((prev) => {
+      const idStr = String(serviceId);
+      return prev.includes(idStr)
+        ? prev.filter((id) => id !== idStr)
+        : [...prev, idStr];
+    });
+  };
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const serviceMarkerRef = useRef(null);
@@ -144,6 +154,33 @@ export default function BookingPage() {
     return () => clearInterval(intervalId);
   }, []);
 
+  // Pre-fill contact and location fields from user profile (one-time, non-destructive)
+  useEffect(() => {
+    if (!userProfile || prefilledFromProfile) return;
+
+    const derivedFullName = userProfile.full_name
+      || [userProfile.first_name, userProfile.middle_name, userProfile.last_name].filter(Boolean).join(' ').trim();
+    const derivedPhone = userProfile.phone || userProfile.phone_number;
+    const derivedEmail = userProfile.email;
+    const derivedAddress = userProfile.address || userProfile.location;
+    const derivedCity = userProfile.city;
+    const derivedDistrict = userProfile.district;
+    const derivedLat = userProfile.latitude;
+    const derivedLng = userProfile.longitude;
+
+    if (!fullName && derivedFullName) setFullName(derivedFullName);
+    if (!phone && derivedPhone) setPhone(derivedPhone);
+    if (!email && derivedEmail) setEmail(derivedEmail);
+    if (!address && derivedAddress) setAddress(derivedAddress);
+    if (!serviceCity && derivedCity) setServiceCity(derivedCity);
+    if (!serviceDistrict && derivedDistrict) setServiceDistrict(derivedDistrict);
+    if (serviceLat === null && derivedLat != null) setServiceLat(derivedLat);
+    if (serviceLng === null && derivedLng != null) setServiceLng(derivedLng);
+    if (!selectedLocationName && derivedAddress) setSelectedLocationName(derivedAddress);
+
+    setPrefilledFromProfile(true);
+  }, [userProfile, prefilledFromProfile, fullName, phone, email, address, serviceCity, serviceDistrict, serviceLat, serviceLng, selectedLocationName]);
+
   // Fetch booked slots when date changes (non-blocking for whole page)
   useEffect(() => {
     let isMounted = true;
@@ -187,7 +224,7 @@ export default function BookingPage() {
           provider.id,
           preferredDate,
           preferredTime || null,
-          selectedServiceId || null
+          selectedServiceIds[0] || null
         );
         
         if (isMounted) {
@@ -206,7 +243,7 @@ export default function BookingPage() {
 
     checkConflicts();
     return () => { isMounted = false; };
-  }, [provider, preferredDate, preferredTime, selectedServiceId]);
+  }, [provider, preferredDate, preferredTime, selectedServiceIds]);
 
   // Generate hourly time slots (8 AM to 5 PM) with 24h value for backend
   const generateTimeSlots = () => {
@@ -386,8 +423,8 @@ export default function BookingPage() {
     // Clear previous error
     setError(null);
     if (step === 1) {
-      if (!selectedServiceId) {
-        setError("Please select a service");
+      if (!selectedServiceIds.length) {
+        setError("Please select at least one service");
         return false;
       }
       if (!preferredDate || !preferredTime) {
@@ -428,12 +465,13 @@ export default function BookingPage() {
         setError("Please enter service city");
         return false;
       }
-      if (selectedService?.service_radius && (serviceLat == null || serviceLng == null)) {
+      if (selectedServices.some((s) => s.service_radius) && (serviceLat == null || serviceLng == null)) {
         setError("Please locate the service address on the map to continue");
         return false;
       }
-      if (selectedService?.service_radius && distanceKm != null && distanceKm > selectedService.service_radius) {
-        setError("Selected location is outside the provider's service radius");
+      const radiusExceeded = selectedServices.some((s) => s.service_radius && distanceKm != null && distanceKm > s.service_radius);
+      if (radiusExceeded) {
+        setError("Selected location is outside the provider's service radius for one or more services");
         return false;
       }
       return true;
@@ -465,7 +503,7 @@ export default function BookingPage() {
   useEffect(() => {
     setError(null);
   }, [
-    selectedServiceId,
+    selectedServiceIds,
     preferredDate,
     preferredTime,
     fullName,
@@ -563,15 +601,59 @@ export default function BookingPage() {
 
   // Derived service/provider values (safe defaults so hooks above remain stable)
   const providerServices = provider?.services || [];
-  const providerName = `${provider?.first_name ?? ''} ${provider?.last_name ?? ''}`.trim();
-  const providerSpecialty = provider?.specializations?.[0] || 'Service Provider';
-  const selectedService = providerServices.find((s) => String(s.id) === String(selectedServiceId));
-  const priceNumber = selectedService?.base_price ?? providerServices[0]?.base_price ?? null;
-  const priceType = selectedService?.price_type ?? providerServices[0]?.price_type ?? 'fixed';
-  const minimumCharge = selectedService?.minimum_charge ?? providerServices[0]?.minimum_charge ?? 0;
-  const isHourly = priceType === 'hourly';
-  const hourlyRate = priceNumber != null ? Number(priceNumber) : null;
-  const hoursNum = Number(estimatedHours) || 0;
+  const providerName = provider?.full_name || 
+    [provider?.first_name, provider?.middle_name, provider?.last_name].filter(Boolean).join(' ').trim() || 
+    'Service Provider';
+  const providerSpecialties = provider?.specializations?.length > 0 
+    ? provider.specializations.join(', ')
+    : 'Service Provider';
+  const selectedServices = providerServices.filter((s) => selectedServiceIds.includes(String(s.id)));
+  const primaryService = selectedServices[0] || null;
+  const getServiceDurationHours = (service) => {
+    if (!service) return 0;
+    if (service.estimated_duration_min && service.estimated_duration_max) {
+      return (Number(service.estimated_duration_min) + Number(service.estimated_duration_max)) / 2;
+    }
+    if (service.estimated_duration_min) {
+      return Number(service.estimated_duration_min);
+    }
+    if (service.estimated_duration) {
+      return Number(service.estimated_duration);
+    }
+    return 0;
+  };
+  const anyHourly = selectedServices.some((s) => s.price_type === 'hourly');
+  const hourlyBreakdown = selectedServices
+    .filter((s) => s.price_type === 'hourly')
+    .map((s) => {
+      const duration = getServiceDurationHours(s) || 1; // default to 1h when provider duration missing
+      const rate = Number(s.base_price || 0);
+      return {
+        id: s.id,
+        name: s.specialization_name || s.specialization?.name || s.title,
+        duration,
+        rate,
+        cost: duration * rate,
+      };
+    });
+  const hourlyCostTotal = hourlyBreakdown.reduce((sum, item) => sum + item.cost, 0);
+  const fixedBreakdown = selectedServices
+    .filter((s) => s.price_type !== 'hourly')
+    .map((s) => ({
+      id: s.id,
+      name: s.specialization_name || s.specialization?.name || s.title,
+      cost: Number(s.base_price || 0),
+    }));
+  const fixedTotal = selectedServices
+    .filter((s) => s.price_type !== 'hourly')
+    .reduce((sum, s) => sum + Number(s.base_price || 0), 0);
+  const minimumChargeTotal = selectedServices.reduce((sum, s) => sum + Number(s.minimum_charge || 0), 0);
+  const estimatedTotal = hourlyCostTotal + fixedTotal;
+  const priceLabel = selectedServices.length === 0
+    ? 'Select at least one service'
+    : anyHourly
+      ? `NPR ${estimatedTotal || 0} (est)`
+      : `NPR ${estimatedTotal || 0}`;
 
   // Draw/refresh service radius circle on the map
   useEffect(() => {
@@ -581,9 +663,9 @@ export default function BookingPage() {
       map.removeLayer(serviceRadiusCircleRef.current);
       serviceRadiusCircleRef.current = null;
     }
-    if (serviceLat != null && serviceLng != null && selectedService?.service_radius) {
+    if (serviceLat != null && serviceLng != null && primaryService?.service_radius) {
       const circle = L.circle([serviceLat, serviceLng], {
-        radius: Number(selectedService.service_radius) * 1000,
+        radius: Number(primaryService.service_radius) * 1000,
         color: '#16a34a',
         fillColor: '#bbf7d0',
         fillOpacity: 0.2,
@@ -591,7 +673,7 @@ export default function BookingPage() {
       }).addTo(map);
       serviceRadiusCircleRef.current = circle;
     }
-  }, [serviceLat, serviceLng, selectedService?.service_radius]);
+  }, [serviceLat, serviceLng, primaryService?.service_radius]);
 
   // Check if provider is available on a specific day of the week
   const isProviderAvailableOnDay = (dateString) => {
@@ -724,27 +806,30 @@ export default function BookingPage() {
     preferredDate && preferredTime
       ? `${preferredDate} at ${preferredTimeLabel}`
       : "Not selected";
-  const estimatedTotal = isHourly && hourlyRate != null ? Number((hoursNum * hourlyRate).toFixed(2)) : (hourlyRate != null ? Number(hourlyRate) : null);
-  const priceLabel = priceNumber != null
-    ? `NPR ${priceNumber}${isHourly ? '/hour' : ''}`
-    : 'N/A';
 
-  // Booking summary math
-  const effectiveBase = estimatedTotal != null ? estimatedTotal : (priceNumber != null ? Number(priceNumber) : null);
+  // Booking summary math for multi-service
+  const effectiveBase = selectedServices.length > 0 ? estimatedTotal : null;
   const vatRate = 0.13;
-  // VAT removed from display for now; keep calculation comment for future use
-  // const vatAmount = effectiveBase != null ? Number((effectiveBase * vatRate).toFixed(2)) : null;
-  const vatAmount = null;
+  const vatAmount = null; // kept null for display (future use)
   const totalAmount = effectiveBase;
   const appointmentDateLabel = preferredDate || '—';
   const appointmentTimeLabel = preferredTimeLabel || '—';
-  const appointmentDuration = isHourly && hoursNum > 0 ? `${hoursNum} hour${hoursNum !== 1 ? 's' : ''}` : selectedService?.estimated_duration ? `${selectedService.estimated_duration} hrs` : '—';
-  const summaryServiceName = selectedService?.specialization_name || selectedService?.title || providerSpecialty;
+  const totalEstimatedDuration = selectedServices.reduce((sum, s) => {
+    const baseDuration = getServiceDurationHours(s);
+    const resolvedDuration = baseDuration || (s.price_type === 'hourly' ? 1 : 0);
+    return sum + resolvedDuration;
+  }, 0);
+  const appointmentDuration = totalEstimatedDuration > 0
+    ? `${Number(totalEstimatedDuration.toFixed(1))} hour${Number(totalEstimatedDuration.toFixed(1)) !== 1 ? 's' : ''}`
+    : '—';
+  const summaryServiceName = selectedServices.length > 0
+    ? selectedServices.map((s) => s.specialization_name || s.specialization?.name || s.title).join(', ')
+    : providerSpecialties;
   const formatNpr = (val) => (val != null ? `NPR ${Number(val).toLocaleString('en-US')}` : '—');
 
   const submitBooking = async () => {
-    if (!selectedServiceId) {
-      setError("Please select a service");
+    if (!selectedServices.length) {
+      setError("Please select at least one service");
       return;
     }
 
@@ -780,12 +865,13 @@ export default function BookingPage() {
     }
 
     // Validate location when service radius is defined
-    if (selectedService?.service_radius && (serviceLat == null || serviceLng == null)) {
+    if (selectedServices.some((s) => s.service_radius) && (serviceLat == null || serviceLng == null)) {
       setError("Please locate the service address on the map to continue");
       return;
     }
-    if (selectedService?.service_radius && distanceKm != null && distanceKm > selectedService.service_radius) {
-      setError("Selected location is outside the provider's service radius");
+    const radiusExceeded = selectedServices.some((s) => s.service_radius && distanceKm != null && distanceKm > s.service_radius);
+    if (radiusExceeded) {
+      setError("Selected location is outside the provider's service radius for one or more services");
       return;
     }
 
@@ -808,7 +894,8 @@ export default function BookingPage() {
       setError(null);
 
       const payload = {
-        service: Number(selectedServiceId),
+        service: Number(selectedServiceIds[0]),
+        services: selectedServiceIds.map((id) => Number(id)),
         preferred_date: preferredDate,
         preferred_time: preferredTime, // already HH:MM:SS
         service_address: address,
@@ -862,7 +949,7 @@ export default function BookingPage() {
               <div className="space-y-1">
                 <h2 className="text-2xl font-semibold text-gray-900">Book {providerName}</h2>
                 <p className="text-blue-600 font-semibold">
-                  {providerSpecialty} • {priceLabel}
+                  {providerSpecialties}
                 </p>
                 <RatingBadge
                   providerId={provider.id}
@@ -903,89 +990,182 @@ export default function BookingPage() {
         <form onSubmit={handleStepSubmit} className="space-y-6 text-gray-800">
           {currentStep === 1 && (
             <>
-              {/* Service Picker (from provider services) */}
+              {/* Service Picker (multi-select) */}
               <div>
-                <label htmlFor="serviceType" className="block font-medium mb-1">
-                  Select Service Type *
+                <label className="block font-medium mb-2">
+                  Select Services * (you can choose multiple)
                 </label>
-                <select
-                  id="serviceType"
-                  required
-                  className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={selectedServiceId}
-                  onChange={(e) => setSelectedServiceId(e.target.value)}
-                >
-                  <option value="" disabled>
-                    Select a service
-                  </option>
+                <div className="space-y-2">
                   {provider.services?.map((srv) => {
                     const serviceSpecialization = srv.specialization_name || srv.specialization?.name || provider.specializations?.[0] || 'Service';
                     const priceDisplay = srv.base_price ? `NPR ${srv.base_price}` : 'Contact for price';
                     const priceTypeLabel = srv.price_type === 'hourly' ? '/hour' : 'fixed';
+                    const checked = selectedServiceIds.includes(String(srv.id));
                     return (
-                      <option key={srv.id} value={srv.id}>
-                        {serviceSpecialization} • {priceDisplay} ({priceTypeLabel})
-                      </option>
+                      <label
+                        key={srv.id}
+                        className={`flex items-start gap-3 border rounded-md p-3 cursor-pointer transition hover:border-green-500 ${checked ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 text-green-600 border-gray-300 rounded"
+                          checked={checked}
+                          onChange={() => toggleServiceSelection(srv.id)}
+                        />
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-900">{serviceSpecialization}</p>
+                          <p className="text-sm text-gray-700">{srv.title}</p>
+                          <p className="text-sm text-blue-700 font-semibold mt-1">
+                            {priceDisplay} {srv.price_type ? `(${priceTypeLabel})` : ''}
+                          </p>
+                          {srv.estimated_duration_min && (
+                            <p className="text-xs text-purple-700 mt-1">
+                              ⏱️ Est. Duration: {srv.estimated_duration_max && srv.estimated_duration_max !== srv.estimated_duration_min
+                                ? `${srv.estimated_duration_min}-${srv.estimated_duration_max} hours`
+                                : `${srv.estimated_duration_min} ${srv.estimated_duration_min === 1 ? 'hour' : 'hours'}`
+                              }
+                            </p>
+                          )}
+                          {srv.minimum_charge > 0 && (
+                            <p className="text-xs text-gray-500">Minimum charge: NPR {srv.minimum_charge}</p>
+                          )}
+                        </div>
+                      </label>
                     );
                   })}
-                </select>
-                {selectedService && (
-                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                    <p className="text-xs text-gray-600 mb-1">Selected Service Details:</p>
-                    <p className="font-semibold text-gray-900">
-                      {selectedService.specialization_name || selectedService.specialization?.name || providerSpecialty}
-                    </p>
-                    <p className="text-sm text-blue-600 font-semibold mt-1">
-                      {selectedService.base_price ? `NPR ${selectedService.base_price}` : 'Contact for price'}
-                      {selectedService.price_type ? ` (${selectedService.price_type})` : ''}
-                    </p>
+                </div>
+                {selectedServices.length > 0 && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md space-y-1 text-sm text-gray-800">
+                    <p className="font-semibold">Selected Services:</p>
+                    {selectedServices.map((svc) => (
+                      <div key={svc.id} className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <span>{svc.specialization_name || svc.specialization?.name || svc.title}</span>
+                          {svc.estimated_duration_min && (
+                            <span className="text-xs text-purple-700 ml-2">
+                              ({svc.estimated_duration_max && svc.estimated_duration_max !== svc.estimated_duration_min
+                                ? `${svc.estimated_duration_min}-${svc.estimated_duration_max}h`
+                                : `${svc.estimated_duration_min}h`
+                              })
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-blue-700 font-semibold">{svc.base_price ? `NPR ${svc.base_price}` : 'Contact'}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
 
-              {/* Price Estimate */}
-              <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-                <h3 className="font-semibold text-gray-900 mb-2">Price Estimate</h3>
-                <div className="grid sm:grid-cols-2 gap-4 items-end">
+              {/* Price Estimate (aggregated) */}
+              <div className="bg-linear-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-linear-to-br from-blue-500 to-blue-600 text-white text-base shadow-md">₨</span>
+                    Price Estimate
+                  </h3>
+                  {selectedServices.length > 0 && (
+                    <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-1 rounded-full">Based on provider durations</span>
+                  )}
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-4 items-start">
                   <div>
                     <p className="text-sm text-gray-600">Rate</p>
                     <p className="text-blue-700 font-semibold">{priceLabel}</p>
-                    {minimumCharge > 0 && (
-                      <p className="text-xs text-gray-500 mt-1">Minimum charge: NPR {minimumCharge}</p>
+                    {minimumChargeTotal > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">Minimum charge total: NPR {Number(minimumChargeTotal).toLocaleString('en-US')}</p>
                     )}
                   </div>
-                  {isHourly && (
-                    <div>
-                      <label htmlFor="estimatedHours" className="block text-sm font-medium text-gray-700 mb-1">
-                        Estimated Hours
-                      </label>
-                      <input
-                        id="estimatedHours"
-                        type="number"
-                        min={1}
-                        max={12}
-                        step={1}
-                        value={estimatedHours}
-                        onChange={(e) => setEstimatedHours(e.target.value)}
-                        className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      />
-                    </div>
-                  )}
+                  <div>
+                    <p className="text-sm text-gray-600">Provider Estimated Duration</p>
+                    {selectedServices.length ? (
+                      <div className="space-y-1 text-sm text-gray-800">
+                        {selectedServices.map((svc) => {
+                          const duration = getServiceDurationHours(svc) || (svc.price_type === 'hourly' ? 1 : 0);
+                          const roundedDuration = duration ? Number(duration.toFixed(1)) : null;
+                          const isHourly = svc.price_type === 'hourly';
+                          return (
+                            <div key={svc.id} className="flex justify-between gap-3">
+                              <span className="truncate flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold shadow-sm ${isHourly ? 'bg-linear-to-r from-blue-500 to-blue-600 text-white' : 'bg-linear-to-r from-slate-400 to-slate-500 text-white'}`}>{isHourly ? '⏱ Hourly' : '📋 Fixed'}</span>
+                                {svc.specialization_name || svc.specialization?.name || svc.title}
+                              </span>
+                              <span className="font-semibold text-gray-800">{roundedDuration ? `${roundedDuration}h` : '—'}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500">Select services to see estimated duration.</p>
+                    )}
+                  </div>
                 </div>
-                {isHourly && hourlyRate != null && (
-                  <div className="mt-3 text-sm text-gray-800">
-                    <p>
-                      Estimated: {hoursNum} hour{hoursNum !== 1 ? 's' : ''} × NPR {hourlyRate} = 
-                      <span className="font-semibold"> NPR {estimatedTotal}</span>
-                      {minimumCharge > 0 && estimatedTotal < minimumCharge && (
-                        <span className="text-gray-600"> (min NPR {minimumCharge})</span>
-                      )}
-                    </p>
+
+                {selectedServices.length > 0 && (
+                  <div className="mt-3 text-sm text-gray-800 space-y-3">
+                    {hourlyBreakdown.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-blue-700 uppercase tracking-wide">
+                          <span className="flex items-center gap-1"><span>⏱</span> Hourly Services</span>
+                          <span>Line Total</span>
+                        </div>
+                        <div className="divide-y divide-gray-100 rounded-lg border-2 border-blue-200 bg-white shadow-sm overflow-hidden">
+                          {hourlyBreakdown.map((item) => (
+                            <div key={item.id} className="flex justify-between gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors">
+                              <span className="text-gray-800 font-medium">{item.name} <span className="text-blue-600">•</span> <span className="text-blue-700 font-semibold">{Number(item.duration.toFixed(1))}h</span> × NPR {Number(item.rate).toLocaleString('en-US')}</span>
+                              <span className="font-bold text-blue-700">NPR {Number(item.cost).toLocaleString('en-US')}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-between px-2 py-1 bg-blue-100 rounded-md font-bold text-gray-900">
+                          <span>Hourly Subtotal</span>
+                          <span className="text-blue-700">NPR {Number(hourlyCostTotal).toLocaleString('en-US')}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {fixedBreakdown.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase tracking-wide">
+                          <span className="flex items-center gap-1"><span>📋</span> Fixed-price Services</span>
+                          <span>Line Total</span>
+                        </div>
+                        <div className="divide-y divide-gray-100 rounded-lg border-2 border-slate-200 bg-white shadow-sm overflow-hidden">
+                          {fixedBreakdown.map((item) => (
+                            <div key={item.id} className="flex justify-between gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                              <span className="text-gray-800 font-medium">{item.name}</span>
+                              <span className="font-bold text-slate-700">NPR {Number(item.cost).toLocaleString('en-US')}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-between px-2 py-1 bg-slate-100 rounded-md font-bold text-gray-900">
+                          <span>Fixed Subtotal</span>
+                          <span className="text-slate-700">NPR {Number(fixedTotal).toLocaleString('en-US')}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center pt-3 mt-1 border-t-2 border-gray-300">
+                      <span className="text-base font-bold text-gray-900">{anyHourly ? '💰 Estimated Total' : '💰 Total'}</span>
+                      <span className="text-2xl font-extrabold bg-linear-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">NPR {Number(estimatedTotal).toLocaleString('en-US')}</span>
+                    </div>
+                    {minimumChargeTotal > 0 && estimatedTotal < minimumChargeTotal && (
+                      <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 bg-linear-to-r from-amber-100 to-amber-50 border-2 border-amber-300 rounded-lg px-3 py-2 shadow-sm">
+                        <span className="text-base">⚠️</span>
+                        <span>Minimum charge may apply: NPR {Number(minimumChargeTotal).toLocaleString('en-US')}</span>
+                      </div>
+                    )}
+                    {totalEstimatedDuration > 0 && (
+                      <p className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5"><span>⏱️</span> Total estimated duration: {Number(totalEstimatedDuration.toFixed(1))} hour{Number(totalEstimatedDuration.toFixed(1)) !== 1 ? 's' : ''}</p>
+                    )}
                   </div>
                 )}
-                <p className="text-xs text-gray-500 mt-2">
-                  Note: This is an estimate. The final price may differ based on the provider's quote and on-site assessment.
-                </p>
+
+                <div className="flex items-start gap-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2 mt-3">
+                  <span className="text-blue-500 text-sm">ℹ️</span>
+                  <p>This is an estimate. The final price may differ based on the provider's quote and on-site assessment.</p>
+                </div>
               </div>
 
               {/* Emergency Service Checkbox */}
@@ -1102,6 +1282,17 @@ export default function BookingPage() {
 
           {currentStep === 2 && (
             <>
+              {/* Pre-filled Info Banner */}
+              {userProfile && (userProfile.full_name || userProfile.email || userProfile.phone || userProfile.address) && (
+                <div className="flex items-start gap-2 text-sm bg-linear-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg px-4 py-3 mb-4 shadow-sm">
+                  <span className="text-green-600 text-lg">✓</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-green-900">Your saved information has been pre-filled</p>
+                    <p className="text-xs text-green-700 mt-0.5">You can edit any field below if you need to update or change the information for this booking.</p>
+                  </div>
+                </div>
+              )}
+
               {/* Contact Information */}
               <fieldset className=" pt-4">
                 <legend className="font-semibold mb-4 text-gray-900 border-b border-gray-200">
@@ -1321,11 +1512,11 @@ export default function BookingPage() {
                     <div className="bg-white border border-purple-200 rounded p-3">
                       <p className="text-xs text-gray-600 font-semibold mb-1">CALCULATED DISTANCE</p>
                       <p className="text-lg font-bold text-purple-700">{distanceKm} km</p>
-                      {selectedService?.service_radius && (
-                        <p className={`text-xs mt-2 font-semibold ${distanceKm <= selectedService.service_radius ? 'text-green-700' : 'text-red-700'}`}>
-                          {distanceKm <= selectedService.service_radius
-                            ? `✓ Within service radius (${selectedService.service_radius} km)`
-                            : `✗ Outside service radius (${selectedService.service_radius} km). Provider may add travel charges.`}
+                      {primaryService?.service_radius && (
+                        <p className={`text-xs mt-2 font-semibold ${distanceKm <= primaryService.service_radius ? 'text-green-700' : 'text-red-700'}`}>
+                          {distanceKm <= primaryService.service_radius
+                            ? `✓ Within service radius (${primaryService.service_radius} km)`
+                            : `✗ Outside service radius (${primaryService.service_radius} km). Provider may add travel charges.`}
                         </p>
                       )}
                     </div>
@@ -1553,17 +1744,37 @@ export default function BookingPage() {
           {currentStep === 4 && (
             <>
               {/* Booking Summary */}
-              <div className="bg-gray-50 border border-gray-300 rounded p-4 space-y-2 text-sm text-gray-700">
-                <h3 className="font-semibold text-gray-900 mb-2">Review & Confirm</h3>
-                <div className="flex justify-between"><span>Service:</span><span>{selectedService?.specialization_name || selectedService?.specialization?.name || providerSpecialty}</span></div>
+              <div className="bg-linear-to-br from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl p-5 space-y-3 text-sm text-gray-700 shadow-md">
+                <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
+                  <span className="text-green-600">✓</span> Review & Confirm
+                </h3>
+                <div className="flex justify-between"><span>Services:</span><span>{summaryServiceName}</span></div>
+                {selectedServices.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {selectedServices.map((s) => {
+                      const isHourly = s.price_type === 'hourly';
+                      const d = getServiceDurationHours(s) || (isHourly ? 1 : 0);
+                      const rd = d ? Number(d.toFixed(1)) : null;
+                      return (
+                        <div key={s.id} className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shadow-sm ${isHourly ? 'bg-linear-to-r from-blue-500 to-blue-600 text-white' : 'bg-linear-to-r from-slate-400 to-slate-500 text-white'}`}>{isHourly ? '⏱' : '📋'}</span>
+                            {s.specialization_name || s.specialization?.name || s.title}
+                          </span>
+                          <span className="font-semibold text-gray-700">{rd ? `${rd}h` : '—'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="flex justify-between"><span>Date &amp; Time:</span><span>{dateTimeSummary}</span></div>
-                <div className="flex justify-between"><span>Duration:</span><span>{appointmentDuration}</span></div>
+                <div className="flex justify-between"><span>Duration (provider est.):</span><span>{appointmentDuration}</span></div>
                 <div className="flex justify-between"><span>Location:</span><span>{address || '—'}</span></div>
                 <div className="flex justify-between"><span>City/District:</span><span>{serviceCity || '—'} {serviceDistrict ? `(${serviceDistrict})` : ''}</span></div>
                 <div className="flex justify-between"><span>Contact Name:</span><span>{fullName || '—'}</span></div>
                 <div className="flex justify-between"><span>Contact Phone:</span><span>{phone || '—'}</span></div>
                 <div className="flex justify-between"><span>Rate:</span><span className="text-blue-600 font-semibold">{priceLabel}</span></div>
-                <div className="flex justify-between"><span>{isHourly ? 'Estimated Total:' : 'Total:'}</span><span className="font-semibold text-gray-900">{isHourly && hourlyRate != null ? `NPR ${estimatedTotal}${minimumCharge > 0 && estimatedTotal < minimumCharge ? ` (min NPR ${minimumCharge})` : ''}` : (hourlyRate != null ? `NPR ${hourlyRate}` : 'N/A')}</span></div>
+                <div className="flex justify-between"><span>{anyHourly ? 'Estimated Total:' : 'Total:'}</span><span className="font-semibold text-gray-900">{selectedServices.length ? `NPR ${Number(estimatedTotal).toLocaleString('en-US')}${minimumChargeTotal > 0 && estimatedTotal < minimumChargeTotal ? ` (min NPR ${Number(minimumChargeTotal).toLocaleString('en-US')})` : ''}` : 'N/A'}</span></div>
                 {specialInstructions && (
                   <div className="flex justify-between"><span>Instructions:</span><span className="text-right">{specialInstructions}</span></div>
                 )}
@@ -1607,12 +1818,34 @@ export default function BookingPage() {
         </form>
       </div>
 
-      <aside className="bg-white rounded-2xl shadow-lg p-5 lg:p-6 h-fit sticky top-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3">Booking Summary</h3>
+      <aside className="bg-white rounded-2xl shadow-xl border border-gray-100 p-5 lg:p-6 h-fit sticky top-6">
+        <div className="bg-linear-to-r from-blue-600 to-indigo-600 rounded-lg px-4 py-3 mb-4 -mx-1">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            <span>📋</span> Booking Summary
+          </h3>
+        </div>
         <div className="space-y-4">
           <div>
             <p className="text-sm text-gray-600">Service</p>
             <p className="text-base font-semibold text-gray-900">{summaryServiceName}</p>
+            {selectedServices.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {selectedServices.map((s) => {
+                  const isHourly = s.price_type === 'hourly';
+                  const d = getServiceDurationHours(s) || (isHourly ? 1 : 0);
+                  const rd = d ? Number(d.toFixed(1)) : null;
+                  return (
+                    <div key={s.id} className="flex items-center justify-between text-xs text-gray-700">
+                      <span className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shadow-sm ${isHourly ? 'bg-linear-to-r from-blue-500 to-blue-600 text-white' : 'bg-linear-to-r from-slate-400 to-slate-500 text-white'}`}>{isHourly ? '⏱' : '📋'}</span>
+                        {s.specialization_name || s.specialization?.name || s.title}
+                      </span>
+                      <span className="font-semibold text-gray-700">{rd ? `${rd}h` : '—'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="border-y border-gray-200 py-3 space-y-2">
@@ -1622,12 +1855,14 @@ export default function BookingPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-800">Estimated Amount</span>
-            <span className="text-xl font-bold text-blue-700">{totalAmount != null ? formatNpr(totalAmount) : '—'}</span>
+          <div className="bg-linear-to-br from-blue-100 to-indigo-100 rounded-lg p-3 border-2 border-blue-300 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-800">💰 Estimated Amount</span>
+              <span className="text-2xl font-extrabold bg-linear-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">{totalAmount != null ? `NPR ${Number(totalAmount).toLocaleString('en-US')}` : '—'}</span>
+            </div>
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+          <div className="bg-linear-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-lg p-4 space-y-2 shadow-sm">
             <p className="text-sm font-semibold text-blue-900">Appointment Details</p>
             <div className="space-y-1 text-sm text-gray-800">
               <div className="flex items-center justify-between">
@@ -1639,7 +1874,7 @@ export default function BookingPage() {
                 <span className="font-semibold">{appointmentTimeLabel}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">Duration</span>
+                  <span className="text-gray-600">Duration (provider est.)</span>
                 <span className="font-semibold">{appointmentDuration}</span>
               </div>
             </div>

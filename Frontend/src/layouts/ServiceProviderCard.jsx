@@ -234,7 +234,17 @@ function ServiceProviderCard({ provider }) {
                     <div className="space-y-2">
                         {(showAllServices ? (expandedServices.length > 0 ? expandedServices : provider.servicePreview || []) : (provider.servicePreview || []).slice(0, 3)).map((srv, idx) => (
                             <div key={`${srv.id || srv.title || idx}-${idx}`} className="flex items-center justify-between text-sm bg-green-50 border border-green-100 rounded-lg px-3 py-2">
-                                <div className="text-gray-900 font-semibold truncate pr-2">{srv.specialization_name || srv.title || 'Service'}</div>
+                                <div className="flex-1">
+                                    <div className="text-gray-900 font-semibold truncate pr-2">{srv.specialization_name || srv.title || 'Service'}</div>
+                                    {srv.estimated_duration_min && (
+                                        <div className="text-[10px] text-purple-700 mt-0.5">
+                                            ⏱️ {srv.estimated_duration_max && srv.estimated_duration_max !== srv.estimated_duration_min
+                                                ? `${srv.estimated_duration_min}-${srv.estimated_duration_max}h`
+                                                : `${srv.estimated_duration_min}h`
+                                            }
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="text-gray-700 text-xs whitespace-nowrap">
                                     {formatPrice(srv)}
                                 </div>
@@ -329,6 +339,14 @@ function ServiceProviderCard({ provider }) {
                                     {srv.price_type === 'hourly' && <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full">Hourly Rate</span>}
                                     {srv.price_type === 'fixed' && <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full">Fixed Rate</span>}
                                     {srv.price_type === 'negotiable' && <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full">Negotiable Rate</span>}
+                                    {srv.estimated_duration_min && (
+                                        <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full">
+                                            ⏱️ {srv.estimated_duration_max && srv.estimated_duration_max !== srv.estimated_duration_min
+                                                ? `${srv.estimated_duration_min}-${srv.estimated_duration_max} hours`
+                                                : `${srv.estimated_duration_min} ${srv.estimated_duration_min === 1 ? 'hour' : 'hours'}`
+                                            }
+                                        </span>
+                                    )}
                                     {srv.emergency_service && <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full">Emergency service available</span>}
                                     {srv.requires_site_visit && <span className="px-2 py-1 bg-gray-200 text-gray-700 rounded-full">Site visit required</span>}
                                 </div>

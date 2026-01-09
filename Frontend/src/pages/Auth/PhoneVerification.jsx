@@ -42,7 +42,7 @@ function PhoneVerification({ userType, location, onComplete, signUpData, complet
             return () => clearTimeout(timer);
         }
         
-        console.log('✅ PhoneVerification component properly initialized');
+        
         if (hasRegistrationFlowData) {
             console.log('⚠️ Registration flow: Clerk session is NOT active yet - will activate after phone verification');
         } else {
@@ -331,26 +331,42 @@ function PhoneVerification({ userType, location, onComplete, signUpData, complet
             console.log('✅ Phone saved:', phoneVerifyResponse.data);
 
             // 5. Update user type and location in Django
-            console.log('💾 Saving user type and location...');
+            console.log('💾 Saving user type, profile info, and location...');
             const locationPayload = typeof location === 'object' ? location : null;
+            
+            // Prepare form data for file upload
+            const formData = new FormData();
+            formData.append('user_type', userType);
+            formData.append('first_name', signUpData?.firstName || '');
+            formData.append('middle_name', signUpData?.middleName || '');
+            formData.append('last_name', signUpData?.lastName || '');
+            
+            // Support both structured location object and simple string
+            formData.append('location', typeof location === 'object' ? (location.formatted || '') : (location || ''));
+            formData.append('address', typeof location === 'object' ? (location.street || '') : '');
+            formData.append('city', typeof location === 'object' ? (location.city || '') : '');
+            formData.append('district', typeof location === 'object' ? (location.district || '') : '');
+            formData.append('postal_code', typeof location === 'object' ? (location.postal_code || '') : '');
+            formData.append('latitude', typeof location === 'object' ? (location.latitude ?? null) : null);
+            formData.append('longitude', typeof location === 'object' ? (location.longitude ?? null) : null);
+            formData.append('location_payload', JSON.stringify(locationPayload || {}));
+            // Include service area (km) from Clerk registration if provided
+            if (signUpData?.serviceArea != null && String(signUpData.serviceArea).trim() !== '') {
+                formData.append('service_area', String(signUpData.serviceArea).trim());
+            }
+            
+            // Add profile picture if provided
+            if (signUpData?.profilePicture) {
+                formData.append('profile_picture', signUpData.profilePicture);
+            }
+            
             const updateTypeResponse = await api.post(
                 '/auth/update-user-type/',
-                {
-                    user_type: userType,
-                    // Support both structured location object and simple string
-                    location: typeof location === 'object' ? (location.formatted || '') : (location || ''),
-                    address: typeof location === 'object' ? (location.street || '') : '',
-                    city: typeof location === 'object' ? (location.city || '') : '',
-                    district: typeof location === 'object' ? (location.district || '') : '',
-                    postal_code: typeof location === 'object' ? (location.postal_code || '') : '',
-                    latitude: typeof location === 'object' ? (location.latitude ?? null) : null,
-                    longitude: typeof location === 'object' ? (location.longitude ?? null) : null,
-                    // Send the full structured payload for backend auditing/future use
-                    location_payload: locationPayload,
-                },
+                formData,
                 {
                     headers: {
                         Authorization: `Bearer ${clerkToken}`,
+                        'Content-Type': 'multipart/form-data',
                     },
                 }
             );

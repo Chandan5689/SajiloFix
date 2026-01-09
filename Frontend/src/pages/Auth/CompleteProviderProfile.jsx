@@ -373,18 +373,20 @@ function CompleteProviderProfile() {
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Service Area *
+                                    Service Area (km) *
                                 </label>
                                 <input
-                                    type="text"
+                                    type="number"
                                     name="service_area"
                                     value={formData.service_area}
                                     onChange={handleInputChange}
-                                    placeholder="e.g., Kathmandu Valley"
+                                    placeholder="e.g., 20"
+                                    min="0"
                                     className={`w-full px-4 py-3 border ${fieldErrors.service_area ? 'border-red-500' : 'border-gray-300'
                                         } rounded-lg focus:ring-2 focus:ring-green-500`}
                                     required
                                 />
+                                <p className="text-xs text-gray-500 mt-1">Enter kilometers only (e.g., 10, 20)</p>
                                 {fieldErrors.service_area && (
                                     <p className="text-red-500 text-xs mt-1">{fieldErrors.service_area}</p>
                                 )}

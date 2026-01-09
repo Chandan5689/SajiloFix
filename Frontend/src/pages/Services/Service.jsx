@@ -187,7 +187,9 @@ export default function Service() {
       // Convert provider data to format compatible with ServiceProviderCard
       const formattedProviders = list.map(provider => ({
         id: provider.id,
-        name: `${provider.first_name} ${provider.last_name}`.trim(),
+        name: provider.full_name || 
+          [provider.first_name, provider.middle_name, provider.last_name].filter(Boolean).join(' ').trim() || 
+          'Service Provider',
         profession: provider.specializations?.[0] || 'Service Provider',
         primarySpecialization: provider.specializations?.[0] || null,
         serviceCategory: provider.speciality?.[0] || null,

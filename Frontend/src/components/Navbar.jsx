@@ -112,7 +112,8 @@ function Navbar() {
     };
 
     const getProfileImageUrl = () => {
-        return user?.imageUrl || null;
+        // Prioritize backend profile picture, fallback to Clerk imageUrl
+        return userDetails?.profile_picture_url || user?.imageUrl || null;
     };
 
     const getDashboardLink = () => {
@@ -182,7 +183,7 @@ function Navbar() {
                                         )}
                                         <div className="text-left">
                                             <p className="text-sm font-medium text-gray-900">
-                                                {user.firstName} {user.lastName}
+                                                {userDetails?.full_name || `${user.firstName || ''} ${user.lastName || ''}`}
                                             </p>
                                             {registrationStatus && !registrationStatus.registration_completed ? (
                                                 <p className="text-xs text-orange-600 font-semibold">
@@ -321,7 +322,7 @@ function Navbar() {
                                             )}
                                             <div>
                                                 <p className="text-sm font-medium text-gray-900">
-                                                    {user.firstName} {user.lastName}
+                                                    {userDetails?.full_name || `${user.firstName || ''} ${user.lastName || ''}`}
                                                 </p>
                                                 {registrationStatus && !registrationStatus.registration_completed ? (
                                                     <p className="text-xs text-orange-600 font-semibold">

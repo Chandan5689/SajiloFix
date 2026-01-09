@@ -15,8 +15,10 @@ import {
 } from 'react-icons/md';
 import bookingsService from '../../../services/bookingsService';
 import api from '../../../api/axios';
+import { useToast } from '../../../components/Toast';
 
 export default function ProviderMyServices() {
+    const { addToast } = useToast();
     const [activeMenu, setActiveMenu] = useState("my-services");
     const [services, setServices] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -25,6 +27,7 @@ export default function ProviderMyServices() {
     const [editingService, setEditingService] = useState(null);
     const [providerSpecialities, setProviderSpecialities] = useState([]);
     const [providerSpecializations, setProviderSpecializations] = useState([]);
+    const [providerServiceAreaKm, setProviderServiceAreaKm] = useState(null);
     const [selectedSpeciality, setSelectedSpeciality] = useState('');
     const [filteredSpecializations, setFilteredSpecializations] = useState([]);
     const [formData, setFormData] = useState({
@@ -33,12 +36,13 @@ export default function ProviderMyServices() {
         specialization: '', // This will be the specialization ID
         base_price: '',
         price_type: 'fixed',
+        estimated_duration_min: '', // minimum hours
+        estimated_duration_max: '', // maximum hours
         service_radius: '', // in kilometers
         emergency_service: false,
         is_active: true,
     });
     const [submitting, setSubmitting] = useState(false);
-    const [successMessage, setSuccessMessage] = useState(null);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [deleting, setDeleting] = useState(false);
 
@@ -57,6 +61,11 @@ export default function ProviderMyServices() {
                 fetchProviderSpecializations();
             }
         };
+
+        const handleProfileUpdated = () => {
+            console.log('Profile updated event received, refreshing services and specializations...');
+            fetchInitialData();
+        };
         
         const handleFocus = () => {
             console.log('Window focused, refreshing specializations...');
@@ -67,11 +76,14 @@ export default function ProviderMyServices() {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         // Listen for window focus (coming back from another window)
         window.addEventListener('focus', handleFocus);
+        // Listen for profile updates
+        window.addEventListener('provider-profile-updated', handleProfileUpdated);
 
         // Cleanup listeners on unmount
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('focus', handleFocus);
+            window.removeEventListener('provider-profile-updated', handleProfileUpdated);
         };
     }, []);
 
@@ -109,6 +121,15 @@ export default function ProviderMyServices() {
             
             setProviderSpecialities(specialities);
             setProviderSpecializations(specializations);
+            // Derive numeric service area in km from profile (e.g., "20", "20km", or text)
+            const saRaw = response.data.service_area;
+            if (saRaw != null) {
+                const digits = String(saRaw).match(/\d+/);
+                const km = digits ? parseInt(digits[0], 10) : null;
+                setProviderServiceAreaKm(Number.isFinite(km) ? km : null);
+            } else {
+                setProviderServiceAreaKm(null);
+            }
             
             console.log('Provider specialities:', specialities);
             console.log('Provider specializations:', specializations);
@@ -132,7 +153,9 @@ export default function ProviderMyServices() {
             specialization: '',
             base_price: '',
             price_type: 'fixed',
-            service_radius: '',
+            estimated_duration_min: '',
+            estimated_duration_max: '',
+            service_radius: providerServiceAreaKm ?? '',
             emergency_service: false,
             is_active: true,
         });
@@ -141,25 +164,40 @@ export default function ProviderMyServices() {
     };
 
     const handleOpenEdit = (service) => {
-        setEditingService(service);        
-        // Find the specialization and its speciality
-        const serviceSpec = providerSpecializations.find(spec => spec.id === service.specialization?.id);
-        const specialityName = serviceSpec?.speciality || '';
-        const speciality = providerSpecialities.find(sp => sp.name === specialityName);
-        
-        // Set the speciality and filter specializations
-        if (speciality) {
-            setSelectedSpeciality(speciality.id.toString());
-            const filtered = providerSpecializations.filter(spec => spec.speciality === speciality.name);
-            setFilteredSpecializations(filtered);
+        setEditingService(service);
+        // Find the specialization object (service.specialization might be an id or an object)
+        const specializationId = service?.specialization?.id ?? service?.specialization;
+        const serviceSpec = providerSpecializations.find(spec => spec.id === specializationId);
+
+        // Derive the speciality object (serviceSpec.speciality might be a name or an id)
+        let speciality = null;
+        if (serviceSpec) {
+            speciality =
+                providerSpecialities.find(sp => sp.name === serviceSpec.speciality) ||
+                providerSpecialities.find(sp => String(sp.id) === String(serviceSpec.speciality));
         }
-        
+
+        // Set the speciality and filter specializations accordingly (support name or id on spec.speciality)
+        if (speciality) {
+            setSelectedSpeciality(String(speciality.id));
+            const filtered = providerSpecializations.filter(
+                spec => spec.speciality === speciality.name || String(spec.speciality) === String(speciality.id)
+            );
+            setFilteredSpecializations(filtered);
+        } else {
+            // Fallback: clear selection-specific filter but keep list intact
+            setSelectedSpeciality('');
+            setFilteredSpecializations([]);
+        }
+
         setFormData({
             title: service.title,
             description: service.description,
-            specialization: service.specialization?.id || service.specialization || '',
+            specialization: specializationId || '',
             base_price: service.base_price,
             price_type: service.price_type,
+            estimated_duration_min: service.estimated_duration_min || '',
+            estimated_duration_max: service.estimated_duration_max || '',
             service_radius: service.service_radius || '',
             emergency_service: service.emergency_service || false,
             is_active: service.is_active,
@@ -201,14 +239,29 @@ export default function ProviderMyServices() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         
-        // Validation (title/description now optional)
+        // Validation
         if (!formData.specialization || !formData.base_price) {
-            alert('Please fill in required fields (Specialization, Base Price)');
+            addToast('Please select a specialization and enter a base price.', 'warning', 4000);
+            return;
+        }
+
+        if (!formData.estimated_duration_min) {
+            addToast('Please specify the minimum estimated duration.', 'warning', 4000);
+            return;
+        }
+
+        const minDuration = parseFloat(formData.estimated_duration_min);
+        const maxDuration = formData.estimated_duration_max ? parseFloat(formData.estimated_duration_max) : null;
+
+        if (maxDuration && minDuration > maxDuration) {
+            addToast('Minimum duration cannot be greater than maximum duration.', 'warning', 4000);
             return;
         }
 
         try {
             setSubmitting(true);
+            
+            const avgDuration = maxDuration ? (minDuration + maxDuration) / 2 : minDuration;
             
             // Prepare data - only send fields that backend expects (excluding provider which is set automatically)
             const serviceData = {
@@ -217,28 +270,42 @@ export default function ProviderMyServices() {
                 specialization: formData.specialization,
                 base_price: parseFloat(formData.base_price),
                 price_type: formData.price_type,
-                service_radius: formData.service_radius ? parseInt(formData.service_radius) : null,
+                estimated_duration: avgDuration,
+                estimated_duration_min: minDuration,
+                estimated_duration_max: maxDuration,
+                // Default to provider's service area km if user left radius empty
+                service_radius: (formData.service_radius !== '' && formData.service_radius != null)
+                    ? parseInt(formData.service_radius, 10)
+                    : (providerServiceAreaKm ?? null),
                 emergency_service: formData.emergency_service,
                 is_active: formData.is_active,
             };
             
             if (editingService) {
-                // Update existing service
                 const updated = await bookingsService.updateService(editingService.id, serviceData);
                 setServices(services.map(s => s.id === updated.id ? updated : s));
-                setSuccessMessage('Service updated successfully!');
+                addToast('Service updated successfully!', 'success', 3000);
             } else {
-                // Create new service
                 const created = await bookingsService.createService(serviceData);
                 setServices([created, ...services]);
-                setSuccessMessage('Service created successfully!');
+                addToast('Service created successfully!', 'success', 3000);
             }
 
             setShowModal(false);
-            setTimeout(() => setSuccessMessage(null), 3000);
         } catch (err) {
             console.error("Error saving service:", err);
-            alert(err.error || err.message || 'Failed to save service');
+            const rawMsg = typeof err === 'string'
+                ? err
+                : (err && (err.error || err.detail || err.message))
+                    ? (err.error || err.detail || err.message)
+                    : '';
+            const isDuplicate = typeof rawMsg === 'string' && /already exists|duplicate|already added|unique constraint/i.test(rawMsg);
+            const friendly = isDuplicate
+                ? 'You already offer this service. Edit your existing service instead.'
+                : (typeof rawMsg === 'string' && rawMsg.trim().length > 0
+                    ? `Could not save service: ${rawMsg}`
+                    : 'Could not save service. Please try again.');
+            addToast(friendly, 'error', 4000);
         } finally {
             setSubmitting(false);
         }
@@ -248,11 +315,18 @@ export default function ProviderMyServices() {
         try {
             const updated = await bookingsService.toggleService(serviceId, !currentStatus);
             setServices(services.map(s => s.id === updated.id ? updated : s));
-            setSuccessMessage(`Service ${!currentStatus ? 'activated' : 'deactivated'} successfully!`);
-            setTimeout(() => setSuccessMessage(null), 3000);
+            addToast(`Service ${!currentStatus ? 'activated' : 'deactivated'} successfully!`, 'success', 3000);
         } catch (err) {
             console.error("Error toggling service:", err);
-            alert(err.error || err.message || 'Failed to toggle service');
+            const rawMsg = typeof err === 'string'
+                ? err
+                : (err && (err.error || err.detail || err.message))
+                    ? (err.error || err.detail || err.message)
+                    : '';
+            const friendly = rawMsg
+                ? `Could not change service status: ${rawMsg}`
+                : 'Could not change service status. Please try again.';
+            addToast(friendly, 'error', 4000);
         }
     };
 
@@ -263,12 +337,19 @@ export default function ProviderMyServices() {
             setDeleting(true);
             const result = await bookingsService.deleteService(serviceId);
             setServices(services.filter(s => s.id !== serviceId));
-            setSuccessMessage(result.message || 'Service deleted successfully!');
-            setTimeout(() => setSuccessMessage(null), 3000);
+            addToast(result.message || 'Service deleted successfully!', 'success', 3000);
             setDeleteConfirm(null);
         } catch (err) {
             console.error("Error deleting service:", err);
-            alert(err.error || err.message || 'Failed to delete service');
+            const rawMsg = typeof err === 'string'
+                ? err
+                : (err && (err.error || err.detail || err.message))
+                    ? (err.error || err.detail || err.message)
+                    : '';
+            const friendly = rawMsg
+                ? `Could not delete service: ${rawMsg}`
+                : 'Could not delete service. Please try again.';
+            addToast(friendly, 'error', 4000);
         } finally {
             setDeleting(false);
         }
@@ -322,7 +403,7 @@ export default function ProviderMyServices() {
                     <button
                     onClick={() => {
                         if (providerSpecialities.length === 0) {
-                            alert('No specialities available. You may need to complete your provider profile first.');
+                            addToast('No specialities available. Please complete your provider profile first.', 'warning', 4000);
                             return;
                         }
                         handleOpenCreate();
@@ -334,13 +415,6 @@ export default function ProviderMyServices() {
                     </button>
                 </div>
             </div>
-
-            {/* Success Message */}
-            {successMessage && (
-                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
-                    {successMessage}
-                </div>
-            )}
 
             {/* Error Message */}
             {error && (
@@ -399,6 +473,16 @@ export default function ProviderMyServices() {
                                     <span className="font-semibold">Price:</span> {formatCurrency(service.base_price)}
                                     <span className="text-xs text-gray-500">({service.price_type})</span>
                                 </p>
+                                {service.estimated_duration_min && (
+                                    <p className="flex items-center gap-2">
+                                        <span className="text-gray-400">⏱️</span>
+                                        <span className="font-semibold">Est. Duration:</span> 
+                                        {service.estimated_duration_max && service.estimated_duration_max !== service.estimated_duration_min
+                                            ? `${service.estimated_duration_min}-${service.estimated_duration_max} hours`
+                                            : `${service.estimated_duration_min} ${service.estimated_duration_min === 1 ? 'hour' : 'hours'}`
+                                        }
+                                    </p>
+                                )}
                                 {service.service_radius && (
                                     <p className="flex items-center gap-2">
                                         <MdLocationOn className="text-gray-400" />
@@ -623,6 +707,45 @@ export default function ProviderMyServices() {
                                         <option value="negotiable">Negotiable</option>
                                     </select>
                                 </div>
+                            </div>
+
+                            {/* Estimated Duration Range */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                    Estimated Duration (hours) <span className="text-red-500">*</span>
+                                </label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <input
+                                            type="number"
+                                            name="estimated_duration_min"
+                                            value={formData.estimated_duration_min}
+                                            onChange={handleInputChange}
+                                            placeholder="Min (e.g., 1)"
+                                            min="0.5"
+                                            step="0.5"
+                                            className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                            required
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Minimum hours</p>
+                                    </div>
+                                    <div>
+                                        <input
+                                            type="number"
+                                            name="estimated_duration_max"
+                                            value={formData.estimated_duration_max}
+                                            onChange={handleInputChange}
+                                            placeholder="Max (e.g., 2)"
+                                            min="0.5"
+                                            step="0.5"
+                                            className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Maximum hours (optional)</p>
+                                    </div>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    Provide duration range (e.g., 1-2 hours) or just minimum if fixed. This helps customers plan their schedule.
+                                </p>
                             </div>
 
                             {/* Service Radius */}

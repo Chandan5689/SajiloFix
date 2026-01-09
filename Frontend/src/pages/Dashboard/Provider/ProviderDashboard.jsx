@@ -52,9 +52,10 @@ export default function ProviderDashboard() {
       const averageRating = statsResp.average_rating ?? 0;
 
       // Get provider name and specialization from user profile context
-      const providerName = userProfile?.first_name && userProfile?.last_name
-        ? `${userProfile.first_name} ${userProfile.last_name}`
-        : userProfile?.email?.split('@')[0] || 'Service Provider';
+      const providerName = userProfile?.full_name ||
+        (userProfile?.first_name || userProfile?.last_name
+          ? [userProfile.first_name, userProfile.middle_name, userProfile.last_name].filter(Boolean).join(' ')
+          : userProfile?.email?.split('@')[0] || 'Service Provider');
 
       const specialization = userProfile?.user_specializations?.map(s => s.specialization?.name).join(", ")
         || 'Service Provider';

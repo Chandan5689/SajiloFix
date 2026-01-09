@@ -749,10 +749,19 @@ export default function ProviderMyBookings() {
                                     <p className="text-gray-500 font-semibold">Price</p>
                                     <p>NRS {selectedBooking.quoted_price || selectedBooking.final_price || "TBD"}</p>
                                 </div>
-                                <div>
-                                    <p className="text-gray-500 font-semibold">Customer Phone</p>
-                                    <p>{selectedBooking.customer_phone || "Not provided"}</p>
-                                </div>
+                                {/* Only show phone after booking is accepted */}
+                                {["confirmed", "scheduled", "in_progress", "completed", "provider_completed", "awaiting_customer"].includes(selectedBooking.status) && (
+                                    <div>
+                                        <p className="text-gray-500 font-semibold">Customer Phone</p>
+                                        <p>{selectedBooking.customer_phone || "Not provided"}</p>
+                                    </div>
+                                )}
+                                {selectedBooking.status === "pending" && (
+                                    <div>
+                                        <p className="text-gray-500 font-semibold">Customer Phone number</p>
+                                        <p className="text-gray-400 italic">Available after acceptance</p>
+                                    </div>
+                                )}
                                 <div>
                                     <p className="text-gray-500 font-semibold">Scheduled</p>
                                     <p>

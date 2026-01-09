@@ -3,7 +3,7 @@ import { useSignUp } from '@clerk/clerk-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import PhoneVerification from './PhoneVerification';
-import LocationSelector from '../../components/LocationSelector';
+import AddressAutocomplete from '../../components/AddressAutocomplete';
 
 function ClerkRegister() {
     const { isLoaded, signUp, setActive } = useSignUp();
@@ -15,9 +15,13 @@ function ClerkRegister() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [profilePicture, setProfilePicture] = useState(null);
+    const [profilePicturePreview, setProfilePicturePreview] = useState(null);
     const [firstName, setFirstName] = useState('');
+    const [middleName, setMiddleName] = useState('');
     const [lastName, setLastName] = useState('');
     const [userType, setUserType] = useState('find');
+    const [serviceArea, setServiceArea] = useState(''); // km, for providers
     const [location, setLocation] = useState('');
     const [code, setCode] = useState('');
     const [loading, setLoading] = useState(false);
@@ -26,6 +30,37 @@ function ClerkRegister() {
     
     // Store the completed sign up for later activation
     const [completedSignUp, setCompletedSignUp] = useState(null);
+
+    // Handle profile picture selection
+    const handleProfilePictureChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            // Validate file size (max 5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                setFieldErrors(prev => ({ ...prev, profilePicture: 'Image must be less than 5MB' }));
+                return;
+            }
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                setFieldErrors(prev => ({ ...prev, profilePicture: 'Please select a valid image file' }));
+                return;
+            }
+            setProfilePicture(file);
+            setFieldErrors(prev => ({ ...prev, profilePicture: '' }));
+            
+            // Create preview
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setProfilePicturePreview(reader.result);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleRemoveProfilePicture = () => {
+        setProfilePicture(null);
+        setProfilePicturePreview(null);
+    };
 
     // Step 1: Validate and create account with email
     const handleEmailSignup = async (e) => {
@@ -46,6 +81,14 @@ function ClerkRegister() {
         if (password.length < 8) errors.password = 'Password must be at least 8 characters';
         if (!confirmPassword) errors.confirmPassword = 'Please confirm password';
         if (password !== confirmPassword) errors.confirmPassword = 'Passwords do not match';
+
+        // If provider, require numeric service area (km)
+        if (userType === 'offer') {
+            const km = parseInt(String(serviceArea).trim(), 10);
+            if (!Number.isFinite(km) || km < 0) {
+                errors.serviceArea = 'Service area (km) is required';
+            }
+        }
 
         if (Object.keys(errors).length > 0) {
             setFieldErrors(errors);
@@ -135,9 +178,12 @@ function ClerkRegister() {
                 signUpData={{
                     email,
                     firstName,
+                    middleName,
                     lastName,
+                    profilePicture,
                     clerkUserId: completedSignUp?.createdUserId,
                     locationPayload: location,
+                    serviceArea,
                 }}
             />
         );
@@ -204,6 +250,74 @@ function ClerkRegister() {
                             </div>
                         </div>
 
+                        {/* Profile Picture Section */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Profile Picture (Optional)
+                            </label>
+                            {profilePicturePreview ? (
+                                <div className="flex items-center gap-4">
+                                    <img 
+                                        src={profilePicturePreview} 
+                                        alt="Preview" 
+                                        className="w-20 h-20 rounded-full object-cover border-2 border-blue-500"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleRemoveProfilePicture}
+                                        className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 transition"
+                                    >
+                                        Remove Picture
+                                    </button>
+                                </div>
+                            ) : (
+                                <label className="flex items-center justify-center w-full px-4 py-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 transition">
+                                    <div className="text-center">
+                                        <p className="text-sm text-gray-600">Click to upload a profile picture</p>
+                                        <p className="text-xs text-gray-500 mt-1">(JPG, PNG - Max 5MB)</p>
+                                    </div>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handleProfilePictureChange}
+                                        className="hidden"
+                                    />
+                                </label>
+                            )}
+                            {fieldErrors.profilePicture && (
+                                <p className="text-red-500 text-xs mt-1">{fieldErrors.profilePicture}</p>
+                            )}
+                        </div>
+
+                        {/* Service Area (km) - for providers */}
+                        {userType === 'offer' && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Service Area (km) *
+                                </label>
+                                <input
+                                    type="number"
+                                    value={serviceArea}
+                                    onChange={(e) => {
+                                        setServiceArea(e.target.value);
+                                        if (fieldErrors.serviceArea) {
+                                            setFieldErrors({ ...fieldErrors, serviceArea: '' });
+                                        }
+                                    }}
+                                    placeholder="e.g., 20"
+                                    min="0"
+                                    className={`w-full px-4 py-3 border ${
+                                        fieldErrors.serviceArea ? 'border-red-500' : 'border-gray-300'
+                                    } rounded-lg focus:ring-2 focus:ring-blue-500`}
+                                    required
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Enter your general service radius in kilometers</p>
+                                {fieldErrors.serviceArea && (
+                                    <p className="text-red-500 text-xs mt-1">{fieldErrors.serviceArea}</p>
+                                )}
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -230,27 +344,42 @@ function ClerkRegister() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Last Name *
+                                    Middle Name (Optional)
                                 </label>
                                 <input
                                     type="text"
-                                    value={lastName}
+                                    value={middleName}
                                     onChange={(e) => {
-                                        setLastName(e.target.value);
-                                        if (fieldErrors.lastName) {
-                                            setFieldErrors({...fieldErrors, lastName: ''});
-                                        }
+                                        setMiddleName(e.target.value);
                                     }}
-                                    placeholder="Doe"
-                                    className={`w-full px-4 py-3 border ${
-                                        fieldErrors.lastName ? 'border-red-500' : 'border-gray-300'
-                                    } rounded-lg focus:ring-2 focus:ring-blue-500`}
-                                    required
+                                    placeholder="Kumar"
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                 />
-                                {fieldErrors.lastName && (
-                                    <p className="text-red-500 text-xs mt-1">{fieldErrors.lastName}</p>
-                                )}
                             </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Last Name *
+                            </label>
+                            <input
+                                type="text"
+                                value={lastName}
+                                onChange={(e) => {
+                                    setLastName(e.target.value);
+                                    if (fieldErrors.lastName) {
+                                        setFieldErrors({...fieldErrors, lastName: ''});
+                                    }
+                                }}
+                                placeholder="Doe"
+                                className={`w-full px-4 py-3 border ${
+                                    fieldErrors.lastName ? 'border-red-500' : 'border-gray-300'
+                                } rounded-lg focus:ring-2 focus:ring-blue-500`}
+                                required
+                            />
+                            {fieldErrors.lastName && (
+                                <p className="text-red-500 text-xs mt-1">{fieldErrors.lastName}</p>
+                            )}
                         </div>
 
                         <div>
@@ -278,17 +407,22 @@ function ClerkRegister() {
                         </div>
 
                         <div>
-                            <LocationSelector 
+                            <AddressAutocomplete
+                                label="Location *"
                                 value={location}
-                                onChange={(value) => {
-                                    setLocation(value);
+                                onChange={(val) => {
+                                    // val is a structured payload { formatted, city, district, postal_code, latitude, longitude }
+                                    setLocation(val);
                                     if (fieldErrors.location) {
-                                        setFieldErrors({...fieldErrors, location: ''});
+                                        setFieldErrors({ ...fieldErrors, location: '' });
                                     }
                                 }}
-                                error={fieldErrors.location}
                                 disabled={loading}
+                                required
                             />
+                            {fieldErrors.location && (
+                                <p className="text-red-500 text-xs mt-1">{fieldErrors.location}</p>
+                            )}
                         </div>
 
                         <div>

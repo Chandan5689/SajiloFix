@@ -30,9 +30,10 @@ export default function DashboardLayout({
   const navigate = useNavigate();
 
   // Get user display name and initials
-  const userName = userData?.first_name && userData?.last_name
-    ? `${userData.first_name} ${userData.last_name}`
-    : userData?.email?.split('@')[0] || 'User';
+  const userName = userData?.full_name || 
+    (userData?.first_name || userData?.last_name 
+      ? [userData.first_name, userData.middle_name, userData.last_name].filter(Boolean).join(' ')
+      : userData?.email?.split('@')[0] || 'User');
 
   const getInitials = (name) => {
     return name

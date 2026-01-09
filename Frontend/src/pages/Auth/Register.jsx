@@ -736,8 +736,9 @@ const Register = () => {
                       value={formData.service_area}
                       onChange={handleInputChange}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="e.g., Kathmandu Valley"
+                      placeholder="e.g., 20"
                     />
+                    <p className="text-xs text-gray-500 mt-1">Use whole kilometers, e.g., 10 or 20</p>
                   </div>
 
                   <div>

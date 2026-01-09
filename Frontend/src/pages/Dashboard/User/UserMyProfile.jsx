@@ -16,6 +16,7 @@ export default function UserMyProfile() {
     // Form state
     const [form, setForm] = useState({
         first_name: "",
+        middle_name: "",
         last_name: "",
         email: "",
         phone_number: "",
@@ -49,6 +50,7 @@ export default function UserMyProfile() {
             // Map API response to form fields
             setForm({
                 first_name: data.first_name || "",
+                middle_name: data.middle_name || "",
                 last_name: data.last_name || "",
                 email: data.email || "",
                 phone_number: data.phone_number || "",
@@ -131,6 +133,7 @@ export default function UserMyProfile() {
             // Create FormData for multipart submission
             const updateData = new FormData();
             updateData.append('first_name', form.first_name);
+            updateData.append('middle_name', form.middle_name);
             updateData.append('last_name', form.last_name);
             updateData.append('address', form.address);
             updateData.append('city', form.city);
@@ -174,7 +177,8 @@ export default function UserMyProfile() {
 
     // Get full name
     const getFullName = () => {
-        return `${form.first_name} ${form.last_name}`.trim() || "User";
+        const parts = [form.first_name, form.middle_name, form.last_name];
+        return parts.filter(p => p).join(' ').trim() || "User";
     };
 
     // Tabs array
@@ -323,6 +327,7 @@ export default function UserMyProfile() {
                             )}
                             {[
                                 { label: "First Name", name: "first_name", type: "text" },
+                                { label: "Middle Name (Optional)", name: "middle_name", type: "text" },
                                 { label: "Last Name", name: "last_name", type: "text" },
                                 { label: "Email", name: "email", type: "email", disabled: true },
                                 { label: "Phone", name: "phone_number", type: "tel", disabled: true },

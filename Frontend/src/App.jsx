@@ -44,6 +44,7 @@ import React from 'react';
 // import SajilofixChatbot from './components/chatbot/SajilofixChatbot';
 import Chatbot from './components/Chatbot';
 import { ToastProvider } from './components/Toast';
+import { UserProfileProvider } from './context/UserProfileContext';
 
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -78,181 +79,184 @@ function App() {
         <ClerkProvider publishableKey={clerkPubKey}>
             <AppInitializer>
                 <ToastProvider>
-                <Router>
+                    <UserProfileProvider>
+                        <Router>
 
-                    <div>
+                            <div>
 
-                        <Navbar />
+                                <Navbar />
 
-                        <Chatbot />
-                        <main>
-                        <Routes>
-                            {/* Public Routes */}
-                            <Route path='/' element={<HomePage />} />
-                            <Route path='/about' element={<About />} />
-                            <Route path='/contact' element={<Contact />} />
-                            <Route path='/howitworks' element={<HowItWorksPage />} />
-                            <Route path='/services' element={<ProtectedRoute><Service /></ProtectedRoute>} />
+                                <Chatbot />
+                                <main>
+                                    <Routes>
+                                        {/* Public Routes */}
+                                        <Route path='/' element={<HomePage />} />
+                                        <Route path='/about' element={<About />} />
+                                        <Route path='/contact' element={<Contact />} />
+                                        <Route path='/howitworks' element={<HowItWorksPage />} />
+                                        <Route path='/services' element={<ProtectedRoute><Service /></ProtectedRoute>} />
 
-                            {/* Auth Routes */}
-                            <Route path='/login' element={<ClerkLogin />} />
-                            <Route path='/register' element={<ClerkRegister />} />
-                            <Route path="/sso-callback" element={<SSOCallback />} />
+                                        {/* Auth Routes */}
+                                        <Route path='/login' element={<ClerkLogin />} />
+                                        <Route path='/register' element={<ClerkRegister />} />
+                                        <Route path="/sso-callback" element={<SSOCallback />} />
 
-                            {/* Protected Auth Flow Routes */}
-                            <Route
-                                path="/verify-phone-flow"
-                                element={
-                                    <ProtectedRoute>
-                                        <VerifyPhoneFlow />
-                                    </ProtectedRoute>
-                                }
-                            />
-                            <Route
-                                path="/complete-provider-profile"
-                                element={
-                                    <ProtectedRoute>
-                                        <CompleteProviderProfile />
-                                    </ProtectedRoute>
-                                }
-                            />
+                                        {/* Protected Auth Flow Routes */}
+                                        <Route
+                                            path="/verify-phone-flow"
+                                            element={
+                                                <ProtectedRoute>
+                                                    <VerifyPhoneFlow />
+                                                </ProtectedRoute>
+                                            }
+                                        />
+                                        <Route
+                                            path="/complete-provider-profile"
+                                            element={
+                                                <ProtectedRoute>
+                                                    <CompleteProviderProfile />
+                                                </ProtectedRoute>
+                                            }
+                                        />
 
-                            <Route path="/provider/:id" element={<BookingPage />} />
+                                        <Route path="/provider/:id" element={<BookingPage />} />
 
-                            {/* Protected Dashboard Routes - Single entry, route by user_type */}
-                            <Route
-                                path="/dashboard"
-                                element={
-                                    <ProtectedRoute>
-                                        <RequireCompleteRegistration>
-                                            <DashboardRouter />
-                                        </RequireCompleteRegistration>
-                                    </ProtectedRoute>
-                                }
-                            />
-                            <Route path="/my-bookings" element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <BookingsRouter />
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path="/user/my-bookings" element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireUserRole>
-                                            <MyBookings />
-                                        </RequireUserRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/profile' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <ProfileRouter />
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/user/my-profile' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireUserRole>
-                                            <UserMyProfile />
-                                        </RequireUserRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/user/my-payments' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireUserRole>
-                                            <UserPayments />
-                                        </RequireUserRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/user/my-reviews' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireUserRole>
-                                            <MyReviews />
-                                        </RequireUserRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
+                                        {/* Protected Dashboard Routes - Single entry, route by user_type */}
+                                        <Route
+                                            path="/dashboard"
+                                            element={
+                                                <ProtectedRoute>
+                                                    <RequireCompleteRegistration>
+                                                        <DashboardRouter />
+                                                    </RequireCompleteRegistration>
+                                                </ProtectedRoute>
+                                            }
+                                        />
+                                        <Route path="/my-bookings" element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <BookingsRouter />
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path="/user/my-bookings" element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireUserRole>
+                                                        <MyBookings />
+                                                    </RequireUserRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/profile' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <ProfileRouter />
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/user/my-profile' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireUserRole>
+                                                        <UserMyProfile />
+                                                    </RequireUserRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/user/my-payments' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireUserRole>
+                                                        <UserPayments />
+                                                    </RequireUserRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/user/my-reviews' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireUserRole>
+                                                        <MyReviews />
+                                                    </RequireUserRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
 
-                            {/* Keep a provider-specific path for deep links */}
-                            <Route path='/provider/dashboard' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <ProviderDashboard />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/provider/my-bookings' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <ProviderMyBookings />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/provider/my-services' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <ProviderMyServices />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/provider/profile' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <ProviderProfile />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/provider/reviews' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <CustomerReviews />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            <Route path='/provider/earnings' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <ProviderEarnings />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
-                            
-                            <Route path='/provider/availability' element={
-                                <ProtectedRoute>
-                                    <RequireCompleteRegistration>
-                                        <RequireProviderRole>
-                                            <Availability />
-                                        </RequireProviderRole>
-                                    </RequireCompleteRegistration>
-                                </ProtectedRoute>
-                            } />
+                                        {/* Keep a provider-specific path for deep links */}
+                                        <Route path='/provider/dashboard' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireProviderRole>
+                                                        <ProviderDashboard />
+                                                    </RequireProviderRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/provider/my-bookings' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireProviderRole>
+                                                        <ProviderMyBookings />
+                                                    </RequireProviderRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/provider/my-services' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireProviderRole>
+                                                        <ProviderMyServices />
+                                                    </RequireProviderRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/provider/profile' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireProviderRole>
+                                                        <ProviderProfile />
+                                                    </RequireProviderRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/provider/reviews' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireProviderRole>
+                                                        <CustomerReviews />
+                                                    </RequireProviderRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+                                        <Route path='/provider/earnings' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireProviderRole>
+                                                        <ProviderEarnings />
+                                                    </RequireProviderRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
 
-                        </Routes>
-                    </main>
-                    <Footer />
-                </div>
-            </Router>
-            </ToastProvider>
+                                        <Route path='/provider/availability' element={
+                                            <ProtectedRoute>
+                                                <RequireCompleteRegistration>
+                                                    <RequireProviderRole>
+                                                        <Availability />
+                                                    </RequireProviderRole>
+                                                </RequireCompleteRegistration>
+                                            </ProtectedRoute>
+                                        } />
+
+                                    </Routes>
+                                </main>
+                                <Footer />
+                            </div>
+
+                        </Router>
+                    </UserProfileProvider>
+                </ToastProvider>
             </AppInitializer>
 
         </ClerkProvider>

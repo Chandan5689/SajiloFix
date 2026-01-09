@@ -108,7 +108,7 @@ function ClerkLogin() {
     };
 
     const handleTabChange = (newUserType) => {
-        console.log('handleTabChange called with:', newUserType);
+        
         setUserType(newUserType);
         setError('');
         setPassword('');
