@@ -37,7 +37,8 @@ function Chatbot(){
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/chatbot/chat/', {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/';
+      const response = await fetch(`${baseUrl}chatbot/chat/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

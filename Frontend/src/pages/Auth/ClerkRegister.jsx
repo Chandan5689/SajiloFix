@@ -82,14 +82,6 @@ function ClerkRegister() {
         if (!confirmPassword) errors.confirmPassword = 'Please confirm password';
         if (password !== confirmPassword) errors.confirmPassword = 'Passwords do not match';
 
-        // If provider, require numeric service area (km)
-        if (userType === 'offer') {
-            const km = parseInt(String(serviceArea).trim(), 10);
-            if (!Number.isFinite(km) || km < 0) {
-                errors.serviceArea = 'Service area (km) is required';
-            }
-        }
-
         if (Object.keys(errors).length > 0) {
             setFieldErrors(errors);
             return;
@@ -156,7 +148,7 @@ function ClerkRegister() {
             
             // Route based on user type
             if (userType === 'offer') {
-                navigate('/complete-provider-profile');
+                navigate('/complete-provider-profile', { state: { location } });
             } else {
                 navigate('/');
             }
@@ -288,35 +280,6 @@ function ClerkRegister() {
                                 <p className="text-red-500 text-xs mt-1">{fieldErrors.profilePicture}</p>
                             )}
                         </div>
-
-                        {/* Service Area (km) - for providers */}
-                        {userType === 'offer' && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Service Area (km) *
-                                </label>
-                                <input
-                                    type="number"
-                                    value={serviceArea}
-                                    onChange={(e) => {
-                                        setServiceArea(e.target.value);
-                                        if (fieldErrors.serviceArea) {
-                                            setFieldErrors({ ...fieldErrors, serviceArea: '' });
-                                        }
-                                    }}
-                                    placeholder="e.g., 20"
-                                    min="0"
-                                    className={`w-full px-4 py-3 border ${
-                                        fieldErrors.serviceArea ? 'border-red-500' : 'border-gray-300'
-                                    } rounded-lg focus:ring-2 focus:ring-blue-500`}
-                                    required
-                                />
-                                <p className="text-xs text-gray-500 mt-1">Enter your general service radius in kilometers</p>
-                                {fieldErrors.serviceArea && (
-                                    <p className="text-red-500 text-xs mt-1">{fieldErrors.serviceArea}</p>
-                                )}
-                            </div>
-                        )}
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>

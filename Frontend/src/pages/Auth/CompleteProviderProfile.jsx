@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation as useLocationHook } from 'react-router-dom';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import { Upload, FileText, Trash2, X } from 'lucide-react';
 import api from '../../api/axios';
+import AddressAutocomplete from '../../components/AddressAutocomplete';
 
 function CompleteProviderProfile() {
     const { user } = useUser();
@@ -19,12 +20,15 @@ function CompleteProviderProfile() {
     const [citizenshipFrontPreview, setCitizenshipFrontPreview] = useState(null);
     const [citizenshipBackPreview, setCitizenshipBackPreview] = useState(null);
 
+    // Get location from navigation state (passed from registration step)
+    const locationState = useLocationHook();
+    const locationFromRegistration = locationState?.state?.location;
+
     const [formData, setFormData] = useState({
         business_name: '',
         years_of_experience: '',
         service_area: '',
-        city: '',
-        address: '',
+        location: locationFromRegistration || '',
         bio: '',
         citizenship_number: '',
         citizenship_front: null,
@@ -176,11 +180,9 @@ function CompleteProviderProfile() {
         if (!formData.service_area.trim()) {
             errors.service_area = 'Service area is required';
         }
-        if (!formData.city.trim()) {
-            errors.city = 'City is required';
-        }
-        if (!formData.address.trim()) {
-            errors.address = 'Address is required';
+        const locationText = typeof formData.location === 'string' ? formData.location : (formData.location?.formatted || '');
+        if (!locationText.trim()) {
+            errors.location = 'Service location is required';
         }
         if (formData.specialities.length === 0) {
             errors.specialities = 'Please select at least one speciality';
@@ -214,6 +216,21 @@ function CompleteProviderProfile() {
             const clerkToken = await getToken();
 
             // Step 1: Update user type and basic info
+            const locationData = typeof formData.location === 'string' 
+                ? { formatted: formData.location } 
+                : formData.location;
+
+            // Prepare location payload with all fields for backend
+            const locationPayload = {
+                location: locationData?.formatted || '',
+                address: locationData?.formatted || '',
+                city: locationData?.city || '',
+                district: locationData?.district || '',
+                postal_code: locationData?.postal_code || '',
+                latitude: locationData?.latitude || null,
+                longitude: locationData?.longitude || null,
+            };
+
             await api.post(
                 '/auth/update-user-type/',
                 {
@@ -221,8 +238,7 @@ function CompleteProviderProfile() {
                     business_name: formData.business_name,
                     years_of_experience: parseInt(formData.years_of_experience),
                     service_area: formData.service_area,
-                    city: formData.city,
-                    address: formData.address,
+                    ...locationPayload,
                     bio: formData.bio,
                     specialities: formData.specialities,
                     specializations: formData.specializations
@@ -330,45 +346,42 @@ function CompleteProviderProfile() {
                                 />
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Years of Experience *
-                                    </label>
-                                    <input
-                                        type="number"
-                                        name="years_of_experience"
-                                        value={formData.years_of_experience}
-                                        onChange={handleInputChange}
-                                        min="0"
-                                        placeholder="5"
-                                        className={`w-full px-4 py-3 border ${fieldErrors.years_of_experience ? 'border-red-500' : 'border-gray-300'
-                                            } rounded-lg focus:ring-2 focus:ring-green-500`}
-                                        required
-                                    />
-                                    {fieldErrors.years_of_experience && (
-                                        <p className="text-red-500 text-xs mt-1">{fieldErrors.years_of_experience}</p>
-                                    )}
-                                </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Years of Experience *
+                                </label>
+                                <input
+                                    type="number"
+                                    name="years_of_experience"
+                                    value={formData.years_of_experience}
+                                    onChange={handleInputChange}
+                                    min="0"
+                                    placeholder="5"
+                                    className={`w-full px-4 py-3 border ${fieldErrors.years_of_experience ? 'border-red-500' : 'border-gray-300'
+                                        } rounded-lg focus:ring-2 focus:ring-green-500`}
+                                    required
+                                />
+                                {fieldErrors.years_of_experience && (
+                                    <p className="text-red-500 text-xs mt-1">{fieldErrors.years_of_experience}</p>
+                                )}
+                            </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        City *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="city"
-                                        value={formData.city}
-                                        onChange={handleInputChange}
-                                        placeholder="Kathmandu"
-                                        className={`w-full px-4 py-3 border ${fieldErrors.city ? 'border-red-500' : 'border-gray-300'
-                                            } rounded-lg focus:ring-2 focus:ring-green-500`}
-                                        required
-                                    />
-                                    {fieldErrors.city && (
-                                        <p className="text-red-500 text-xs mt-1">{fieldErrors.city}</p>
-                                    )}
-                                </div>
+                            <div>
+                                <AddressAutocomplete
+                                    label="Service Location *"
+                                    value={formData.location}
+                                    onChange={(val) => {
+                                        setFormData({ ...formData, location: val });
+                                        if (fieldErrors.location) {
+                                            setFieldErrors({ ...fieldErrors, location: '' });
+                                        }
+                                    }}
+                                    disabled={loading}
+                                    required
+                                />
+                                {fieldErrors.location && (
+                                    <p className="text-red-500 text-xs mt-1">{fieldErrors.location}</p>
+                                )}
                             </div>
 
                             <div>
@@ -389,25 +402,6 @@ function CompleteProviderProfile() {
                                 <p className="text-xs text-gray-500 mt-1">Enter kilometers only (e.g., 10, 20)</p>
                                 {fieldErrors.service_area && (
                                     <p className="text-red-500 text-xs mt-1">{fieldErrors.service_area}</p>
-                                )}
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Address *
-                                </label>
-                                <input
-                                    type="text"
-                                    name="address"
-                                    value={formData.address}
-                                    onChange={handleInputChange}
-                                    placeholder="Your complete address"
-                                    className={`w-full px-4 py-3 border ${fieldErrors.address ? 'border-red-500' : 'border-gray-300'
-                                        } rounded-lg focus:ring-2 focus:ring-green-500`}
-                                    required
-                                />
-                                {fieldErrors.address && (
-                                    <p className="text-red-500 text-xs mt-1">{fieldErrors.address}</p>
                                 )}
                             </div>
 

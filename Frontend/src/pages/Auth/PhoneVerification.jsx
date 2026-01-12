@@ -52,14 +52,7 @@ function PhoneVerification({ userType, location, onComplete, signUpData, complet
 
     // Test phone numbers configuration
     const TEST_PHONE_NUMBERS = {
-        '9806682952':'887754',
-        '9812345678': '321546',
-        '9856037190': '123456',
-        '9802837190': '890221',
-        '9802835190':'569771',
-        '9832145678':'002234',
-        '9742516049':'223356',
-        '9817194571':'778899',
+        
         // Add more test numbers as configured in Firebase
     };
 
