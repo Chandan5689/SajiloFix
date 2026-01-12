@@ -1,13 +1,16 @@
 import os
 from datetime import timedelta
 from pathlib import Path
-
+from urllib.parse import urlparse, parse_qsl
+from decouple import config
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-t6-1205(i_k7&+r4tg&v7opy+cih_7htp-*rk=0((7gl*g+^!p'
+
+SECRET_KEY = config('SECRET_KEY', default='your-secret-key')
+
 # SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -66,20 +69,41 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'backend.wsgi.application'
 
+DATABASE_URL = config('DATABASE_URL', default='')
+
+# Parse the DATABASE_URL for Neon connection
+if DATABASE_URL:
+    tmpPostgres = urlparse(DATABASE_URL)
+else:
+    tmpPostgres = None
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'sajilofixdb'),
-        'USER': os.getenv('DB_USER', 'postgres'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'admin'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
+
+
+if tmpPostgres:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': tmpPostgres.path.replace('/', ''),
+            'USER': tmpPostgres.username,
+            'PASSWORD': tmpPostgres.password,
+            'HOST': tmpPostgres.hostname,
+            'PORT': tmpPostgres.port or 5432,
+            'OPTIONS': dict(parse_qsl(tmpPostgres.query)),
+            'CONN_MAX_AGE': 60,
+        }
     }
-}
+else:
+    # Fallback to SQLite for local development if DATABASE_URL is not set
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+# print("DATABASES:", DATABASES)
 
 
 
@@ -179,8 +203,8 @@ REST_FRAMEWORK = {
 }
 
 # Clerk Settings
-CLERK_SECRET_KEY = 'sk_test_Y0D1Aqz4RsOsCJx72dviGwvWJKz3SGARslVs5WwIhH'
-CLERK_PEM_PUBLIC_KEY = os.getenv('CLERK_PEM_PUBLIC_KEY', '')
+CLERK_SECRET_KEY = config('CLERK_SECRET_KEY', default='')
+CLERK_PEM_PUBLIC_KEY = config('CLERK_PEM_PUBLIC_KEY', default='')
 
 # JWT Settings
 # SIMPLE_JWT = {
