@@ -15,7 +15,7 @@ SECRET_KEY = config('SECRET_KEY', default='your-secret-key')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']
 
 
 # Application definition
@@ -181,8 +181,9 @@ AUTH_USER_MODEL = 'users.User'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Your Vite dev server
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
-
 
 CORS_ALLOW_CREDENTIALS = True
 # Firebase Settings
