@@ -93,6 +93,11 @@ const CustomerReviews = () => {
         1: reviews.filter(r => parseInt(r.rating, 10) === 1).length
     }), [reviews, totalCount]);
 
+    const handleResponseSaved = (reviewId, responseText) => {
+        setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, provider_response: responseText } : r));
+        setFilteredReviews(prev => prev.map(r => r.id === reviewId ? { ...r, provider_response: responseText } : r));
+    };
+
 
     return (
         <ProviderDashboardLayout activeMenuKey={activeMenu} onMenuChange={setActiveMenu}>
@@ -133,7 +138,12 @@ const CustomerReviews = () => {
                     <div className="">
                         {!loading && !error && (
                             <>
-                                <ReviewList reviews={filteredReviews} loading={filterLoading} totalCount={activeFilter === 'all' ? totalCount : null} />
+                                <ReviewList
+                                    reviews={filteredReviews}
+                                    loading={filterLoading}
+                                    totalCount={activeFilter === 'all' ? totalCount : null}
+                                    onResponseSaved={handleResponseSaved}
+                                />
                                 {hasMore && (
                                     <div className="mt-6 text-center">
                                         <button

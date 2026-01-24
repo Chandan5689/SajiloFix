@@ -1,8 +1,44 @@
-import React from 'react'
-import { FaEnvelope, FaPhone, FaPhoneAlt } from 'react-icons/fa'
+import React, { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { yupResolver } from '@hookform/resolvers/yup'
+import { FaEnvelope, FaPhoneAlt } from 'react-icons/fa'
 import { FaLocationDot } from 'react-icons/fa6'
+import { contactFormSchema } from '../../validations/userSchemas'
 
 function Contact() {
+    const [serverError, setServerError] = useState(null)
+    const [serverSuccess, setServerSuccess] = useState(null)
+
+    const {
+        register,
+        handleSubmit,
+        reset,
+        formState: { errors, isSubmitting }
+    } = useForm({
+        resolver: yupResolver(contactFormSchema),
+        defaultValues: {
+            firstName: '',
+            lastName: '',
+            email: '',
+            subject: '',
+            message: ''
+        },
+        mode: 'onBlur'
+    })
+
+    const onSubmit = async (data) => {
+        setServerError(null)
+        setServerSuccess(null)
+        try {
+            // TODO: replace with real API call, e.g., publicService.sendContactMessage(data)
+            await new Promise((resolve) => setTimeout(resolve, 600))
+            setServerSuccess('Message sent successfully! We will get back to you soon.')
+            reset()
+        } catch (err) {
+            setServerError(err?.error || err?.message || 'Failed to send message')
+        }
+    }
+
     return (
         <section className='bg-gray-50 '>
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
@@ -17,31 +53,76 @@ function Contact() {
                 <div className="grid lg:grid-cols-2 gap-12">
                     <div className="bg-white rounded-2xl p-8 shadow-lg">
                         <h2 className="text-2xl font-bold text-gray-900 mb-6">Send us a Message</h2>
-                        <form className="space-y-6">
+                        <form className="space-y-6" onSubmit={handleSubmit(onSubmit)} noValidate>
+                            {serverError && (
+                                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{serverError}</div>
+                            )}
+                            {serverSuccess && (
+                                <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{serverSuccess}</div>
+                            )}
                             <div className="grid md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
-                                    <input type="text" placeholder="John" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none" />
+                                    <input
+                                        type="text"
+                                        placeholder="John"
+                                        {...register('firstName')}
+                                        className={`w-full px-4 py-3 border ${errors.firstName ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none`}
+                                        disabled={isSubmitting}
+                                    />
+                                    {errors.firstName && <p className="text-red-500 text-xs mt-1">{errors.firstName.message}</p>}
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
-                                    <input type="text" placeholder="Doe" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none" />
+                                    <input
+                                        type="text"
+                                        placeholder="Doe"
+                                        {...register('lastName')}
+                                        className={`w-full px-4 py-3 border ${errors.lastName ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none`}
+                                        disabled={isSubmitting}
+                                    />
+                                    {errors.lastName && <p className="text-red-500 text-xs mt-1">{errors.lastName.message}</p>}
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
-                                <input type="email" placeholder="john@example.com" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none" />
+                                <input
+                                    type="email"
+                                    placeholder="john@example.com"
+                                    {...register('email')}
+                                    className={`w-full px-4 py-3 border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none`}
+                                    disabled={isSubmitting}
+                                />
+                                {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
-                                <input type="text" placeholder="How can we help you?" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none" />
+                                <input
+                                    type="text"
+                                    placeholder="How can we help you?"
+                                    {...register('subject')}
+                                    className={`w-full px-4 py-3 border ${errors.subject ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm outline-none`}
+                                    disabled={isSubmitting}
+                                />
+                                {errors.subject && <p className="text-red-500 text-xs mt-1">{errors.subject.message}</p>}
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
-                                <textarea rows={6} placeholder="Tell us more..." className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm resize-none outline-none"></textarea>
+                                <textarea
+                                    rows={6}
+                                    placeholder="Tell us more..."
+                                    {...register('message')}
+                                    className={`w-full px-4 py-3 border ${errors.message ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm resize-none outline-none`}
+                                    disabled={isSubmitting}
+                                ></textarea>
+                                {errors.message && <p className="text-red-500 text-xs mt-1">{errors.message.message}</p>}
                             </div>
-                            <button type="submit" className="w-full bg-green-600 text-white py-3 font-semibold hover:bg-green-700 transition-colors cursor-pointer whitespace-nowrap rounded-xl">
-                                Send Message
+                            <button
+                                type="submit"
+                                disabled={isSubmitting}
+                                className="w-full bg-green-600 text-white py-3 font-semibold hover:bg-green-700 transition-colors cursor-pointer whitespace-nowrap rounded-xl disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                {isSubmitting ? 'Sending...' : 'Send Message'}
                             </button>
                         </form>
                     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { TiMessageTyping } from "react-icons/ti";
 import { FaCalendarAlt, FaClock } from "react-icons/fa";
 import { MdOutlineMessage } from "react-icons/md";
@@ -11,6 +11,10 @@ import providersService from '../services/providersService';
 import { FaEye } from 'react-icons/fa6';
 import { useSupabaseAuth } from '../context/SupabaseAuthContext';
 
+// Cache for provider details and availability (in-memory)
+const providerDetailsCache = new Map();
+const cacheExpiry = 5 * 60 * 1000; // 5 minutes
+
 /**
  * ServiceProviderCard shows a compact-yet-informative provider summary.
  * Emphasis: price band, top services, rating + review count, and location.
@@ -19,6 +23,7 @@ function ServiceProviderCard({ provider }) {
     const navigate = useNavigate();
     const { addToast } = useToast();
     const { isAuthenticated } = useSupabaseAuth();
+    const isMountedRef = useRef(true);
     const [showServicesModal, setShowServicesModal] = useState(false);
     const [servicesLoading, setServicesLoading] = useState(false);
     const [servicesError, setServicesError] = useState(null);
@@ -31,17 +36,40 @@ function ServiceProviderCard({ provider }) {
     const [availabilityStatus, setAvailabilityStatus] = useState('checking'); // 'available-today', 'available-soon', 'on-request', 'checking'
 
     // Display provider's primary speciality (first one selected)
-    const specialtyLabel = provider.specialties && provider.specialties.length > 0
-        ? provider.specialties[0]
-        : 'Speciality not set';
+    const specialtyLabel = useMemo(() => 
+        provider.specialties && provider.specialties.length > 0
+            ? provider.specialties[0]
+            : 'Speciality not set',
+        [provider.specialties]
+    );
+
+    // Helper function to get cached data or fetch fresh
+    const getCachedProviderData = useCallback(async (providerId, dataType) => {
+        const cacheKey = `${providerId}_${dataType}`;
+        const cached = providerDetailsCache.get(cacheKey);
+        
+        if (cached && Date.now() - cached.timestamp < cacheExpiry) {
+            return cached.data;
+        }
+        
+        let data;
+        if (dataType === 'availability') {
+            data = await providersService.getProviderAvailability(providerId);
+        } else if (dataType === 'detail') {
+            data = await providersService.getProviderDetail(providerId);
+        }
+        
+        providerDetailsCache.set(cacheKey, { data, timestamp: Date.now() });
+        return data;
+    }, []);
 
     // Fetch availability once per provider to show next available day/time
     useEffect(() => {
-        let mounted = true;
+        isMountedRef.current = true;
         const fetchAvailability = async () => {
             try {
-                const data = await providersService.getProviderAvailability(provider.id);
-                if (!mounted || !data?.weekly_schedule) {
+                const data = await getCachedProviderData(provider.id, 'availability');
+                if (!isMountedRef.current || !data?.weekly_schedule) {
                     setAvailabilityStatus('on-request');
                     setAvailabilityLabel("On request");
                     return;
@@ -54,9 +82,10 @@ function ServiceProviderCard({ provider }) {
                     start_time: d.start_time || d.startTime || '',
                     end_time: d.end_time || d.endTime || '',
                 }));
-                
+
+
                 const result = computeNextAvailable(normalizedSchedule);
-                if (!mounted) return;
+                if (!isMountedRef.current) return;
                 if (result) {
                     setAvailabilityLabel(result.label);
                     setAvailabilityStatus(result.status);
@@ -65,22 +94,23 @@ function ServiceProviderCard({ provider }) {
                     setAvailabilityStatus('on-request');
                 }
             } catch (e) {
-                if (mounted) {
+                if (isMountedRef.current) {
                     setAvailabilityLabel(provider.availability || "On request");
                     setAvailabilityStatus('on-request');
                 }
             }
         };
         fetchAvailability();
-        return () => { mounted = false; };
-    }, [provider.id, provider.availability]);
-    const openServicesModal = async () => {
+        return () => { isMountedRef.current = false; };
+    }, [provider.id, provider.availability, getCachedProviderData]);
+
+    const openServicesModal = useCallback(async () => {
         setShowServicesModal(true);
         if (services.length > 0 || servicesLoading) return;
         try {
             setServicesLoading(true);
             setServicesError(null);
-            const detail = await providersService.getProviderDetail(provider.id);
+            const detail = await getCachedProviderData(provider.id, 'detail');
             const list = detail?.services || [];
             setServices(list);
         } catch (err) {
@@ -88,9 +118,9 @@ function ServiceProviderCard({ provider }) {
         } finally {
             setServicesLoading(false);
         }
-    };
+    }, [services.length, servicesLoading, provider.id, getCachedProviderData]);
 
-    const handleShowMoreInline = async () => {
+    const handleShowMoreInline = useCallback(async () => {
         // Toggle off if already showing all
         if (showAllServices) {
             setShowAllServices(false);
@@ -108,7 +138,7 @@ function ServiceProviderCard({ provider }) {
         try {
             setExpandedLoading(true);
             setExpandedError(null);
-            const detail = await providersService.getProviderDetail(provider.id);
+            const detail = await getCachedProviderData(provider.id, 'detail');
             const list = detail?.services || [];
             setExpandedServices(list);
             setShowAllServices(true);
@@ -117,7 +147,7 @@ function ServiceProviderCard({ provider }) {
         } finally {
             setExpandedLoading(false);
         }
-    };
+    }, [showAllServices, expandedServices.length, provider.id, getCachedProviderData]);
 
     // const handleMessage = () => {
     //     addToast(`Message feature coming soon! You can reach ${provider.name} by booking a service.`, 'info', 3000);
@@ -461,5 +491,8 @@ function ServiceProviderCard({ provider }) {
     )
 }
 
-export default ServiceProviderCard
+export default React.memo(ServiceProviderCard, (prevProps, nextProps) => {
+    // Custom comparison: only re-render if provider object changes
+    return prevProps.provider.id === nextProps.provider.id;
+});
 

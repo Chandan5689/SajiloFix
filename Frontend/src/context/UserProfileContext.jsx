@@ -3,6 +3,47 @@ import api from '../api/axios';
 import { useSupabaseAuth } from './SupabaseAuthContext';
 
 const UserProfileContext = createContext();
+const PROFILE_CACHE_KEY = 'userProfile_cache';
+const STATUS_CACHE_KEY = 'registrationStatus_cache';
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+// Helper functions for localStorage caching
+const getCachedData = (key) => {
+  try {
+    const cached = localStorage.getItem(key);
+    if (!cached) return null;
+    
+    const { data, timestamp } = JSON.parse(cached);
+    // Check if cache is still valid
+    if (Date.now() - timestamp > CACHE_TTL) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.error('[UserProfileContext] Cache read error:', e);
+    return null;
+  }
+};
+
+const setCachedData = (key, data) => {
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }));
+  } catch (e) {
+    console.error('[UserProfileContext] Cache write error:', e);
+  }
+};
+
+const clearCachedData = (key) => {
+  try {
+    localStorage.removeItem(key);
+  } catch (e) {
+    console.error('[UserProfileContext] Cache clear error:', e);
+  }
+};
 
 export const useUserProfile = () => {
   const context = useContext(UserProfileContext);
@@ -21,8 +62,8 @@ export const useUserProfile = () => {
 };
 
 export const UserProfileProvider = ({ children }) => {
-  const [userProfile, setUserProfile] = useState(null);
-  const [registrationStatus, setRegistrationStatus] = useState(null);
+  const [userProfile, setUserProfile] = useState(() => getCachedData(PROFILE_CACHE_KEY));
+  const [registrationStatus, setRegistrationStatus] = useState(() => getCachedData(STATUS_CACHE_KEY));
   const [profileLoading, setProfileLoading] = useState(false);
   const [error, setError] = useState(null);
   const [initialized, setInitialized] = useState(false);
@@ -46,6 +87,8 @@ export const UserProfileProvider = ({ children }) => {
       setError(null);
       hasAttemptedFetchRef.current = false;
       isFetchingRef.current = false;
+      clearCachedData(PROFILE_CACHE_KEY);
+      clearCachedData(STATUS_CACHE_KEY);
       return;
     }
 
@@ -72,6 +115,7 @@ export const UserProfileProvider = ({ children }) => {
         }
 
         setRegistrationStatus(statusResp.data);
+        setCachedData(STATUS_CACHE_KEY, statusResp.data);
 
         const profileResp = await api.get('/auth/me/');
 
@@ -81,6 +125,7 @@ export const UserProfileProvider = ({ children }) => {
         }
 
         setUserProfile(profileResp.data);
+        setCachedData(PROFILE_CACHE_KEY, profileResp.data);
 
         if (isMounted) {
           setInitialized(true);
@@ -117,9 +162,11 @@ export const UserProfileProvider = ({ children }) => {
       try {
         const statusResp = await api.get('/auth/registration-status/');
         setRegistrationStatus(statusResp.data);
+        setCachedData(STATUS_CACHE_KEY, statusResp.data);
 
         const profileResp = await api.get('/auth/me/');
         setUserProfile(profileResp.data);
+        setCachedData(PROFILE_CACHE_KEY, profileResp.data);
       } catch (err) {
         console.error('[UserProfileProvider] Error refreshing after registration:', err);
       }
@@ -140,9 +187,11 @@ export const UserProfileProvider = ({ children }) => {
       setProfileLoading(true);
       const statusResp = await api.get('/auth/registration-status/');
       setRegistrationStatus(statusResp.data);
+      setCachedData(STATUS_CACHE_KEY, statusResp.data);
 
       const profileResp = await api.get('/auth/me/');
       setUserProfile(profileResp.data);
+      setCachedData(PROFILE_CACHE_KEY, profileResp.data);
     } catch (err) {
       console.error('[UserProfileProvider] Manual refresh failed:', err);
       setError(err);

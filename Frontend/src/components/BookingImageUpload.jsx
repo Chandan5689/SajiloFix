@@ -1,6 +1,10 @@
 import React, { useState } from "react";
+import { useForm } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
 import { MdUpload, MdClose, MdImage } from "react-icons/md";
+import ActionButton from "./ActionButton";
 import bookingsService from "../services/bookingsService";
+import { bookingImageUploadSchema } from "../validations/userSchemas";
 
 /**
  * BookingImageUpload Component
@@ -16,30 +20,54 @@ export default function BookingImageUpload({
 }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [previewUrls, setPreviewUrls] = useState([]);
-  const [description, setDescription] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState(null);
+  const [serverError, setServerError] = useState(null);
   const [success, setSuccess] = useState(null);
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    setError: setFormError,
+    clearErrors,
+    reset,
+    formState: { errors },
+  } = useForm({
+    resolver: yupResolver(bookingImageUploadSchema),
+    defaultValues: {
+      images: [],
+      description: "",
+    },
+    mode: "onBlur",
+  });
 
   // Image type labels
   const imageTypeLabels = {
     before: "Before Service Photos",
     during: "During Service Photos",
     after: "After Service Photos",
+    before_work: "Before Work Photos",
+    after_work: "After Work Photos",
+    problem_area: "Problem Area Photos",
+    completion: "Completion Photos",
+    reference: "Reference Photos",
   };
 
   // Handle file selection
   const handleFileSelect = (e) => {
-    const files = Array.from(e.target.files);
-    
-    // Validate file types
-    const validFiles = files.filter(file => {
-      if (!file.type.startsWith('image/')) {
-        setError('Please select only image files');
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const remainingSlots = 5 - selectedFiles.length;
+    const toAdd = files.slice(0, remainingSlots);
+
+    const validFiles = toAdd.filter((file) => {
+      if (!file.type.startsWith("image/")) {
+        setFormError("images", { type: "manual", message: "Only image files are allowed" });
         return false;
       }
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        setError('Each image must be less than 5MB');
+      if (file.size > 5 * 1024 * 1024) {
+        setFormError("images", { type: "manual", message: "Each image must be less than 5MB" });
         return false;
       }
       return true;
@@ -47,14 +75,15 @@ export default function BookingImageUpload({
 
     if (validFiles.length === 0) return;
 
-    setError(null);
-    setSelectedFiles(prev => [...prev, ...validFiles]);
+    const updatedFiles = [...selectedFiles, ...validFiles];
+    setSelectedFiles(updatedFiles);
+    setValue("images", updatedFiles, { shouldValidate: true });
+    clearErrors("images");
 
-    // Create preview URLs
-    validFiles.forEach(file => {
+    validFiles.forEach((file) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setPreviewUrls(prev => [...prev, reader.result]);
+        setPreviewUrls((prev) => [...prev, reader.result]);
       };
       reader.readAsDataURL(file);
     });
@@ -62,54 +91,59 @@ export default function BookingImageUpload({
 
   // Remove a selected file
   const handleRemoveFile = (index) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setSelectedFiles((prev) => {
+      const updated = prev.filter((_, i) => i !== index);
+      setValue("images", updated, { shouldValidate: true });
+      if (updated.length === 0) {
+        setFormError("images", { type: "manual", message: "Please select at least one image" });
+      }
+      return updated;
+    });
     setPreviewUrls(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Upload images
-  const handleUpload = async () => {
-    if (selectedFiles.length === 0) {
-      setError('Please select at least one image');
+  const onSubmit = async (formData) => {
+    if (!formData.images || formData.images.length === 0) {
+      setFormError("images", { type: "manual", message: "Please select at least one image" });
       return;
     }
 
     try {
       setUploading(true);
-      setError(null);
+      setServerError(null);
 
       const uploadedImages = await bookingsService.uploadBookingImages(
         bookingId,
         imageType,
-        selectedFiles,
-        description
+        formData.images,
+        formData.description
       );
 
       setSuccess(`Successfully uploaded ${uploadedImages.length} image(s)`);
-      
-      // Reset form
-      setTimeout(() => {
-        setSelectedFiles([]);
-        setPreviewUrls([]);
-        setDescription("");
-        setSuccess(null);
-        if (onUploadSuccess) {
-          onUploadSuccess(uploadedImages);
-        }
-      }, 2000);
 
+      reset();
+      setSelectedFiles([]);
+      setPreviewUrls([]);
+
+      if (onUploadSuccess) {
+        onUploadSuccess(uploadedImages);
+      }
+
+      // Auto clear success message
+      setTimeout(() => setSuccess(null), 1800);
     } catch (err) {
       console.error('Error uploading images:', err);
-      setError(err.error || err.message || 'Failed to upload images');
+      setServerError(err?.error || err?.message || 'Failed to upload images');
     } finally {
       setUploading(false);
     }
   };
 
   return (
-    <div className="bg-white rounded-lg p-6">
+    <form className="bg-white rounded-lg p-6" onSubmit={handleSubmit(onSubmit)}>
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">
-          Upload {imageTypeLabels[imageType]}
+          Upload {imageTypeLabels[imageType] || "Booking Photos"}
         </h3>
         {onCancel && (
           <button
@@ -129,9 +163,15 @@ export default function BookingImageUpload({
       )}
 
       {/* Error Message */}
-      {error && (
+      {serverError && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
+          {serverError}
+        </div>
+      )}
+
+      {errors.images && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {errors.images.message}
         </div>
       )}
 
@@ -176,7 +216,7 @@ export default function BookingImageUpload({
             multiple
             accept="image/*"
             onChange={handleFileSelect}
-            disabled={uploading}
+            disabled={uploading || selectedFiles.length >= 5}
           />
         </label>
       </div>
@@ -217,19 +257,22 @@ export default function BookingImageUpload({
           Description (Optional)
         </label>
         <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          {...register("description")}
           placeholder="Add any notes about these images..."
-          className="w-full p-3 border border-gray-300 rounded-md text-sm focus:outline-none focus:border-green-600"
+          className={`w-full p-3 border ${errors.description ? 'border-red-500' : 'border-gray-300'} rounded-md text-sm focus:outline-none focus:border-green-600`}
           rows="3"
           disabled={uploading}
         />
+        {errors.description && (
+          <p className="text-red-500 text-xs mt-1">{errors.description.message}</p>
+        )}
       </div>
 
       {/* Action Buttons */}
       <div className="flex gap-3">
         {onCancel && (
           <button
+            type="button"
             onClick={onCancel}
             className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md font-semibold hover:bg-gray-50 transition"
             disabled={uploading}
@@ -237,21 +280,17 @@ export default function BookingImageUpload({
             Cancel
           </button>
         )}
-        <button
-          onClick={handleUpload}
+        <ActionButton
+          type="submit"
+          label={`Upload ${selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}`}
+          loadingLabel="Uploading..."
+          isLoading={uploading}
           disabled={uploading || selectedFiles.length === 0}
-          className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          {uploading ? (
-            <span className="flex items-center justify-center gap-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Uploading...
-            </span>
-          ) : (
-            `Upload ${selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}`
-          )}
-        </button>
+          variant="primary"
+          size="md"
+          className="flex-1"
+        />
       </div>
-    </div>
+    </form>
   );
 }

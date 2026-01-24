@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import { FcGoogle } from 'react-icons/fc';
 import { useSupabaseAuth } from '../../context/SupabaseAuthContext';
+import { registrationSchema, emailVerificationSchema } from '../../validations/authSchemas';
 import api from '../../api/axios';
 // import PhoneVerification from './PhoneVerification'; // COMMENTED OUT - no longer used
 import AddressAutocomplete from '../../components/AddressAutocomplete';
@@ -12,42 +15,68 @@ function SupabaseRegister() {
     const navigate = useNavigate();
 
     const [step, setStep] = useState(1); // 1: Basic Info, 2: Email Verification
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [phoneNumber, setPhoneNumber] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-    const [profilePicture, setProfilePicture] = useState(null);
     const [profilePicturePreview, setProfilePicturePreview] = useState(null);
-    const [firstName, setFirstName] = useState('');
-    const [middleName, setMiddleName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [userType, setUserType] = useState('find');
-    const [serviceArea, setServiceArea] = useState('');
-    const [location, setLocation] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [fieldErrors, setFieldErrors] = useState({});
-    const [emailCode, setEmailCode] = useState('');
 
-    // Store signup result for phone verification
+    // Store signup result for email verification
     const [signUpResult, setSignUpResult] = useState(null);
+
+    // React Hook Form - Step 1 (Basic Info)
+    const {
+        register,
+        handleSubmit,
+        formState: { errors: formErrors },
+        setValue,
+        watch,
+        reset,
+    } = useForm({
+        resolver: yupResolver(registrationSchema),
+        defaultValues: {
+            userType: 'find',
+            profilePicture: null,
+            firstName: '',
+            middleName: '',
+            lastName: '',
+            location: '',
+            phoneNumber: '',
+            email: '',
+            password: '',
+            confirmPassword: '',
+            serviceArea: '',
+        },
+        mode: 'onBlur',
+    });
+
+    // React Hook Form - Step 2 (Email Verification)
+    const {
+        register: registerVerification,
+        handleSubmit: handleSubmitVerification,
+        formState: { errors: verificationErrors },
+    } = useForm({
+        resolver: yupResolver(emailVerificationSchema),
+        defaultValues: {
+            emailCode: '',
+        },
+        mode: 'onChange',
+    });
+
+    // Watch values for conditional rendering
+    const userTypeValue = watch('userType');
+    const emailValue = watch('email');
+    const phoneNumberValue = watch('phoneNumber');
+    const locationValue = watch('location');
+    const serviceAreaValue = watch('serviceArea');
 
     // Handle profile picture selection
     const handleProfilePictureChange = (e) => {
         const file = e.target.files?.[0];
         if (file) {
-            if (file.size > 5 * 1024 * 1024) {
-                setFieldErrors(prev => ({ ...prev, profilePicture: 'Image must be less than 5MB' }));
-                return;
-            }
-            if (!file.type.startsWith('image/')) {
-                setFieldErrors(prev => ({ ...prev, profilePicture: 'Please select a valid image file' }));
-                return;
-            }
-            setProfilePicture(file);
-            setFieldErrors(prev => ({ ...prev, profilePicture: '' }));
+            // File validation is now handled by Yup schema
+            // But we still need to show preview
+            setValue('profilePicture', file, { shouldValidate: true });
 
             const reader = new FileReader();
             reader.onloadend = () => {
@@ -58,50 +87,23 @@ function SupabaseRegister() {
     };
 
     const handleRemoveProfilePicture = () => {
-        setProfilePicture(null);
+        setValue('profilePicture', null);
         setProfilePicturePreview(null);
     };
 
     // Step 1: Register with Supabase
-    const handleRegister = async (e) => {
-        e.preventDefault();
-
+    const handleRegister = async (data) => {
         setError('');
-        setFieldErrors({});
-
-        // Validation
-        const errors = {};
-        if (!firstName.trim()) errors.firstName = 'First name is required';
-        if (!lastName.trim()) errors.lastName = 'Last name is required';
-        if (!email.trim()) errors.email = 'Email is required';
-        const locationText = typeof location === 'string' ? location : (location?.formatted || '');
-        if (!locationText.trim()) errors.location = 'Location is required';
-        if (!phoneNumber.trim()) errors.phoneNumber = 'Phone number is required';
-        if (!/^(98|97)\d{8}$/.test(phoneNumber)) errors.phoneNumber = 'Phone must be 10 digits starting with 98 or 97';
-        if (!password) errors.password = 'Password is required';
-        else if (password.length < 8) errors.password = 'Password must be at least 8 characters';
-        else if (!/(?=.*[a-z])/.test(password)) errors.password = 'Password must contain at least one lowercase letter';
-        else if (!/(?=.*[A-Z])/.test(password)) errors.password = 'Password must contain at least one uppercase letter';
-        else if (!/(?=.*\d)/.test(password)) errors.password = 'Password must contain at least one number';
-        else if (!/(?=.*[@$!%*?&#])/.test(password)) errors.password = 'Password must contain at least one special character';
-        if (!confirmPassword) errors.confirmPassword = 'Please confirm password';
-        if (password !== confirmPassword) errors.confirmPassword = 'Passwords do not match';
-
-        if (Object.keys(errors).length > 0) {
-            setFieldErrors(errors);
-            return;
-        }
-
         setLoading(true);
 
         try {
             // Sign up with Supabase
             const result = await signUp({
-                email,
-                password,
-                firstName,
-                middleName,
-                lastName,
+                email: data.email,
+                password: data.password,
+                firstName: data.firstName,
+                middleName: data.middleName,
+                lastName: data.lastName,
             });
 
             if (result.error) {
@@ -111,7 +113,7 @@ function SupabaseRegister() {
             // Store result and move to email verification
             setSignUpResult(result);
             console.log('✅ Supabase registration successful');
-            console.log('📧 Verification email sent to:', email);
+            console.log('📧 Verification email sent to:', data.email);
             console.log('⏳ Moving to email verification...');
             setStep(2);
         } catch (err) {
@@ -123,49 +125,47 @@ function SupabaseRegister() {
     };
 
     // Step 2: Verify email with OTP code
-    const handleVerifyEmail = async (e) => {
-        e.preventDefault();
+    const handleVerifyEmail = async (verificationData) => {
         setLoading(true);
         setError('');
 
         try {
             // Verify the email OTP
-            await verifyEmailOtp(email, emailCode);
+            await verifyEmailOtp(emailValue, verificationData.emailCode);
 
             console.log('✅ Email verified - session active');
             
-            // Now save user data to backend
-            console.log('📤 Sending user data to backend...');
-            
-            // Create FormData to handle file upload
+            // Get all form data from watch
             const formData = new FormData();
-            formData.append('user_type', userType);
-            formData.append('first_name', firstName);
-            formData.append('middle_name', middleName || '');
-            formData.append('last_name', lastName);
-            formData.append('phone_number', phoneNumber);
+            const registerData = watch(); // Get all form values
+            
+            formData.append('user_type', registerData.userType);
+            formData.append('first_name', registerData.firstName);
+            formData.append('middle_name', registerData.middleName || '');
+            formData.append('last_name', registerData.lastName);
+            formData.append('phone_number', registerData.phoneNumber);
             
             // Handle location - can be string or object
-            if (typeof location === 'object' && location !== null) {
-                formData.append('location', location.formatted || '');
-                formData.append('address', location.street || '');
-                formData.append('city', location.city || '');
-                formData.append('district', location.district || '');
-                formData.append('postal_code', location.postal_code || '');
-                if (location.lat) formData.append('latitude', location.lat);
-                if (location.lng) formData.append('longitude', location.lng);
-            } else if (typeof location === 'string') {
-                formData.append('location', location);
+            if (typeof registerData.location === 'object' && registerData.location !== null) {
+                formData.append('location', registerData.location.formatted || '');
+                formData.append('address', registerData.location.street || '');
+                formData.append('city', registerData.location.city || '');
+                formData.append('district', registerData.location.district || '');
+                formData.append('postal_code', registerData.location.postal_code || '');
+                if (registerData.location.lat) formData.append('latitude', registerData.location.lat);
+                if (registerData.location.lng) formData.append('longitude', registerData.location.lng);
+            } else if (typeof registerData.location === 'string') {
+                formData.append('location', registerData.location);
             }
             
             // Add profile picture if selected
-            if (profilePicture) {
-                formData.append('profile_picture', profilePicture);
+            if (registerData.profilePicture) {
+                formData.append('profile_picture', registerData.profilePicture);
             }
             
             // Add service area for providers
-            if (userType === 'offer' && serviceArea) {
-                formData.append('service_area', serviceArea);
+            if (registerData.userType === 'offer' && registerData.serviceArea) {
+                formData.append('service_area', registerData.serviceArea);
             }
             
             // Send to backend
@@ -182,8 +182,8 @@ function SupabaseRegister() {
             window.dispatchEvent(new Event('registrationComplete'));
             
             // Route based on user type
-            if (userType === 'offer') {
-                navigate('/complete-provider-profile', { state: { location } });
+            if (registerData.userType === 'offer') {
+                navigate('/complete-provider-profile', { state: { location: registerData.location } });
             } else {
                 navigate('/');
             }
@@ -199,7 +199,7 @@ function SupabaseRegister() {
     // Resend email verification code
     const handleResendEmailCode = async () => {
         try {
-            await resendEmailOtp(email);
+            await resendEmailOtp(emailValue);
             setError('');
             console.log('📧 Verification code resent');
         } catch (err) {
@@ -243,7 +243,7 @@ function SupabaseRegister() {
                     <div className="text-center mb-8">
                         <h2 className="text-4xl font-bold text-gray-900 mb-2">Verify Your Email</h2>
                         <p className="text-gray-600">
-                            We sent a verification code to <strong>{email}</strong>
+                            We sent a verification code to <strong>{emailValue}</strong>
                         </p>
 
                         {/* Progress Indicator - 2 Steps */}
@@ -264,25 +264,31 @@ function SupabaseRegister() {
                         </div>
                     )}
 
-                    <form onSubmit={handleVerifyEmail} className="space-y-6">
+                    <form onSubmit={handleSubmitVerification(handleVerifyEmail)} className="space-y-6">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                 Verification Code
                             </label>
                             <input
                                 type="text"
-                                value={emailCode}
-                                onChange={(e) => setEmailCode(e.target.value)}
-                                placeholder="Enter 6-digit code"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 maxLength={6}
-                                required
+                                placeholder="Enter 6-digit code"
+                                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 ${
+                                    verificationErrors.emailCode
+                                        ? 'border-red-500 focus:ring-red-500'
+                                        : 'border-gray-300 focus:ring-blue-500'
+                                }`}
+                                {...registerVerification('emailCode')}
+                                disabled={loading}
                             />
+                            {verificationErrors.emailCode && (
+                                <p className="mt-1 text-sm text-red-600">{verificationErrors.emailCode.message}</p>
+                            )}
                         </div>
 
                         <button
                             type="submit"
-                            disabled={loading || emailCode.length !== 6}
+                            disabled={loading || !!verificationErrors.emailCode}
                             className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400"
                         >
                             {loading ? 'Verifying...' : 'Verify Email & Continue'}
@@ -292,6 +298,7 @@ function SupabaseRegister() {
                             type="button"
                             onClick={handleResendEmailCode}
                             className="w-full text-sm text-blue-600 hover:text-blue-500"
+                            disabled={loading}
                         >
                             Didn't receive the code? Resend
                         </button>
@@ -351,7 +358,7 @@ function SupabaseRegister() {
                     </div>
                 )}
 
-                <form onSubmit={handleRegister} className="space-y-6">
+                <form onSubmit={handleSubmit(handleRegister)} className="space-y-6">
                     {/* User Type Selection */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -360,8 +367,8 @@ function SupabaseRegister() {
                         <div className="flex gap-4">
                             <button
                                 type="button"
-                                onClick={() => setUserType('find')}
-                                className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${userType === 'find'
+                                onClick={() => setValue('userType', 'find', { shouldValidate: true })}
+                                className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${userTypeValue === 'find'
                                         ? 'bg-blue-600 text-white shadow-lg'
                                         : 'bg-gray-100 text-gray-700'
                                     }`}
@@ -370,8 +377,8 @@ function SupabaseRegister() {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setUserType('offer')}
-                                className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${userType === 'offer'
+                                onClick={() => setValue('userType', 'offer', { shouldValidate: true })}
+                                className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${userTypeValue === 'offer'
                                         ? 'bg-green-600 text-white shadow-lg'
                                         : 'bg-gray-100 text-gray-700'
                                     }`}
@@ -415,8 +422,8 @@ function SupabaseRegister() {
                                 />
                             </label>
                         )}
-                        {fieldErrors.profilePicture && (
-                            <p className="text-red-500 text-xs mt-1">{fieldErrors.profilePicture}</p>
+                        {formErrors.profilePicture && (
+                            <p className="text-red-500 text-xs mt-1">{formErrors.profilePicture.message}</p>
                         )}
                     </div>
 
@@ -427,19 +434,13 @@ function SupabaseRegister() {
                             </label>
                             <input
                                 type="text"
-                                value={firstName}
-                                onChange={(e) => {
-                                    setFirstName(e.target.value);
-                                    if (fieldErrors.firstName) {
-                                        setFieldErrors({ ...fieldErrors, firstName: '' });
-                                    }
-                                }}
+                                {...register('firstName')}
                                 placeholder="John"
-                                className={`w-full px-4 py-3 border ${fieldErrors.firstName ? 'border-red-500' : 'border-gray-300'
+                                className={`w-full px-4 py-3 border ${formErrors.firstName ? 'border-red-500' : 'border-gray-300'
                                     } rounded-lg focus:ring-2 focus:ring-blue-500`}
                             />
-                            {fieldErrors.firstName && (
-                                <p className="text-red-500 text-xs mt-1">{fieldErrors.firstName}</p>
+                            {formErrors.firstName && (
+                                <p className="text-red-500 text-xs mt-1">{formErrors.firstName.message}</p>
                             )}
                         </div>
                         <div>
@@ -448,8 +449,7 @@ function SupabaseRegister() {
                             </label>
                             <input
                                 type="text"
-                                value={middleName}
-                                onChange={(e) => setMiddleName(e.target.value)}
+                                {...register('middleName')}
                                 placeholder="Optional"
                                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                             />
@@ -461,19 +461,13 @@ function SupabaseRegister() {
                             </label>
                             <input
                                 type="text"
-                                value={lastName}
-                                onChange={(e) => {
-                                    setLastName(e.target.value);
-                                    if (fieldErrors.lastName) {
-                                        setFieldErrors({ ...fieldErrors, lastName: '' });
-                                    }
-                                }}
+                                {...register('lastName')}
                                 placeholder="Doe"
-                                className={`w-full px-4 py-3 border ${fieldErrors.lastName ? 'border-red-500' : 'border-gray-300'
+                                className={`w-full px-4 py-3 border ${formErrors.lastName ? 'border-red-500' : 'border-gray-300'
                                     } rounded-lg focus:ring-2 focus:ring-blue-500`}
                             />
-                            {fieldErrors.lastName && (
-                                <p className="text-red-500 text-xs mt-1">{fieldErrors.lastName}</p>
+                            {formErrors.lastName && (
+                                <p className="text-red-500 text-xs mt-1">{formErrors.lastName.message}</p>
                             )}
                         </div>
                     </div>
@@ -484,15 +478,12 @@ function SupabaseRegister() {
                             
                         </label>
                         <AddressAutocomplete
-                            value={location}
+                            value={locationValue}
                             onChange={(value) => {
-                                setLocation(value);
-                                if (fieldErrors.location) {
-                                    setFieldErrors({ ...fieldErrors, location: '' });
-                                }
+                                setValue('location', value, { shouldValidate: true, shouldDirty: true });
                             }}
                             placeholder="Enter your location"
-                            error={fieldErrors.location}
+                            error={formErrors.location?.message}
                         />
                     </div>
 
@@ -507,27 +498,24 @@ function SupabaseRegister() {
                             </span>
                             <input
                                 type="tel"
-                                value={phoneNumber}
+                                value={phoneNumberValue || ''}
                                 onChange={(e) => {
                                     const value = e.target.value.replace(/\D/g, '');
-                                    setPhoneNumber(value);
-                                    if (fieldErrors.phoneNumber) {
-                                        setFieldErrors({ ...fieldErrors, phoneNumber: '' });
-                                    }
+                                    setValue('phoneNumber', value, { shouldValidate: true, shouldDirty: true });
                                 }}
                                 placeholder="9812345678"
                                 maxLength="10"
-                                className={`flex-1 px-4 py-3 border ${fieldErrors.phoneNumber ? 'border-red-500' : 'border-gray-300'
+                                className={`flex-1 px-4 py-3 border ${formErrors.phoneNumber ? 'border-red-500' : 'border-gray-300'
                                     } rounded-r-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                             />
                         </div>
                         <p className="mt-1 text-xs text-gray-500">
                             Enter 10 digits starting with 97 or 98
                         </p>
-                        {fieldErrors.phoneNumber && (
-                            <p className="text-red-500 text-xs mt-1">{fieldErrors.phoneNumber}</p>
+                        {formErrors.phoneNumber && (
+                            <p className="text-red-500 text-xs mt-1">{formErrors.phoneNumber.message}</p>
                         )}
-                        {userType === 'offer' && (
+                        {userTypeValue === 'offer' && (
                             <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                                 <p className="text-xs text-blue-800">
                                     <span className="font-semibold">📱 Phone Verification:</span> Our SajiloFix team will call you on this number to verify your account. Your account will be fully activated once verification is complete. You may receive the verification call within 1-2 hours.
@@ -535,6 +523,25 @@ function SupabaseRegister() {
                             </div>
                         )}
                     </div>
+
+                    {/* {userTypeValue === 'offer' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Service Area (km) <span className="text-gray-400">(Optional)</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={serviceAreaValue || ''}
+                                onChange={(e) => setValue('serviceArea', e.target.value, { shouldValidate: true, shouldDirty: true })}
+                                placeholder="e.g., 10"
+                                className={`w-full px-4 py-3 border ${formErrors.serviceArea ? 'border-red-500' : 'border-gray-300'
+                                    } rounded-lg focus:ring-2 focus:ring-blue-500`}
+                            />
+                            {formErrors.serviceArea && (
+                                <p className="text-red-500 text-xs mt-1">{formErrors.serviceArea.message}</p>
+                            )}
+                        </div>
+                    )} */}
 
                    
 
@@ -545,19 +552,13 @@ function SupabaseRegister() {
                         </label>
                         <input
                             type="email"
-                            value={email}
-                            onChange={(e) => {
-                                setEmail(e.target.value);
-                                if (fieldErrors.email) {
-                                    setFieldErrors({ ...fieldErrors, email: '' });
-                                }
-                            }}
+                            {...register('email')}
                             placeholder="your@email.com"
-                            className={`w-full px-4 py-3 border ${fieldErrors.email ? 'border-red-500' : 'border-gray-300'
+                            className={`w-full px-4 py-3 border ${formErrors.email ? 'border-red-500' : 'border-gray-300'
                                 } rounded-lg focus:ring-2 focus:ring-blue-500`}
                         />
-                        {fieldErrors.email && (
-                            <p className="text-red-500 text-xs mt-1">{fieldErrors.email}</p>
+                        {formErrors.email && (
+                            <p className="text-red-500 text-xs mt-1">{formErrors.email.message}</p>
                         )}
                     </div>
 
@@ -569,15 +570,9 @@ function SupabaseRegister() {
                         <div className="relative">
                             <input
                                 type={showPassword ? 'text' : 'password'}
-                                value={password}
-                                onChange={(e) => {
-                                    setPassword(e.target.value);
-                                    if (fieldErrors.password) {
-                                        setFieldErrors({ ...fieldErrors, password: '' });
-                                    }
-                                }}
+                                {...register('password')}
                                 placeholder="At least 8 characters"
-                                className={`w-full px-4 py-3 pr-12 border ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'
+                                className={`w-full px-4 py-3 pr-12 border ${formErrors.password ? 'border-red-500' : 'border-gray-300'
                                     } rounded-lg focus:ring-2 focus:ring-blue-500`}
                             />
                             <button
@@ -588,8 +583,8 @@ function SupabaseRegister() {
                                 {showPassword ? <FaEyeSlash /> : <FaEye />}
                             </button>
                         </div>
-                        {fieldErrors.password && (
-                            <p className="text-red-500 text-xs mt-1">{fieldErrors.password}</p>
+                        {formErrors.password && (
+                            <p className="text-red-500 text-xs mt-1">{formErrors.password.message}</p>
                         )}
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                             <p className="text-xs text-blue-800">
@@ -606,15 +601,9 @@ function SupabaseRegister() {
                         <div className="relative">
                             <input
                                 type={showConfirmPassword ? 'text' : 'password'}
-                                value={confirmPassword}
-                                onChange={(e) => {
-                                    setConfirmPassword(e.target.value);
-                                    if (fieldErrors.confirmPassword) {
-                                        setFieldErrors({ ...fieldErrors, confirmPassword: '' });
-                                    }
-                                }}
+                                {...register('confirmPassword')}
                                 placeholder="Confirm your password"
-                                className={`w-full px-4 py-3 pr-12 border ${fieldErrors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                                className={`w-full px-4 py-3 pr-12 border ${formErrors.confirmPassword ? 'border-red-500' : 'border-gray-300'
                                     } rounded-lg focus:ring-2 focus:ring-blue-500`}
                             />
                             <button
@@ -625,8 +614,8 @@ function SupabaseRegister() {
                                 {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
                             </button>
                         </div>
-                        {fieldErrors.confirmPassword && (
-                            <p className="text-red-500 text-xs mt-1">{fieldErrors.confirmPassword}</p>
+                        {formErrors.confirmPassword && (
+                            <p className="text-red-500 text-xs mt-1">{formErrors.confirmPassword.message}</p>
                         )}
                     </div>
 

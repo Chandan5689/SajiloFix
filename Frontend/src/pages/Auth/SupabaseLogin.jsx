@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import { FaEnvelope, FaLock, FaUser, FaTools, FaShieldAlt, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { FcGoogle } from 'react-icons/fc';
 import { useSupabaseAuth } from '../../context/SupabaseAuthContext';
+import { loginSchema } from '../../validations/authSchemas';
 import api from '../../api/axios';
 
 function SupabaseLogin() {
@@ -10,11 +13,25 @@ function SupabaseLogin() {
     const navigate = useNavigate();
     
     const [userType, setUserType] = useState('find');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    // React Hook Form with Yup validation
+    const {
+        register,
+        handleSubmit,
+        formState: { errors: formErrors },
+        reset,
+        setValue,
+    } = useForm({
+        resolver: yupResolver(loginSchema),
+        defaultValues: {
+            email: '',
+            password: '',
+        },
+        mode: 'onBlur', // Validate on blur for better UX
+    });
 
     const userTypes = [
         { key: 'find', label: 'Customer', icon: FaUser, color: 'blue' },
@@ -24,15 +41,13 @@ function SupabaseLogin() {
 
     const currentUserType = userTypes.find(t => t.key === userType);
 
-    const handleEmailLogin = async (e) => {
-        e.preventDefault();
-
+    const handleEmailLogin = async (data) => {
         setLoading(true);
         setError('');
 
         try {
-            // Sign in with Supabase Auth
-            const result = await signIn(email, password);
+            // Sign in with Supabase Auth (data now comes from React Hook Form)
+            const result = await signIn(data.email, data.password);
 
             // signIn returns data directly, not { data, error }
             // If there was an error, it would have thrown
@@ -58,7 +73,7 @@ function SupabaseLogin() {
                             // Sign out the user immediately to prevent unauthorized access
                             await signOut();
                             setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease click ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'} and try again.`);
-                            setPassword('');
+                            setValue('password', ''); // Clear password field
                             setLoading(false);
                             return;
                         }
@@ -69,7 +84,7 @@ function SupabaseLogin() {
                         const roleLabel = actualUserType === 'find' ? 'Customer' : 'Provider';
                         const correctTab = actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab';
                         setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
-                        setPassword('');
+                        setValue('password', ''); // Clear password field
                         setLoading(false);
                         return;
                     }
@@ -77,7 +92,7 @@ function SupabaseLogin() {
                     // Admin tab selected but user is not admin
                     await signOut();
                     setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease use ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'}.`);
-                    setPassword('');
+                    setValue('password', ''); // Clear password field
                     setLoading(false);
                     return;
                 }
@@ -125,7 +140,7 @@ function SupabaseLogin() {
                 setError(err.message || 'Login failed. Please try again.');
             }
             
-            setPassword('');
+            setValue('password', ''); // Clear password field
             setLoading(false);
         }
     };
@@ -133,7 +148,7 @@ function SupabaseLogin() {
     const handleTabChange = (newUserType) => {
         setUserType(newUserType);
         setError('');
-        setPassword('');
+        setValue('password', ''); // Clear password field
     };
 
     const handleGoogleLogin = async () => {
@@ -207,7 +222,7 @@ function SupabaseLogin() {
                     </div>
                 )}
 
-                <form onSubmit={handleEmailLogin} className="space-y-6">
+                <form onSubmit={handleSubmit(handleEmailLogin)} className="space-y-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                             Email address
@@ -216,14 +231,19 @@ function SupabaseLogin() {
                             <FaEnvelope className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
                             <input
                                 type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
+                                {...register('email')}
                                 placeholder="Enter your email"
-                                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                required
+                                className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 ${
+                                    formErrors.email 
+                                        ? 'border-red-500 focus:ring-red-500' 
+                                        : 'border-gray-300 focus:ring-blue-500'
+                                }`}
                                 disabled={loading}
                             />
                         </div>
+                        {formErrors.email && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors.email.message}</p>
+                        )}
                     </div>
 
                     <div>
@@ -234,11 +254,13 @@ function SupabaseLogin() {
                             <FaLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
                             <input
                                 type={showPassword ? 'text' : 'password'}
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
+                                {...register('password')}
                                 placeholder="Enter your password"
-                                className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                required
+                                className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 ${
+                                    formErrors.password 
+                                        ? 'border-red-500 focus:ring-red-500' 
+                                        : 'border-gray-300 focus:ring-blue-500'
+                                }`}
                                 disabled={loading}
                             />
                             <button
@@ -250,6 +272,9 @@ function SupabaseLogin() {
                                 {showPassword ? <FaEyeSlash /> : <FaEye />}
                             </button>
                         </div>
+                        {formErrors.password && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors.password.message}</p>
+                        )}
                     </div>
 
                     <div className="flex items-center justify-between">

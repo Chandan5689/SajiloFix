@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import ProviderDashboardLayout from '../../../layouts/ProviderDashboardLayout';
 import { MdEdit, MdSave, MdCancel } from 'react-icons/md';
 import api from '../../../api/axios';
+import { providerProfileEditSchema } from '../../../validations/providerSchemas';
 
 export default function ProviderProfile() {
     const navigate = useNavigate();
@@ -13,22 +16,53 @@ export default function ProviderProfile() {
     const [successMessage, setSuccessMessage] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     const [profilePicturePreview, setProfilePicturePreview] = useState(null);
-    const [profilePictureFile, setProfilePictureFile] = useState(null);
     
     const [profileData, setProfileData] = useState(null);
-    const [formData, setFormData] = useState({
-        business_name: '',
-        years_of_experience: '',
-        service_area: '',
-        city: '',
-        address: '',
-        bio: '',
-    });
-    
     const [specialities, setSpecialities] = useState([]);
     const [specializations, setSpecializations] = useState([]);
-    const [selectedSpecialities, setSelectedSpecialities] = useState([]);
-    const [selectedSpecializations, setSelectedSpecializations] = useState([]);
+
+    const {
+        register,
+        handleSubmit,
+        formState: { errors },
+        setValue,
+        watch,
+        reset,
+        clearErrors,
+        setError: setFormError,
+    } = useForm({
+        resolver: yupResolver(providerProfileEditSchema),
+        defaultValues: {
+            businessName: '',
+            yearsOfExperience: '',
+            serviceArea: '',
+            city: '',
+            address: '',
+            bio: '',
+            profilePicture: null,
+            specialities: [],
+            specializations: [],
+        },
+        mode: 'onBlur',
+    });
+
+    const selectedSpecialities = watch('specialities') || [];
+    const selectedSpecializations = watch('specializations') || [];
+    const profilePictureFile = watch('profilePicture');
+
+    useEffect(() => {
+        register('profilePicture');
+        register('specialities');
+        register('specializations');
+    }, [register]);
+
+    useEffect(() => {
+        if (profilePictureFile) {
+            const reader = new FileReader();
+            reader.onloadend = () => setProfilePicturePreview(reader.result);
+            reader.readAsDataURL(profilePictureFile);
+        }
+    }, [profilePictureFile]);
 
     useEffect(() => {
         fetchProfile();
@@ -41,23 +75,21 @@ export default function ProviderProfile() {
             const response = await api.get('/auth/me/');
             setProfileData(response.data);
             
-            setFormData({
-                business_name: response.data.business_name || '',
-                years_of_experience: response.data.years_of_experience || '',
-                service_area: response.data.service_area || '',
+            reset({
+                businessName: response.data.business_name || '',
+                yearsOfExperience: response.data.years_of_experience || '',
+                serviceArea: response.data.service_area || '',
                 city: response.data.city || '',
                 address: response.data.address || '',
                 bio: response.data.bio || '',
+                profilePicture: null,
+                specialities: response.data.specialities?.map(s => s.id) || [],
+                specializations: response.data.specializations?.map(s => s.id) || [],
             });
             
-            // Set profile picture preview from URL
             if (response.data.profile_picture_url) {
                 setProfilePicturePreview(response.data.profile_picture_url);
             }
-            
-            // Set selected specialities and specializations
-            setSelectedSpecialities(response.data.specialities?.map(s => s.id) || []);
-            setSelectedSpecializations(response.data.specializations?.map(s => s.id) || []);
         } catch (err) {
             console.error('Error fetching profile:', err);
             setError('Failed to load profile');
@@ -79,65 +111,39 @@ export default function ProviderProfile() {
         }
     };
 
-    const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
     const handleProfilePictureChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            // Validate file size (max 5MB)
-            if (file.size > 5 * 1024 * 1024) {
-                setError('File size must be less than 5MB');
-                return;
-            }
-
-            // Validate file type
-            if (!file.type.startsWith('image/')) {
-                setError('Only image files are allowed');
-                return;
-            }
-
-            setProfilePictureFile(file);
-            setError(null);
-
-            // Create preview
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setProfilePicturePreview(reader.result);
-            };
-            reader.readAsDataURL(file);
-        }
+        const file = e.target.files?.[0];
+        setValue('profilePicture', file || null, { shouldValidate: true });
+        clearErrors('profilePicture');
     };
 
     const handleRemoveProfilePicture = () => {
-        setProfilePictureFile(null);
-        setProfilePicturePreview(null);
+        setValue('profilePicture', null);
+        setProfilePicturePreview(profileData?.profile_picture_url || null);
     };
 
     const handleSpecialityToggle = (id) => {
-        setSelectedSpecialities(prev => {
-            const isRemoving = prev.includes(id);
-            if (isRemoving) {
-                // When removing a speciality, also remove all its specializations
-                const specsToRemove = specializations
-                    .filter(spec => spec.speciality === id)
-                    .map(spec => spec.id);
-                setSelectedSpecializations(prevSpecs => 
-                    prevSpecs.filter(specId => !specsToRemove.includes(specId))
-                );
-                return prev.filter(s => s !== id);
-            } else {
-                return [...prev, id];
-            }
+        const updated = selectedSpecialities.includes(id)
+            ? selectedSpecialities.filter((s) => s !== id)
+            : [...selectedSpecialities, id];
+
+        const filteredSpecializations = (selectedSpecializations || []).filter((specId) => {
+            const spec = specializations.find((s) => s.id === specId);
+            return spec && updated.includes(spec.speciality);
         });
+
+        setValue('specialities', updated, { shouldValidate: true });
+        setValue('specializations', filteredSpecializations, { shouldValidate: true });
+        clearErrors(['specialities', 'specializations']);
     };
 
     const handleSpecializationToggle = (id) => {
-        setSelectedSpecializations(prev => 
-            prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
-        );
+        const updated = selectedSpecializations.includes(id)
+            ? selectedSpecializations.filter((s) => s !== id)
+            : [...selectedSpecializations, id];
+
+        setValue('specializations', updated, { shouldValidate: true });
+        clearErrors('specializations');
     };
 
     const getFilteredSpecializations = () => {
@@ -147,99 +153,58 @@ export default function ProviderProfile() {
         );
     };
 
-    const handleSave = async () => {
+    const ensureSpecializationCoverage = (specialityIds, specializationIds) => {
+        const specLookup = new Map();
+        specializations.forEach((spec) => {
+            specLookup.set(spec.id, spec.speciality);
+        });
+
+        const covered = new Set((specializationIds || []).map((id) => specLookup.get(id)));
+        const missing = (specialityIds || []).find((id) => !covered.has(id));
+        if (missing) {
+            const missingSpec = specialities.find((s) => s.id === missing);
+            return `Please select at least one specialization for ${missingSpec?.name || 'each speciality'}`;
+        }
+        return null;
+    };
+
+    const onSubmit = async (data) => {
+        setError(null);
+        clearErrors('specializations');
+
+        const specializationError = ensureSpecializationCoverage(data.specialities, data.specializations);
+        if (specializationError) {
+            setFormError('specializations', { type: 'manual', message: specializationError });
+            return;
+        }
+
+        setSaving(true);
+
         try {
-            setSaving(true);
-            setError(null);
-            
-            // Validate that each selected speciality has at least one specialization
-            const specialitiesWithoutSpecs = selectedSpecialities.filter(specialityId => {
-                const specsForThisSpeciality = specializations
-                    .filter(spec => spec.speciality === specialityId)
-                    .map(spec => spec.id);
-                return !specsForThisSpeciality.some(specId => selectedSpecializations.includes(specId));
-            });
-            
-            if (specialitiesWithoutSpecs.length > 0) {
-                const missingNames = specialities
-                    .filter(s => specialitiesWithoutSpecs.includes(s.id))
-                    .map(s => s.name)
-                    .join(', ');
-                setError(`Please select at least one specialization for: ${missingNames}`);
-                setSaving(false);
-                return;
-            }
-
-            // Create FormData for profile update (backend expects multipart/form-data)
             const profileFormData = new FormData();
-            profileFormData.append('business_name', formData.business_name || '');
-            profileFormData.append('years_of_experience', parseInt(formData.years_of_experience) || 0);
-            profileFormData.append('service_area', formData.service_area || '');
-            profileFormData.append('city', formData.city || '');
-            profileFormData.append('address', formData.address || '');
-            profileFormData.append('bio', formData.bio || '');
+            profileFormData.append('business_name', data.businessName || '');
+            profileFormData.append('years_of_experience', parseInt(data.yearsOfExperience) || 0);
+            profileFormData.append('service_area', data.serviceArea || '');
+            profileFormData.append('city', data.city || '');
+            profileFormData.append('address', data.address || '');
+            profileFormData.append('bio', data.bio || '');
 
-            // Add profile picture if selected
-            if (profilePictureFile) {
-                profileFormData.append('profile_picture', profilePictureFile);
+            if (data.profilePicture) {
+                profileFormData.append('profile_picture', data.profilePicture);
             }
 
-            // Update basic profile info
             await api.patch('/auth/me/update/', profileFormData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
             });
 
-            // Update specialities and specializations (send only specializations; backend derives specialities)
             const userTypeFormData = new FormData();
             userTypeFormData.append('user_type', 'offer');
             
-            // Log what we're sending
-            console.log('Selected Specialities:', selectedSpecialities);
-            console.log('Selected Specializations:', selectedSpecializations);
-            
-            // Debug: Show which specializations belong to which speciality
-            const selectedSpecsDetails = specializations.filter(s => selectedSpecializations.includes(s.id));
-            console.log('Specialization details:', selectedSpecsDetails);
-            
-            // Group by speciality to see the mapping
-            const groupedBySpeciality = {};
-            selectedSpecsDetails.forEach(spec => {
-                if (!groupedBySpeciality[spec.speciality]) {
-                    groupedBySpeciality[spec.speciality] = [];
-                }
-                groupedBySpeciality[spec.speciality].push({
-                    id: spec.id,
-                    name: spec.name,
-                    speciality_id: spec.speciality
-                });
-            });
-            console.log('Specializations grouped by speciality:', groupedBySpeciality);
-            console.log('Expected specialities:', selectedSpecialities);
-            
-            // Detailed check for each speciality
-            selectedSpecialities.forEach(specId => {
-                const specsForThis = groupedBySpeciality[specId] || [];
-                console.log(`Speciality ${specId} has ${specsForThis.length} specializations:`, specsForThis);
-            });
-            
-            // Check for missing
-            const missingSpecialities = selectedSpecialities.filter(specId => !groupedBySpeciality[specId]);
-            if (missingSpecialities.length > 0) {
-                console.error('ERROR: These specialities have no specializations selected:', missingSpecialities);
-            }
-            
-            // Append specializations as array
-            selectedSpecializations.forEach(specId => {
+            data.specializations.forEach(specId => {
                 userTypeFormData.append('specializations', specId);
             });
-            
-            // Debug: Log all FormData entries
-            console.log('FormData being sent:');
-            for (let pair of userTypeFormData.entries()) {
-                console.log(pair[0] + ': ' + pair[1]);
-            }
             
             await api.post('/auth/update-user-type/', userTypeFormData, {
                 headers: {
@@ -247,22 +212,16 @@ export default function ProviderProfile() {
                 },
             });
 
-            // Notify other views (e.g., My Services) to refresh data
             window.dispatchEvent(new Event('provider-profile-updated'));
 
             setSuccessMessage('Profile updated successfully! Your changes are now available in My Services.');
             setIsEditing(false);
-            setProfilePictureFile(null);
-            fetchProfile(); // Refresh profile data
+            setValue('profilePicture', null);
+            fetchProfile();
             
-            // Auto-dismiss success message after 5 seconds
             setTimeout(() => setSuccessMessage(null), 5000);
         } catch (err) {
             console.error('Error updating profile:', err);
-            console.error('Error response:', err.response?.data);
-            if (err.response?.data?.missing_speciality_ids) {
-                console.error('Backend says these speciality IDs are missing specializations:', err.response.data.missing_speciality_ids);
-            }
             setError(err.response?.data?.error || err.response?.data?.message || 'Failed to update profile');
         } finally {
             setSaving(false);
@@ -271,18 +230,17 @@ export default function ProviderProfile() {
 
     const handleCancel = () => {
         setIsEditing(false);
-        // Reset form to original values
-        setFormData({
-            business_name: profileData.business_name || '',
-            years_of_experience: profileData.years_of_experience || '',
-            service_area: profileData.service_area || '',
+        reset({
+            businessName: profileData.business_name || '',
+            yearsOfExperience: profileData.years_of_experience || '',
+            serviceArea: profileData.service_area || '',
             city: profileData.city || '',
             address: profileData.address || '',
             bio: profileData.bio || '',
+            profilePicture: null,
+            specialities: profileData.specialities?.map(s => s.id) || [],
+            specializations: profileData.specializations?.map(s => s.id) || [],
         });
-        setSelectedSpecialities(profileData.specialities?.map(s => s.id) || []);
-        setSelectedSpecializations(profileData.specializations?.map(s => s.id) || []);
-        setProfilePictureFile(null);
         setProfilePicturePreview(profileData.profile_picture_url || null);
         setError(null);
     };
@@ -354,12 +312,12 @@ export default function ProviderProfile() {
                                 />
                             ) : (
                                 <div className="w-16 h-16 bg-green-600 text-white rounded-full flex items-center justify-center font-bold text-xl select-none">
-                                    {formData.business_name ? formData.business_name.charAt(0).toUpperCase() : 'P'}
+                                    {watch('businessName') ? watch('businessName').charAt(0).toUpperCase() : 'P'}
                                 </div>
                             )}
                         </div>
                         <div>
-                            <p className="font-semibold text-lg">{formData.business_name || 'Your Business'}</p>
+                            <p className="font-semibold text-lg">{watch('businessName') || 'Your Business'}</p>
                             <p className="text-gray-600">{profileData?.email}</p>
                             <p className="text-gray-600">{profileData?.phone_number || "Phone not set"}</p>
                             <span className="mt-1 inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded">
@@ -388,7 +346,7 @@ export default function ProviderProfile() {
                             </button>
                             <button
                                 type="button"
-                                onClick={handleSave}
+                                onClick={handleSubmit(onSubmit)}
                                 className="rounded-lg bg-green-600 px-6 py-2 font-semibold text-white hover:bg-green-700 cursor-pointer transition-all duration-200 disabled:opacity-50"
                                 disabled={saving}
                             >
@@ -452,13 +410,14 @@ export default function ProviderProfile() {
                             </label>
                             <input
                                 type="text"
-                                name="business_name"
-                                value={formData.business_name}
-                                onChange={handleInputChange}
+                                {...register('businessName')}
                                 disabled={!isEditing}
-                                className={`w-full p-3 border border-gray-300 rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
+                                className={`w-full p-3 border ${errors.businessName ? 'border-red-500' : 'border-gray-300'} rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
                                 placeholder="Your Business Name"
                             />
+                            {errors.businessName && (
+                                <p className="text-red-500 text-xs mt-1">{errors.businessName.message}</p>
+                            )}
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -466,14 +425,15 @@ export default function ProviderProfile() {
                             </label>
                             <input
                                 type="number"
-                                name="years_of_experience"
-                                value={formData.years_of_experience}
-                                onChange={handleInputChange}
-                                disabled={!isEditing}
                                 min="0"
-                                className={`w-full p-3 border border-gray-300 rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
+                                {...register('yearsOfExperience')}
+                                disabled={!isEditing}
+                                className={`w-full p-3 border ${errors.yearsOfExperience ? 'border-red-500' : 'border-gray-300'} rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
                                 placeholder="5"
                             />
+                            {errors.yearsOfExperience && (
+                                <p className="text-red-500 text-xs mt-1">{errors.yearsOfExperience.message}</p>
+                            )}
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -481,13 +441,14 @@ export default function ProviderProfile() {
                             </label>
                             <input
                                 type="text"
-                                name="city"
-                                value={formData.city}
-                                onChange={handleInputChange}
+                                {...register('city')}
                                 disabled={!isEditing}
-                                className={`w-full p-3 border border-gray-300 rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
+                                className={`w-full p-3 border ${errors.city ? 'border-red-500' : 'border-gray-300'} rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
                                 placeholder="Kathmandu"
                             />
+                            {errors.city && (
+                                <p className="text-red-500 text-xs mt-1">{errors.city.message}</p>
+                            )}
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -495,15 +456,16 @@ export default function ProviderProfile() {
                             </label>
                             <input
                                 type="number"
-                                name="service_area"
-                                value={formData.service_area}
-                                onChange={handleInputChange}
-                                disabled={!isEditing}
                                 min="0"
-                                className={`w-full p-3 border border-gray-300 rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
+                                {...register('serviceArea')}
+                                disabled={!isEditing}
+                                className={`w-full p-3 border ${errors.serviceArea ? 'border-red-500' : 'border-gray-300'} rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
                                 placeholder="e.g., 20"
                             />
                             <p className="text-xs text-gray-500 mt-1">Enter your general service area radius in kilometers</p>
+                            {errors.serviceArea && (
+                                <p className="text-red-500 text-xs mt-1">{errors.serviceArea.message}</p>
+                            )}
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -511,27 +473,29 @@ export default function ProviderProfile() {
                             </label>
                             <input
                                 type="text"
-                                name="address"
-                                value={formData.address}
-                                onChange={handleInputChange}
+                                {...register('address')}
                                 disabled={!isEditing}
-                                className={`w-full p-3 border border-gray-300 rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
+                                className={`w-full p-3 border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
                                 placeholder="Your complete address"
                             />
+                            {errors.address && (
+                                <p className="text-red-500 text-xs mt-1">{errors.address.message}</p>
+                            )}
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                 Bio / Description
                             </label>
                             <textarea
-                                name="bio"
-                                value={formData.bio}
-                                onChange={handleInputChange}
-                                disabled={!isEditing}
                                 rows="4"
-                                className={`w-full p-3 border border-gray-300 rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
+                                {...register('bio')}
+                                disabled={!isEditing}
+                                className={`w-full p-3 border ${errors.bio ? 'border-red-500' : 'border-gray-300'} rounded-md ${isEditing ? 'focus:outline-none focus:border-green-600' : 'bg-gray-50'}`}
                                 placeholder="Tell us about yourself and your services..."
                             />
+                            {errors.bio && (
+                                <p className="text-red-500 text-xs mt-1">{errors.bio.message}</p>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -595,7 +559,13 @@ export default function ProviderProfile() {
                                         </button>
                                     ))}
                                 </div>
+                                {errors.specializations && (
+                                    <p className="text-red-500 text-sm mt-2">{errors.specializations.message}</p>
+                                )}
                             </div>
+                        )}
+                        {errors.specialities && (
+                            <p className="text-red-500 text-sm mt-2">{errors.specialities.message}</p>
                         )}
                     </div>
                 </div>
@@ -667,7 +637,7 @@ export default function ProviderProfile() {
                             </button>
                             <button
                                 type="button"
-                                onClick={handleSave}
+                                onClick={handleSubmit(onSubmit)}
                                 className="rounded-lg bg-green-600 px-6 py-2 font-semibold text-white hover:bg-green-700 cursor-pointer transition-all duration-200 disabled:opacity-50"
                                 disabled={saving}
                             >
