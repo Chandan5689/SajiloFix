@@ -49,7 +49,7 @@ class BookingImageSerializer(serializers.ModelSerializer):
 
 
 class BookingServiceSerializer(serializers.ModelSerializer):
-    service_title = serializers.CharField(source='service.title', read_only=True)
+    service_title = serializers.SerializerMethodField()
     specialization_name = serializers.CharField(source='service.specialization.name', read_only=True)
 
     class Meta:
@@ -61,9 +61,19 @@ class BookingServiceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'service_title', 'specialization_name', 'created_at', 'updated_at']
 
+    def get_service_title(self, obj):
+        service = obj.service
+        if not service:
+            return None
+        return (
+            service.title
+            or getattr(service.specialization, 'name', None)
+            or getattr(getattr(service.specialization, 'speciality', None), 'name', None)
+        )
+
 
 class BookingSerializer(serializers.ModelSerializer):
-    service_title = serializers.CharField(source='service.title', read_only=True)
+    service_title = serializers.SerializerMethodField()
     provider_name = serializers.SerializerMethodField()
     customer_name = serializers.SerializerMethodField()
     customer_email = serializers.EmailField(source='customer.email', read_only=True)
@@ -100,6 +110,17 @@ class BookingSerializer(serializers.ModelSerializer):
     def get_customer_name(self, obj):
         return obj.customer.get_full_name() or obj.customer.email
 
+    def get_service_title(self, obj):
+        if obj.service and obj.service.title:
+            return obj.service.title
+        if obj.service and obj.service.specialization:
+            return obj.service.specialization.name or getattr(obj.service.specialization.speciality, 'name', None)
+        first_snapshot = obj.booking_services.first()
+        if first_snapshot:
+            serializer = BookingServiceSerializer(first_snapshot)
+            return serializer.data.get('service_title')
+        return None
+
     def create(self, validated_data):
         # Extract optional services list (for multi-service bookings)
         service_ids = validated_data.pop('services', None)
@@ -124,6 +145,13 @@ class BookingSerializer(serializers.ModelSerializer):
         validated_data['service'] = primary_service
         validated_data['provider'] = primary_service.provider
 
+        # Calculate quoted_price as sum of all service base prices
+        from decimal import Decimal
+        total_price = Decimal('0.00')
+        for svc in services:
+            total_price += svc.base_price or Decimal('0.00')
+        validated_data['quoted_price'] = total_price
+
         booking = Booking.objects.create(**validated_data)
 
         # Create BookingService snapshot entries
@@ -144,7 +172,7 @@ class BookingSerializer(serializers.ModelSerializer):
 class BookingListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for dashboard lists to reduce payload size."""
 
-    service_title = serializers.CharField(source='service.title', read_only=True)
+    service_title = serializers.SerializerMethodField()
     provider_name = serializers.SerializerMethodField()
     customer_name = serializers.SerializerMethodField()
 
@@ -166,6 +194,18 @@ class BookingListSerializer(serializers.ModelSerializer):
 
     def get_customer_name(self, obj):
         return obj.customer.get_full_name() or obj.customer.email
+
+    def get_service_title(self, obj):
+        if obj.service:
+            if obj.service.title:
+                return obj.service.title
+            if obj.service.specialization:
+                return obj.service.specialization.name or getattr(obj.service.specialization.speciality, 'name', None)
+        # Fallback to first booking_service snapshot if primary service is missing
+        first_snapshot = obj.booking_services.first()
+        if first_snapshot:
+            return BookingServiceSerializer(first_snapshot).data.get('service_title')
+        return None
 
 
 class PaymentSerializer(serializers.ModelSerializer):

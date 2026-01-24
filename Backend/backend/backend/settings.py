@@ -3,6 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse, parse_qsl
 from decouple import config
+import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -11,11 +12,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='your-secret-key')
 
-# SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1',]
 
 
 # Application definition
@@ -28,7 +27,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    # 'rest_framework_simplejwt',
+    'rest_framework_simplejwt',
     # 'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'users',
@@ -41,6 +40,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'backend.middleware.ConnectionCloseMiddleware',  # Close DB connections immediately
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -69,42 +69,54 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'backend.wsgi.application'
 
-DATABASE_URL = config('DATABASE_URL', default='')
+# DATABASE_URL = config('DATABASE_URL', default='')
 
-# Parse the DATABASE_URL for Neon connection
-if DATABASE_URL:
-    tmpPostgres = urlparse(DATABASE_URL)
-else:
-    tmpPostgres = None
+# # Parse the DATABASE_URL for Neon connection
+# if DATABASE_URL:
+#     tmpPostgres = urlparse(DATABASE_URL)
+# else:
+#     tmpPostgres = None
 
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# # Database
+# # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 
 
-if tmpPostgres:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': tmpPostgres.path.replace('/', ''),
-            'USER': tmpPostgres.username,
-            'PASSWORD': tmpPostgres.password,
-            'HOST': tmpPostgres.hostname,
-            'PORT': tmpPostgres.port or 5432,
-            'OPTIONS': dict(parse_qsl(tmpPostgres.query)),
-            'CONN_MAX_AGE': 60,
+# if tmpPostgres:
+#     DATABASES = {
+#         'default': {
+#             'ENGINE': 'django.db.backends.postgresql',
+#             'NAME': tmpPostgres.path.replace('/', ''),
+#             'USER': tmpPostgres.username,
+#             'PASSWORD': tmpPostgres.password,
+#             'HOST': tmpPostgres.hostname,
+#             'PORT': tmpPostgres.port or 5432,
+#             'OPTIONS': dict(parse_qsl(tmpPostgres.query)),
+#             'CONN_MAX_AGE': 60,
+#         }
+#     }
+# else:
+#     # Fallback to SQLite for local development if DATABASE_URL is not set
+#     DATABASES = {
+#         'default': {
+#             'ENGINE': 'django.db.backends.sqlite3',
+#             'NAME': BASE_DIR / 'db.sqlite3',
+#         }
+#     }
+
+DATABASES = {
+    'default': {
+        **dj_database_url.parse(
+            config('DATABASE_URL'),
+            conn_max_age=0,  # Close connections immediately after each request
+            ssl_require=True
+        ),
+        'OPTIONS': {
+            'connect_timeout': 10,
+            'options': '-c statement_timeout=30000'  # 30 second query timeout
         }
     }
-else:
-    # Fallback to SQLite for local development if DATABASE_URL is not set
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-# print("DATABASES:", DATABASES)
-
+}
 
 
 # If you need to allow credentials (cookies/auth)
@@ -195,7 +207,7 @@ FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH', os.pa
 # REST framework basic config (customize as needed)
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'users.authentication.ClerkAuthentication',  # Only Clerk now
+        'users.authentication.SupabaseAuthentication',  # Supabase Auth (primary)
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.AllowAny',  # Will use IsAuthenticated on specific views
@@ -203,9 +215,10 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
 }
 
-# Clerk Settings
-CLERK_SECRET_KEY = config('CLERK_SECRET_KEY', default='')
-CLERK_PEM_PUBLIC_KEY = config('CLERK_PEM_PUBLIC_KEY', default='')
+# Supabase Settings
+SUPABASE_URL = config('SUPABASE_URL', default='')
+SUPABASE_ANON_KEY = config('SUPABASE_ANON_KEY', default='')
+SUPABASE_JWT_SECRET = config('SUPABASE_JWT_SECRET', default='')
 
 # JWT Settings
 # SIMPLE_JWT = {

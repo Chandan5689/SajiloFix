@@ -8,9 +8,10 @@ from rest_framework.permissions import BasePermission
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db.models import Q
+from rest_framework.decorators import authentication_classes, permission_classes
 from .serializers import UserSerializer, SpecialitySerializer, SpecializationSerializer, CertificateSerializer
 from .models import Speciality, Specialization, UserSpeciality, UserSpecialization, Certificate
-from .authentication import ClerkAuthentication
+from .authentication import SupabaseAuthentication
 
 User = get_user_model()
 
@@ -26,10 +27,16 @@ class IsRegistrationComplete(BasePermission):
 
 class RegistrationStatusView(APIView):
     """Check registration status without requiring completed registration"""
-    authentication_classes = [ClerkAuthentication]
+    authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
     
+    # Disable CSRF for this view (uses token auth, not cookies)
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+    
     def get(self, request):
+        print(f"RegistrationStatusView called - User: {request.user}, Authenticated: {request.user.is_authenticated}")
         user = request.user
         return Response({
             'phone_verified': user.phone_verified,
@@ -37,14 +44,20 @@ class RegistrationStatusView(APIView):
             'user_type': user.user_type,
             'email': user.email,
             'phone_number': user.phone_number,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
         })
 
 
 class CurrentUserView(generics.RetrieveAPIView):
     """Get current logged-in user details"""
-    authentication_classes = [ClerkAuthentication]
+    authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def get_object(self):
         return self.request.user
@@ -52,10 +65,14 @@ class CurrentUserView(generics.RetrieveAPIView):
 
 class UpdateUserProfileView(generics.UpdateAPIView):
     """Update current user's profile information"""
-    authentication_classes = [ClerkAuthentication]
+    authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
     parser_classes = (MultiPartParser, FormParser)
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def get_object(self):
         return self.request.user
@@ -66,11 +83,14 @@ class UpdateUserProfileView(generics.UpdateAPIView):
         return context
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class VerifyPhoneView(APIView):
     """Verify and save user's phone number"""
-    authentication_classes = [ClerkAuthentication]
+    authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def post(self, request):
         phone_number = request.data.get('phone_number')
@@ -114,12 +134,15 @@ class VerifyPhoneView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class UpdateUserTypeView(APIView):
     """Update user type and provider information"""
-    authentication_classes = [ClerkAuthentication]
+    authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = (JSONParser, MultiPartParser, FormParser)
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def post(self, request):
         user_type = request.data.get('user_type')
@@ -150,17 +173,38 @@ class UpdateUserTypeView(APIView):
         first_name = request.data.get('first_name', '').strip()
         middle_name = request.data.get('middle_name', '').strip()
         last_name = request.data.get('last_name', '').strip()
+        phone_number = request.data.get('phone_number', '').strip()
         
+        # Validate and save phone number if provided
+        if phone_number:
+            if len(phone_number) != 10 or not (phone_number.startswith('98') or phone_number.startswith('97')):
+                return Response(
+                    {'error': 'Invalid phone number format. Must be 10 digits starting with 97 or 98'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if phone number already exists
+            if User.objects.filter(phone_number=phone_number).exclude(id=user.id).exists():
+                return Response(
+                    {'error': 'Phone number already registered'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            user.phone_number = phone_number
+            # For providers, phone verification will be done by admin after calling user
+            # For customers (find), phone is auto-verified as they don't require manual verification
+            if user_type == 'offer':
+                user.phone_verified = False
+            else:
+                user.phone_verified = True
+        
+        # Apply name fields if provided
         if first_name:
             user.first_name = first_name[:150]
         if middle_name:
             user.middle_name = middle_name[:150]
         if last_name:
             user.last_name = last_name[:150]
-        
-        # Handle profile picture if provided
-        if 'profile_picture' in request.FILES:
-            user.profile_picture = request.FILES['profile_picture']
         
         # Location is for all users (accept detailed fields and structured payload)
         loc_payload = request.data.get('location_payload')
@@ -302,6 +346,11 @@ class UpdateUserTypeView(APIView):
                     for sp in spec_qs:
                         UserSpecialization.objects.create(user=user, specialization=sp)
         
+        # Mark registration as completed for service seekers (find)
+        # Service providers will complete registration in the provider profile step
+        if user_type == 'find':
+            user.registration_completed = True
+        
         user.save()
         
         return Response({
@@ -311,9 +360,13 @@ class UpdateUserTypeView(APIView):
 
 class UploadCitizenshipView(APIView):
     """Upload citizenship/national ID documents"""
-    authentication_classes = [ClerkAuthentication]
+    authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def post(self, request):
         user = request.user
@@ -328,6 +381,15 @@ class UploadCitizenshipView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Validate citizenship number format (must be exactly 11 digits)
+        if citizenship_number:
+            citizenship_number = citizenship_number.strip()
+            if not citizenship_number.isdigit() or len(citizenship_number) != 11:
+                return Response(
+                    {'error': 'Citizenship number must be exactly 11 digits'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
         # Validate file size (max 5MB each)
         for file in [citizenship_front, citizenship_back]:
             if file.size > 5 * 1024 * 1024:
@@ -340,6 +402,12 @@ class UploadCitizenshipView(APIView):
         user.citizenship_front = citizenship_front
         user.citizenship_back = citizenship_back
         user.citizenship_number = citizenship_number or ''
+        
+        # Mark registration as complete for service providers
+        # (they've provided all required documents)
+        if user.user_type == 'offer':
+            user.registration_completed = True
+        
         user.save()
         
         return Response({
@@ -350,9 +418,13 @@ class UploadCitizenshipView(APIView):
 
 class UploadCertificatesView(APIView):
     """Upload multiple certificates"""
-    authentication_classes = [ClerkAuthentication]
+    authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def post(self, request):
         user = request.user
@@ -397,12 +469,20 @@ class SpecialitiesListView(generics.ListAPIView):
     queryset = Speciality.objects.all()
     serializer_class = SpecialitySerializer
     permission_classes = [AllowAny]
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
 
 
 class SpecializationsListView(generics.ListAPIView):
     """Get all specializations, optionally filtered by speciality"""
     serializer_class = SpecializationSerializer
     permission_classes = [AllowAny]
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def get_queryset(self):
         queryset = Specialization.objects.all().select_related('speciality')
@@ -416,30 +496,46 @@ class LocationsListView(APIView):
     """Get available cities and districts from provider data"""
     permission_classes = [AllowAny]
     
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+    
     def get(self, request):
-        # Get all unique cities and districts from users with complete profiles
-        # Filter for users who are service providers with complete registration
-        providers = User.objects.filter(
-            user_type='offer',
-            registration_completed=True,
-            city__isnull=False
-        ).exclude(city='').values_list('city', 'district').distinct()
-        
-        # Build cities and districts
-        cities = {}
-        for city, district in providers:
-            if city not in cities:
-                cities[city] = []
-            if district:
-                cities[city].append(district)
-        
-        # Sort and remove duplicates
-        for city in cities:
-            cities[city] = sorted(list(set(cities[city])))
-        
-        sorted_cities = sorted(cities.keys())
-        
-        return Response({
-            'cities': sorted_cities,
-            'districts': cities
-        })
+        try:
+            # Get all unique cities and districts from users with complete profiles
+            # Filter for users who are service providers with complete registration
+            providers = User.objects.filter(
+                user_type='offer',
+                registration_completed=True,
+                city__isnull=False
+            ).exclude(city='').values_list('city', 'district').distinct()
+            
+            # Build cities and districts
+            cities = {}
+            for city, district in providers:
+                if city not in cities:
+                    cities[city] = []
+                if district and district.strip():  # Check for non-empty district
+                    cities[city].append(district)
+            
+            # Sort and remove duplicates
+            for city in cities:
+                cities[city] = sorted(list(set(cities[city])))
+            
+            sorted_cities = sorted(cities.keys())
+            
+            return Response({
+                'cities': sorted_cities,
+                'districts': cities
+            })
+        except Exception as e:
+            # Log the error for debugging
+            print(f"LocationsListView error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            # Return empty data instead of failing
+            return Response({
+                'cities': [],
+                'districts': {}
+            }, status=status.HTTP_200_OK)
