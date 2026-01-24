@@ -111,6 +111,40 @@ export default function ProviderMyBookings() {
             .join(" ");
     };
 
+    // Format currency
+    const formatCurrency = (amount) => {
+        if (!amount) return "—";
+        return `NRS ${Number(amount).toLocaleString('en-US')}`;
+    };
+
+    // Calculate total price from booking services if main price fields are null
+    const getBookingPrice = (booking) => {
+        if (booking.final_price) {
+            return formatCurrency(booking.final_price);
+        }
+        if (booking.quoted_price) {
+            return formatCurrency(booking.quoted_price);
+        }
+        // Fallback: calculate from booking_services if available
+        if (booking.booking_services && Array.isArray(booking.booking_services) && booking.booking_services.length > 0) {
+            const total = booking.booking_services.reduce((sum, svc) => {
+                return sum + (Number(svc.price_at_booking) || 0);
+            }, 0);
+            return total > 0 ? formatCurrency(total) : "TBD";
+        }
+        return "TBD";
+    };
+
+    const getServiceTitle = (booking) => {
+        if (!booking) return "Service";
+        return (
+            booking.service_title ||
+            booking.service?.title ||
+            booking.service?.name ||
+            "Service"
+        );
+    };
+
     // Handle Accept Booking
     const handleAccept = async (bookingId) => {
         try {
@@ -214,14 +248,10 @@ export default function ProviderMyBookings() {
             setCompleteError(null);
             // Complete booking first (sets provider_completed status)
             const completed = await bookingsService.completeBooking(selectedBooking.id);
-            // Then upload after photos
+            // Then upload after photos (which will auto-complete the booking)
             await bookingsService.uploadBookingImages(completed.id, 'after', completeFiles, completeNote);
-            // Refresh booking to get final status
+            // Refresh booking to get final status (should be 'completed' now)
             const updated = await bookingsService.getBookingDetail(completed.id);
-            // Explicitly set status to awaiting_customer if we just uploaded after photos
-            if (updated.status === 'provider_completed') {
-                updated.status = 'awaiting_customer';
-            }
             setBookings(bookings.map((b) => (b.id === updated.id ? updated : b)));
             setSelectedBooking(updated);
             setShowCompleteModal(false);
@@ -324,8 +354,7 @@ export default function ProviderMyBookings() {
         selectedBooking?.service_specialization ??
         selectedBooking?.service?.specialization?.name ??
         selectedBooking?.specialization?.name;
-    const serviceTitle =
-        selectedBooking?.service_title ?? selectedBooking?.service?.title;
+    const serviceTitle = getServiceTitle(selectedBooking);
     const priceType = selectedBooking?.service?.price_type;
     const mapLinkService =
         serviceLat != null && serviceLng != null
@@ -392,7 +421,7 @@ export default function ProviderMyBookings() {
                         >
                             <div className="flex justify-between items-start mb-3">
                                 <div>
-                                    <p className="font-semibold text-lg">{booking.service_title}</p>
+                                    <p className="font-semibold text-lg">{getServiceTitle(booking)}</p>
                                     <p className="text-gray-600 text-sm flex items-center gap-1">
                                         <MdPerson className="inline" /> {booking.customer_name}
                                     </p>
@@ -416,7 +445,7 @@ export default function ProviderMyBookings() {
                                     <MdLocationOn /> {booking.service_address}
                                 </p>
                                 <p className="font-semibold text-gray-800">
-                                    NRS {booking.quoted_price || booking.final_price || "TBD"}
+                                    {getBookingPrice(booking)}
                                 </p>
                             </div>
 
@@ -507,7 +536,7 @@ export default function ProviderMyBookings() {
                         <h3 className="text-lg font-semibold mb-4">Decline Booking</h3>
                         <p className="text-gray-600 mb-4">
                             Are you sure you want to decline the booking for{" "}
-                            <strong>{selectedBooking.service_title}</strong> from{" "}
+                            <strong>{getServiceTitle(selectedBooking)}</strong> from{" "}
                             <strong>{selectedBooking.customer_name}</strong>?
                         </p>
                         <textarea
@@ -567,7 +596,7 @@ export default function ProviderMyBookings() {
                         </div>
 
                         <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
-                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{selectedBooking.service_title}</span></p>
+                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{getServiceTitle(selectedBooking)}</span></p>
                             <p className="flex justify-between"><span className="font-semibold">Customer:</span> <span>{selectedBooking.customer_name}</span></p>
                             <p className="mt-2 text-orange-700 font-semibold text-xs">After photos are required to complete the job.</p>
                         </div>
@@ -735,7 +764,7 @@ export default function ProviderMyBookings() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <p className="text-gray-500 font-semibold">Service</p>
-                                    <p>{selectedBooking.service_title}</p>
+                                    <p>{getServiceTitle(selectedBooking)}</p>
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Customer</p>
@@ -747,7 +776,7 @@ export default function ProviderMyBookings() {
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Price</p>
-                                    <p>NRS {selectedBooking.quoted_price || selectedBooking.final_price || "TBD"}</p>
+                                    <p>{getBookingPrice(selectedBooking)}</p>
                                 </div>
                                 {/* Only show phone after booking is accepted */}
                                 {["confirmed", "scheduled", "in_progress", "completed", "provider_completed", "awaiting_customer"].includes(selectedBooking.status) && (

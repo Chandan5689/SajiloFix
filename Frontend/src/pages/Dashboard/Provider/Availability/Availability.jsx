@@ -187,14 +187,53 @@ const Availability = () => {
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8">
 
                         {loading && (
-                            <div className="text-center text-gray-600 py-6">Loading availability...</div>
+                            <div className="space-y-6 animate-pulse">
+                                {/* Loading skeleton for Weekly Schedule */}
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                                    <div className="h-6 bg-gray-200 rounded w-48"></div>
+                                </div>
+                                
+                                {/* Loading skeleton for schedule items */}
+                                {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                                    <div key={i} className="border rounded-lg border-gray-200 bg-white p-6">
+                                        <div className="flex items-center mb-4">
+                                            <div className="w-5 h-5 bg-gray-200 rounded"></div>
+                                            <div className="ml-3 h-4 bg-gray-200 rounded w-24"></div>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-16 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-16 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-20 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-20 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                
+                                {/* Loading skeleton for save button */}
+                                <div className="flex justify-end mt-8">
+                                    <div className="h-10 bg-gray-200 rounded w-40"></div>
+                                </div>
+                            </div>
                         )}
-                        {validationError && (
+                        
+                        {!loading && validationError && (
                             <div className="mb-4 p-3 rounded border border-red-200 bg-red-50 text-sm text-red-700">{validationError}</div>
                         )}
 
                         {/* Card Header */}
-                        {activeTab === "Weekly Schedule" && (
+                        {!loading && activeTab === "Weekly Schedule" && (
                             <form action="">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                                     <h2 className="text-xl font-bold text-gray-800">Weekly Schedule</h2>
@@ -312,7 +351,7 @@ const Availability = () => {
                             </form>
                         )}
 
-                        {activeTab === 'Settings' && (
+                        {!loading && activeTab === 'Settings' && (
                             <div className="space-y-8 max-w-3xl animate-in fade-in duration-500">
                                 <h2 className="text-xl font-bold text-gray-800 mb-6">Booking Rules and Preferences</h2>
 

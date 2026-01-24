@@ -250,13 +250,15 @@ export default function Service() {
   }, [selectedCategory, searchTerm, city, district, topRated]);
 
   // Server-side filtering already applied; keep light client filters for safety
+  const selectedCategoryLower = selectedCategory.toLowerCase();
+  const term = searchTerm.toLowerCase();
+
   let filteredProviders = providers.filter((provider) => {
     const matchesCategory =
-      selectedCategory === "All Services" || 
-      provider.specialties.some(spec => 
-        spec.toLowerCase().includes(selectedCategory.toLowerCase())
-      );
-    const term = searchTerm.toLowerCase();
+      selectedCategory === "All Services" ||
+      provider.specialties.some(spec => spec.toLowerCase().includes(selectedCategoryLower)) ||
+      provider.primarySpecialization?.toLowerCase().includes(selectedCategoryLower) ||
+      provider.serviceCategory?.toLowerCase().includes(selectedCategoryLower);
     const matchesSearch =
       provider.name.toLowerCase().includes(term) ||
       provider.profession.toLowerCase().includes(term) ||

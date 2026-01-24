@@ -20,19 +20,23 @@ api.interceptors.request.use(
                 if (error.name === 'AbortError' || error.message?.includes('aborted')) {
                     return config;
                 }
-                console.error('Error getting Supabase session:', error);
+                console.error('[axios] Error getting Supabase session:', error);
                 return config;
             }
             
             if (session?.access_token) {
+                console.log('[axios] Adding Bearer token to request:', config.url);
+                console.log('[axios] Token (first 20 chars):', session.access_token.substring(0, 20) + '...');
                 config.headers.Authorization = `Bearer ${session.access_token}`;
+            } else {
+                console.warn('[axios] No session or access_token found for request:', config.url);
             }
         } catch (error) {
             // Ignore abort errors (component unmounted during navigation)
             if (error.name === 'AbortError' || error.message?.includes('aborted')) {
                 return config;
             }
-            console.error('Error in auth interceptor:', error);
+            console.error('[axios] Error in auth interceptor:', error);
         }
         return config;
     },
@@ -49,7 +53,11 @@ api.interceptors.response.use(
     async (error) => {
          // HANDLE ERROR
          if (error.response?.status === 401){
-            console.error('Unauthorized access');
+            console.error('[axios] Unauthorized access - 401');
+         }
+         if (error.response?.status === 403){
+            console.error('[axios] Forbidden access - 403');
+            console.error('[axios] Response:', error.response?.data);
          }
 
         return Promise.reject(error);

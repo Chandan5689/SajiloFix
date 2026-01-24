@@ -1,32 +1,31 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useSupabaseAuth } from "../context/SupabaseAuthContext";
+import api from '../api/axios';
 import UserMyProfile from '../pages/Dashboard/User/UserMyProfile';
 import ProviderProfile from '../pages/Dashboard/Provider/ProviderProfile';
 // import MyProfile from '../pages/Dashboard/Provider/ProviderMyProfile/MyProfile';
 import { UserProfileProvider } from '../context/UserProfileContext';
 
 function ProfileRouter() {
-    const { isLoaded, isSignedIn } = useUser();
-    const { getToken } = useAuth();
+    const { isAuthenticated, loading, getToken } = useSupabaseAuth();
     const [userType, setUserType] = useState(null);
     const [checking, setChecking] = useState(true);
 
     useEffect(() => {
         const fetchUserType = async () => {
-            if (!isLoaded) return;
-            if (!isSignedIn) {
+            if (loading) return;
+            if (!isAuthenticated) {
                 setChecking(false);
                 return;
             }
             try {
                 const token = await getToken();
-                const resp = await fetch('http://127.0.0.1:8000/api/auth/registration-status/', {
-                    headers: { Authorization: `Bearer ${token}` },
+                const resp = await api.get('/auth/registration-status/', {
+                    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
                 });
-                if (!resp.ok) throw new Error('Failed to fetch registration status');
-                const data = await resp.json();
-                setUserType(data.user_type);
+                if (resp.status !== 200) throw new Error('Failed to fetch registration status');
+                setUserType(resp.data.user_type);
             } catch (err) {
                 console.error('Error fetching user type:', err);
             } finally {
@@ -34,9 +33,9 @@ function ProfileRouter() {
             }
         };
         fetchUserType();
-    }, [getToken, isLoaded, isSignedIn]);
+    }, [getToken, loading, isAuthenticated]);
 
-    if (!isLoaded || checking) {
+    if (loading || checking) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="text-center">
@@ -47,7 +46,7 @@ function ProfileRouter() {
         );
     }
 
-    if (!isSignedIn) {
+    if (!isAuthenticated) {
         return <Navigate to="/login" replace />;
     }
 

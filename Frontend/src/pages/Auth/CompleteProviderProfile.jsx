@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation as useLocationHook } from 'react-router-dom';
-import { useUser, useAuth } from '@clerk/clerk-react';
+import { useSupabaseAuth } from '../../context/SupabaseAuthContext';
+import { useUserProfile } from '../../context/UserProfileContext';
 import { Upload, FileText, Trash2, X } from 'lucide-react';
 import api from '../../api/axios';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
 
 function CompleteProviderProfile() {
-    const { user } = useUser();
-    const { getToken } = useAuth();
+    const { user, getToken } = useSupabaseAuth();
+    const { refreshProfile } = useUserProfile();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -56,7 +57,15 @@ function CompleteProviderProfile() {
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
-        setFormData({ ...formData, [name]: value });
+        
+        // For citizenship number, only allow digits
+        if (name === 'citizenship_number') {
+            const numericValue = value.replace(/\D/g, '').slice(0, 11);
+            setFormData({ ...formData, [name]: numericValue });
+        } else {
+            setFormData({ ...formData, [name]: value });
+        }
+        
         if (fieldErrors[name]) {
             setFieldErrors({ ...fieldErrors, [name]: '' });
         }
@@ -81,6 +90,9 @@ function CompleteProviderProfile() {
                 ? prev.specializations.filter(s => s !== id)
                 : [...prev.specializations, id]
         }));
+        if (fieldErrors.specializations) {
+            setFieldErrors({ ...fieldErrors, specializations: '' });
+        }
     };
 
     const handleCitizenshipFrontChange = (e) => {
@@ -187,6 +199,21 @@ function CompleteProviderProfile() {
         if (formData.specialities.length === 0) {
             errors.specialities = 'Please select at least one speciality';
         }
+        if (formData.specialities.length > 0 && formData.specializations.length === 0) {
+            errors.specializations = 'Please select at least one specialization for your selected specialities';
+        }
+        // Check that each selected speciality has at least one specialization
+        if (formData.specialities.length > 0 && formData.specializations.length > 0) {
+            const selectedSpecIds = new Set(formData.specializations.map(id => {
+                const spec = specializations.find(s => s.id === id);
+                return spec?.speciality;
+            }));
+            const missingSpeciality = formData.specialities.find(id => !selectedSpecIds.has(id));
+            if (missingSpeciality) {
+                const missing = specialities.find(s => s.id === missingSpeciality);
+                errors.specializations = `Please select at least one specialization for ${missing?.name || 'each speciality'}`;
+            }
+        }
         if (!formData.citizenship_front) {
             errors.citizenship_front = 'Citizenship front image is required';
         }
@@ -195,6 +222,8 @@ function CompleteProviderProfile() {
         }
         if (!formData.citizenship_number.trim()) {
             errors.citizenship_number = 'Citizenship number is required';
+        } else if (!/^\d{11}$/.test(formData.citizenship_number)) {
+            errors.citizenship_number = 'Citizenship number must be exactly 11 digits';
         }
 
         setFieldErrors(errors);
@@ -213,7 +242,7 @@ function CompleteProviderProfile() {
         setLoading(true);
 
         try {
-            const clerkToken = await getToken();
+            const token = await getToken();
 
             // Step 1: Update user type and basic info
             const locationData = typeof formData.location === 'string' 
@@ -245,7 +274,7 @@ function CompleteProviderProfile() {
                 },
                 {
                     headers: {
-                        Authorization: `Bearer ${clerkToken}`,
+                        Authorization: `Bearer ${token}`,
                     },
                 }
             );
@@ -261,7 +290,7 @@ function CompleteProviderProfile() {
                 citizenshipFormData,
                 {
                     headers: {
-                        Authorization: `Bearer ${clerkToken}`,
+                        Authorization: `Bearer ${token}`,
                         'Content-Type': 'multipart/form-data',
                     },
                 }
@@ -279,13 +308,15 @@ function CompleteProviderProfile() {
                     certificatesFormData,
                     {
                         headers: {
-                            Authorization: `Bearer ${clerkToken}`,
+                            Authorization: `Bearer ${token}`,
                             'Content-Type': 'multipart/form-data',
                         },
                     }
                 );
             }
 
+            // Refresh the user profile context before navigating
+            await refreshProfile();
             navigate('/provider/dashboard');
         } catch (err) {
             console.error('Error completing profile:', err);
@@ -460,7 +491,7 @@ function CompleteProviderProfile() {
                             {formData.specialities.length > 0 && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Specific Expertise <span className="text-gray-400">(Optional)</span>
+                                        Specific Expertise * (Select at least one for each speciality)
                                     </label>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-4 border border-gray-200 rounded-lg bg-gray-50">
                                         {getFilteredSpecializations().map(specialization => (
@@ -477,6 +508,9 @@ function CompleteProviderProfile() {
                                             </button>
                                         ))}
                                     </div>
+                                    {fieldErrors.specializations && (
+                                        <p className="text-red-500 text-sm mt-2">{fieldErrors.specializations}</p>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -492,20 +526,26 @@ function CompleteProviderProfile() {
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Citizenship/National ID Number *
+                                    Citizenship Number * (11 digits)
                                 </label>
                                 <input
                                     type="text"
                                     name="citizenship_number"
                                     value={formData.citizenship_number}
                                     onChange={handleInputChange}
-                                    placeholder="Enter your citizenship or ID number"
+                                    placeholder="Enter 11-digit citizenship number"
+                                    maxLength={11}
+                                    inputMode="numeric"
+                                    pattern="\d{11}"
                                     className={`w-full px-4 py-3 border ${fieldErrors.citizenship_number ? 'border-red-500' : 'border-gray-300'
                                         } rounded-lg focus:ring-2 focus:ring-green-500`}
                                     required
                                 />
                                 {fieldErrors.citizenship_number && (
                                     <p className="text-red-500 text-xs mt-1">{fieldErrors.citizenship_number}</p>
+                                )}
+                                {!fieldErrors.citizenship_number && formData.citizenship_number && (
+                                    <p className="text-gray-500 text-xs mt-1">{formData.citizenship_number.length}/11 digits</p>
                                 )}
                             </div>
 

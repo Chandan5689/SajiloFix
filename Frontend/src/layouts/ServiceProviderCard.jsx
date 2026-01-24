@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { TiMessageTyping } from "react-icons/ti";
-import { FaCalendarAlt } from "react-icons/fa";
+import { FaCalendarAlt, FaClock } from "react-icons/fa";
 import { MdOutlineMessage } from "react-icons/md";
+import { BsCheckCircleFill, BsCalendar2Week } from "react-icons/bs";
 import { useNavigate } from 'react-router-dom';
 import RatingBadge from '../components/RatingBadge';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import providersService from '../services/providersService';
 import { FaEye } from 'react-icons/fa6';
+import { useSupabaseAuth } from '../context/SupabaseAuthContext';
 
 /**
  * ServiceProviderCard shows a compact-yet-informative provider summary.
@@ -16,6 +18,7 @@ import { FaEye } from 'react-icons/fa6';
 function ServiceProviderCard({ provider }) {
     const navigate = useNavigate();
     const { addToast } = useToast();
+    const { isAuthenticated } = useSupabaseAuth();
     const [showServicesModal, setShowServicesModal] = useState(false);
     const [servicesLoading, setServicesLoading] = useState(false);
     const [servicesError, setServicesError] = useState(null);
@@ -25,6 +28,7 @@ function ServiceProviderCard({ provider }) {
     const [expandedError, setExpandedError] = useState(null);
     const [showAllServices, setShowAllServices] = useState(false);
     const [availabilityLabel, setAvailabilityLabel] = useState(provider.availability || "Checking availability...");
+    const [availabilityStatus, setAvailabilityStatus] = useState('checking'); // 'available-today', 'available-soon', 'on-request', 'checking'
 
     // Display provider's primary speciality (first one selected)
     const specialtyLabel = provider.specialties && provider.specialties.length > 0
@@ -37,11 +41,34 @@ function ServiceProviderCard({ provider }) {
         const fetchAvailability = async () => {
             try {
                 const data = await providersService.getProviderAvailability(provider.id);
-                if (!mounted || !data?.weekly_schedule) return;
-                const next = computeNextAvailable(data.weekly_schedule);
-                setAvailabilityLabel(next || "Schedule on request");
+                if (!mounted || !data?.weekly_schedule) {
+                    setAvailabilityStatus('on-request');
+                    setAvailabilityLabel("On request");
+                    return;
+                }
+                
+                // Normalize the schedule data to ensure consistent field names
+                const normalizedSchedule = data.weekly_schedule.map(d => ({
+                    day: d.day,
+                    enabled: d.enabled,
+                    start_time: d.start_time || d.startTime || '',
+                    end_time: d.end_time || d.endTime || '',
+                }));
+                
+                const result = computeNextAvailable(normalizedSchedule);
+                if (!mounted) return;
+                if (result) {
+                    setAvailabilityLabel(result.label);
+                    setAvailabilityStatus(result.status);
+                } else {
+                    setAvailabilityLabel("On request");
+                    setAvailabilityStatus('on-request');
+                }
             } catch (e) {
-                if (mounted) setAvailabilityLabel(provider.availability || "Schedule on request");
+                if (mounted) {
+                    setAvailabilityLabel(provider.availability || "On request");
+                    setAvailabilityStatus('on-request');
+                }
             }
         };
         fetchAvailability();
@@ -92,9 +119,9 @@ function ServiceProviderCard({ provider }) {
         }
     };
 
-    const handleMessage = () => {
-        addToast(`Message feature coming soon! You can reach ${provider.name} by booking a service.`, 'info', 3000);
-    };
+    // const handleMessage = () => {
+    //     addToast(`Message feature coming soon! You can reach ${provider.name} by booking a service.`, 'info', 3000);
+    // };
 
     const formatPrice = (srv) => {
         // Prefer explicit price, else minimum_charge (>0), else base_price
@@ -119,15 +146,58 @@ function ServiceProviderCard({ provider }) {
         if (!Array.isArray(weekly) || weekly.length === 0) return null;
         const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
         const todayIdx = new Date().getDay();
+        
         for (let offset = 0; offset < 7; offset++) {
             const dayIdx = (todayIdx + offset) % 7;
             const dayName = days[dayIdx];
-            const day = weekly.find(d => d.day === dayName);
+            
+            // Find the day in schedule (case-insensitive match)
+            const day = weekly.find(d => d.day && d.day.toLowerCase() === dayName.toLowerCase());
+            
             if (day && day.enabled) {
-                const label = offset === 0 ? 'Today' : dayName;
                 const start = day.start_time || '';
                 const end = day.end_time || '';
-                return start && end ? `${label} • ${start} - ${end}` : `${label} • Available`;
+                let label = '';
+                let status = '';
+                
+                if (offset === 0) {
+                    // Check if we're still within business hours for today
+                    const now = new Date();
+                    const currentHour = now.getHours();
+                    const currentMinute = now.getMinutes();
+                    
+                    // Parse end time to check if day has passed
+                    let dayHasPassed = false;
+                    if (end) {
+                        const endMatch = end.match(/(\d+):(\d+)\s*(AM|PM)/i);
+                        if (endMatch) {
+                            let endHour = parseInt(endMatch[1]);
+                            const endMinute = parseInt(endMatch[2]);
+                            const isPM = endMatch[3].toUpperCase() === 'PM';
+                            
+                            if (isPM && endHour !== 12) endHour += 12;
+                            if (!isPM && endHour === 12) endHour = 0;
+                            
+                            dayHasPassed = (currentHour > endHour) || (currentHour === endHour && currentMinute >= endMinute);
+                        }
+                    }
+                    
+                    if (dayHasPassed) {
+                        // Skip today if hours have passed, continue to check next days
+                        continue;
+                    }
+                    
+                    label = start && end ? `Available Today (${start} - ${end})` : 'Available Today';
+                    status = 'available-today';
+                } else if (offset === 1) {
+                    label = start && end ? `Available Tomorrow (${start} - ${end})` : 'Available Tomorrow';
+                    status = 'available-soon';
+                } else {
+                    label = start && end ? `Available ${dayName} (${start} - ${end})` : `Available ${dayName}`;
+                    status = 'available-soon';
+                }
+                
+                return { label, status };
             }
         }
         return null;
@@ -269,18 +339,43 @@ function ServiceProviderCard({ provider }) {
                     <span className="text-sm font-semibold text-gray-900">{provider.experience} yrs</span>
                 </div>
                 <div className="flex flex-col gap-1 items-end">
-                    <span className="text-[11px] text-gray-500 font-semibold">STATUS</span>
-                    <span
-                        className={`text-[11px] font-bold px-2 py-1 rounded-full ${
-                            availabilityLabel.toLowerCase().includes("today")
-                                ? "bg-green-100 text-green-700"
-                                : "bg-amber-100 text-amber-700"
-                        }`}
-                    >
-                        {availabilityLabel}
-                    </span>
+                    <span className="text-[11px] text-gray-500 font-semibold">AVAILABILITY</span>
+                    {availabilityStatus === 'available-today' && (
+                        <div className="flex items-center gap-1.5 bg-green-100 text-green-800 px-2.5 py-1.5 rounded-lg border border-green-200">
+                            <BsCheckCircleFill className="text-green-600 text-sm" />
+                            <span className="text-[11px] font-bold whitespace-nowrap">Available Today</span>
+                        </div>
+                    )}
+                    {availabilityStatus === 'available-soon' && (
+                        <div className="flex items-center gap-1.5 bg-blue-100 text-blue-800 px-2.5 py-1.5 rounded-lg border border-blue-200">
+                            <BsCalendar2Week className="text-blue-600 text-sm" />
+                            <span className="text-[11px] font-bold whitespace-nowrap">Available Soon</span>
+                        </div>
+                    )}
+                    {availabilityStatus === 'on-request' && (
+                        <div className="flex items-center gap-1.5 bg-amber-100 text-amber-800 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                            <FaClock className="text-amber-600 text-sm" />
+                            <span className="text-[11px] font-bold whitespace-nowrap">On Request</span>
+                        </div>
+                    )}
+                    {availabilityStatus === 'checking' && (
+                        <div className="flex items-center gap-1.5 bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg border border-gray-200">
+                            <FaClock className="text-gray-500 text-sm animate-pulse" />
+                            <span className="text-[11px] font-semibold">Checking...</span>
+                        </div>
+                    )}
                 </div>
             </div>
+            
+            {/* Show detailed availability info */}
+            {availabilityStatus !== 'checking' && availabilityLabel && (
+                <div className="mt-3 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
+                    <div className="flex items-center gap-2 text-xs text-gray-700">
+                        <FaClock className="text-gray-500 text-[10px]" />
+                        <span className="font-medium">{availabilityLabel}</span>
+                    </div>
+                </div>
+            )}
 
             <div className="mt-5 flex gap-3">
                 <button
@@ -290,20 +385,27 @@ function ServiceProviderCard({ provider }) {
                     <FaEye className="h-4 w-4" />
                     View services
                 </button>
-                <button
+                {/* <button
                     className="flex-1 py-2 px-4 bg-blue-600 font-semibold rounded-lg hover:bg-blue-700 flex items-center justify-center gap-1 transition-all duration-150 cursor-pointer text-white"
                     onClick={handleMessage}
                 >
                     <MdOutlineMessage className="h-4 w-4" />
                     Message
-                </button>
+                </button> */}
                 
             </div>
 
             <div className='mt-5'>
                 <button
                     className="w-full flex-1 py-2 px-4 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 flex items-center justify-center gap-1 transition-all duration-150 cursor-pointer border border-green-600"
-                    onClick={() => navigate(`/provider/${provider.id}`)}
+                    onClick={() => {
+                        if (!isAuthenticated) {
+                            addToast('Please log in to book a service.', 'info', 3000);
+                            navigate('/login');
+                            return;
+                        }
+                        navigate(`/provider/${provider.id}`);
+                    }}
                 >
                     <FaCalendarAlt className="h-4 w-4" />
                     Book Now

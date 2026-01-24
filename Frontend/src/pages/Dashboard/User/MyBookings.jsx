@@ -59,6 +59,7 @@ export default function MyBookingsPage() {
     const [reviewSubmitting, setReviewSubmitting] = useState(false);
     const [reviewError, setReviewError] = useState(null);
     const [reviewSuccess, setReviewSuccess] = useState(null);
+    const [loadingDetailId, setLoadingDetailId] = useState(null);
 
     const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled"];
     const decisionEligibleStatuses = ["provider_completed", "awaiting_confirmation", "awaiting_customer"];
@@ -96,6 +97,29 @@ export default function MyBookingsPage() {
     const handleLoadMore = () => {
         if (!hasMore || loadingMore) return;
         fetchBookings(page + 1, true);
+    };
+    // Format currency
+    const formatCurrency = (amount) => {
+        if (!amount) return "—";
+        return `NRS ${Number(amount).toLocaleString('en-US')}`;
+    };
+
+    // Calculate total price from booking services if main price fields are null
+    const getBookingPrice = (booking) => {
+        if (booking.final_price) {
+            return formatCurrency(booking.final_price);
+        }
+        if (booking.quoted_price) {
+            return formatCurrency(booking.quoted_price);
+        }
+        // Fallback: calculate from booking_services if available
+        if (booking.booking_services && Array.isArray(booking.booking_services) && booking.booking_services.length > 0) {
+            const total = booking.booking_services.reduce((sum, svc) => {
+                return sum + (Number(svc.price_at_booking) || 0);
+            }, 0);
+            return total > 0 ? formatCurrency(total) : "TBD";
+        }
+        return "TBD";
     };
 
     // Handle booking cancellation
@@ -398,7 +422,7 @@ export default function MyBookingsPage() {
                                 <div className="flex justify-between items-center mb-2">
                                     <div>
                                         <p className="font-semibold text-lg">{booking.service_title}</p>
-                                        <p className="text-gray-700 text-sm">{booking.provider_name}</p>
+                                        <p className="text-gray-700 text-sm">Provider: <span className="text-base text-gray-800 font-semibold capitalize">{booking.provider_name}</span></p>
 
             {hasMore && (
                 <div className="mt-6 text-center">
@@ -426,17 +450,36 @@ export default function MyBookingsPage() {
                                     <p className="flex items-center gap-2">
                                         <MdLocationOn /> {booking.service_address}
                                     </p>
-                                    <p className="font-semibold">NRS {booking.final_price || booking.quoted_price || "TBD"}</p>
+                                    <p className="font-semibold">{getBookingPrice(booking)}</p>
                                 </div>
 
                                 <p className="text-gray-700 text-sm mb-5">{booking.description}</p>
 
                                 <div className="flex space-x-3">
                                     <button
-                                        className="px-4 py-2 border border-green-600 text-green-600 rounded-md text-sm font-semibold hover:bg-green-50 transition"
-                                        onClick={() => setSelectedBooking(booking)}
+                                        className="px-4 py-2 border border-green-600 text-green-600 rounded-md text-sm font-semibold hover:bg-green-50 transition disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                                        onClick={async () => {
+                                            try {
+                                                setLoadingDetailId(booking.id);
+                                                const fullBooking = await bookingsService.getBookingDetail(booking.id);
+                                                setSelectedBooking(fullBooking);
+                                            } catch (err) {
+                                                console.error("Error fetching booking details:", err);
+                                                addToast("Failed to load booking details", "error");
+                                            } finally {
+                                                setLoadingDetailId(null);
+                                            }
+                                        }}
+                                        disabled={loadingDetailId === booking.id}
                                     >
-                                        View Details
+                                        {loadingDetailId === booking.id ? (
+                                            <>
+                                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-600 border-t-transparent"></div>
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            "View Details"
+                                        )}
                                     </button>
 
                                     {booking.status === "completed" && (
@@ -657,7 +700,7 @@ export default function MyBookingsPage() {
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Price</p>
-                                    <p>NRS {selectedBooking.final_price || selectedBooking.quoted_price || "TBD"}</p>
+                                    <p>{getBookingPrice(selectedBooking)}</p>
                                 </div>
                                 <div className="col-span-2">
                                     <p className="text-gray-500 font-semibold">Address</p>

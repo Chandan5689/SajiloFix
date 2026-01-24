@@ -33,7 +33,7 @@ export default function BookingConflictWarning({ conflictData, onSelectAlternati
       {combinedConflicts && combinedConflicts.length > 0 && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-start gap-3">
-            <MdError className="text-red-600 text-xl mt-1 flex-shrink-0" />
+            <MdError className="text-red-600 text-xl mt-1 shrink-0" />
             <div className="flex-1">
               <h3 className="font-semibold text-red-800 mb-2">Booking Conflict</h3>
               {combinedConflicts.map((conflict, idx) => (
@@ -62,7 +62,7 @@ export default function BookingConflictWarning({ conflictData, onSelectAlternati
       {warnings && warnings.length > 0 && (
         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
           <div className="flex items-start gap-3">
-            <MdWarning className="text-yellow-600 text-xl mt-1 flex-shrink-0" />
+            <MdWarning className="text-yellow-600 text-xl mt-1 shrink-0" />
             <div className="flex-1">
               <h3 className="font-semibold text-yellow-800 mb-2">Warning</h3>
               {warnings.map((warning, idx) => (
@@ -91,7 +91,7 @@ export default function BookingConflictWarning({ conflictData, onSelectAlternati
       {suggestions?.alternative_times && suggestions.alternative_times.length > 0 && (
         <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <div className="flex items-start gap-3">
-            <MdAccessTime className="text-blue-600 text-xl mt-1 flex-shrink-0" />
+            <MdAccessTime className="text-blue-600 text-xl mt-1 shrink-0" />
             <div className="flex-1">
               <h3 className="font-semibold text-blue-800 mb-3">Available Time Slots (Same Day)</h3>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -119,7 +119,7 @@ export default function BookingConflictWarning({ conflictData, onSelectAlternati
       {suggestions?.alternative_dates && suggestions.alternative_dates.length > 0 && (
         <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
           <div className="flex items-start gap-3">
-            <MdCalendarToday className="text-indigo-600 text-xl mt-1 flex-shrink-0" />
+            <MdCalendarToday className="text-indigo-600 text-xl mt-1 shrink-0" />
             <div className="flex-1">
               <h3 className="font-semibold text-indigo-800 mb-3">Alternative Dates</h3>
               <div className="space-y-2">

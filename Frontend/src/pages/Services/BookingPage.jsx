@@ -45,9 +45,9 @@ const isPastNepalDateTime = (dateStr, timeStr, nepalNow) => {
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { userProfile } = useUserProfile();
+  const { userProfile, loading: profileLoading, registrationStatus } = useUserProfile();
 
-  // State variables
+  // State variables - MUST BE BEFORE any conditional returns
   const [provider, setProvider] = useState(null);
   const [loading, setLoading] = useState(true); // initial page load for provider details
   const [error, setError] = useState(null);
@@ -88,6 +88,19 @@ export default function BookingPage() {
   const [addressDropdownOpen, setAddressDropdownOpen] = useState(false);
   const [selectedLocationName, setSelectedLocationName] = useState(''); // Store human-readable address from reverse geocode
   const [prefilledFromProfile, setPrefilledFromProfile] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [createdBooking, setCreatedBooking] = useState(null);
+  const [conflictData, setConflictData] = useState(null);
+  const [checkingConflict, setCheckingConflict] = useState(false);
+  const [nepalNow, setNepalNow] = useState(getNepalNowParts());
+  const minDate = nepalNow.date;
+
+  // Refs - MUST BE BEFORE any conditional returns
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const serviceMarkerRef = useRef(null);
+  const serviceRadiusCircleRef = useRef(null);
+
   const toggleServiceSelection = (serviceId) => {
     setSelectedServiceIds((prev) => {
       const idStr = String(serviceId);
@@ -96,16 +109,6 @@ export default function BookingPage() {
         : [...prev, idStr];
     });
   };
-  const mapContainerRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const serviceMarkerRef = useRef(null);
-  const serviceRadiusCircleRef = useRef(null);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [createdBooking, setCreatedBooking] = useState(null);
-  const [conflictData, setConflictData] = useState(null);
-  const [checkingConflict, setCheckingConflict] = useState(false);
-  const [nepalNow, setNepalNow] = useState(getNepalNowParts());
-  const minDate = nepalNow.date;
 
   // Fetch provider details + availability (once per provider)
   useEffect(() => {
@@ -155,13 +158,18 @@ export default function BookingPage() {
   }, []);
 
   // Pre-fill contact and location fields from user profile (one-time, non-destructive)
+  // Uses location field as fallback if address is empty, ensuring all users get pre-filled
   useEffect(() => {
-    if (!userProfile || prefilledFromProfile) return;
+    // Only run when profile is done loading AND we have a profile AND haven't pre-filled yet
+    if (profileLoading || !userProfile || prefilledFromProfile) {
+      return;
+    }
 
     const derivedFullName = userProfile.full_name
       || [userProfile.first_name, userProfile.middle_name, userProfile.last_name].filter(Boolean).join(' ').trim();
     const derivedPhone = userProfile.phone || userProfile.phone_number;
     const derivedEmail = userProfile.email;
+    // Priority: use address field first, fallback to location field if address is empty
     const derivedAddress = userProfile.address || userProfile.location;
     const derivedCity = userProfile.city;
     const derivedDistrict = userProfile.district;
@@ -179,7 +187,7 @@ export default function BookingPage() {
     if (!selectedLocationName && derivedAddress) setSelectedLocationName(derivedAddress);
 
     setPrefilledFromProfile(true);
-  }, [userProfile, prefilledFromProfile, fullName, phone, email, address, serviceCity, serviceDistrict, serviceLat, serviceLng, selectedLocationName]);
+  }, [userProfile, profileLoading, prefilledFromProfile, fullName, phone, email, address, serviceCity, serviceDistrict, serviceLat, serviceLng, selectedLocationName]);
 
   // Fetch booked slots when date changes (non-blocking for whole page)
   useEffect(() => {
@@ -1316,14 +1324,27 @@ export default function BookingPage() {
                     <label htmlFor="phone" className="block font-medium mb-1">
                       Phone Number *
                     </label>
-                    <input
-                      id="phone"
-                      type="tel"
-                      required
-                      className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                    />
+                    <div className="flex">
+                      <span className="inline-flex items-center px-4 bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-600 font-medium">
+                        +977
+                      </span>
+                      <input
+                        id="phone"
+                        type="tel"
+                        required
+                        className="flex-1 border border-gray-300 rounded-r-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="9812345678"
+                        maxLength="10"
+                        value={phone}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '');
+                          setPhone(value);
+                        }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Enter 10 digits starting with 97 or 98
+                    </p>
                   </div>
                   <div>
                     <label htmlFor="email" className="block font-medium mb-1">

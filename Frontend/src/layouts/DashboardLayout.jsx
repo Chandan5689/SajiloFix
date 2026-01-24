@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useClerk } from "@clerk/clerk-react";
+import { useSupabaseAuth } from "../context/SupabaseAuthContext";
 import { MdOutlineDashboard } from "react-icons/md";
 import { FiPlusCircle } from "react-icons/fi";
 import { IoCalendarClearOutline, IoWalletOutline } from "react-icons/io5";
@@ -26,7 +26,7 @@ export default function DashboardLayout({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile slide-in
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // desktop collapse
-  const { signOut } = useClerk();
+  const { signOut } = useSupabaseAuth();
   const navigate = useNavigate();
 
   // Get user display name and initials
