@@ -214,19 +214,24 @@ function CompleteProviderProfile() {
             const clerkToken = await getToken();
 
             // Step 1: Update user type and basic info
+            const profileFormData = new FormData();
+            profileFormData.append('user_type', 'offer');
+            profileFormData.append('business_name', formData.business_name);
+            profileFormData.append('years_of_experience', parseInt(formData.years_of_experience));
+            profileFormData.append('service_area', formData.service_area);
+            profileFormData.append('city', formData.city);
+            profileFormData.append('address', formData.address);
+            profileFormData.append('bio', formData.bio);
+            formData.specialities.forEach(spec => {
+                profileFormData.append('specialities', spec);
+            });
+            formData.specializations.forEach(spec => {
+                profileFormData.append('specializations', spec);
+            });
+
             await api.post(
                 '/auth/update-user-type/',
-                {
-                    user_type: 'offer',
-                    business_name: formData.business_name,
-                    years_of_experience: parseInt(formData.years_of_experience),
-                    service_area: formData.service_area,
-                    city: formData.city,
-                    address: formData.address,
-                    bio: formData.bio,
-                    specialities: formData.specialities,
-                    specializations: formData.specializations
-                },
+                profileFormData,
                 {
                     headers: {
                         Authorization: `Bearer ${clerkToken}`,
@@ -246,7 +251,6 @@ function CompleteProviderProfile() {
                 {
                     headers: {
                         Authorization: `Bearer ${clerkToken}`,
-                        'Content-Type': 'multipart/form-data',
                     },
                 }
             );
@@ -264,7 +268,6 @@ function CompleteProviderProfile() {
                     {
                         headers: {
                             Authorization: `Bearer ${clerkToken}`,
-                            'Content-Type': 'multipart/form-data',
                         },
                     }
                 );
