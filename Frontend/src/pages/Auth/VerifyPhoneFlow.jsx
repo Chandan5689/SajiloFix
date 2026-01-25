@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useSupabaseAuth } from '../../context/SupabaseAuthContext';
 import { useNavigate } from 'react-router-dom';
 import PhoneVerification from './PhoneVerification';
 import LocationSelector from '../../components/LocationSelector';
 import api from '../../api/axios';
 
 function VerifyPhoneFlow() {
-    const { user, isLoaded } = useUser();
+    const { user, loading, getToken } = useSupabaseAuth();
     const navigate = useNavigate();
     const [userType, setUserType] = useState(null);
     const [location, setLocation] = useState(null);
@@ -22,11 +22,9 @@ function VerifyPhoneFlow() {
             }
             
             try {
-                const token = await user.getToken();
+                const token = await getToken();
                 const response = await api.get('/auth/me/', {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
+                    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
                 });
 
                 if (response.data.phone_verified) {
@@ -42,10 +40,10 @@ function VerifyPhoneFlow() {
             }
         };
 
-        if (isLoaded) {
+        if (!loading) {
             checkPhoneVerification();
         }
-    }, [user, isLoaded, navigate]);
+    }, [user, loading, navigate, getToken]);
 
     const handlePhoneVerified = () => {
         if (userType === 'offer') {

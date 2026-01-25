@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import ProviderDashboardLayout from '../../../layouts/ProviderDashboardLayout';
 import { Modal } from '../../../components/Modal';
 import {
@@ -16,6 +18,7 @@ import {
 import bookingsService from '../../../services/bookingsService';
 import api from '../../../api/axios';
 import { useToast } from '../../../components/Toast';
+import { serviceFormSchema } from '../../../validations/providerSchemas';
 
 export default function ProviderMyServices() {
     const { addToast } = useToast();
@@ -30,21 +33,35 @@ export default function ProviderMyServices() {
     const [providerServiceAreaKm, setProviderServiceAreaKm] = useState(null);
     const [selectedSpeciality, setSelectedSpeciality] = useState('');
     const [filteredSpecializations, setFilteredSpecializations] = useState([]);
-    const [formData, setFormData] = useState({
-        title: '',
-        description: '',
-        specialization: '', // This will be the specialization ID
-        base_price: '',
-        price_type: 'fixed',
-        estimated_duration_min: '', // minimum hours
-        estimated_duration_max: '', // maximum hours
-        service_radius: '', // in kilometers
-        emergency_service: false,
-        is_active: true,
-    });
     const [submitting, setSubmitting] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [deleting, setDeleting] = useState(false);
+
+    const {
+        register,
+        handleSubmit,
+        formState: { errors },
+        setValue,
+        watch,
+        reset,
+        clearErrors,
+        setError: setFormError,
+    } = useForm({
+        resolver: yupResolver(serviceFormSchema),
+        defaultValues: {
+            title: '',
+            description: '',
+            specialization: '',
+            base_price: '',
+            price_type: 'fixed',
+            estimated_duration_min: '',
+            estimated_duration_max: '',
+            service_radius: '',
+            emergency_service: false,
+            is_active: true,
+        },
+        mode: 'onBlur',
+    });
 
     // Debug modal state
     useEffect(() => {
@@ -147,7 +164,7 @@ export default function ProviderMyServices() {
         setEditingService(null);
         setSelectedSpeciality('');
         setFilteredSpecializations([]);
-        setFormData({
+        reset({
             title: '',
             description: '',
             specialization: '',
@@ -190,7 +207,7 @@ export default function ProviderMyServices() {
             setFilteredSpecializations([]);
         }
 
-        setFormData({
+        reset({
             title: service.title,
             description: service.description,
             specialization: specializationId || '',
@@ -203,14 +220,6 @@ export default function ProviderMyServices() {
             is_active: service.is_active,
         });
         setShowModal(true);
-    };
-
-    const handleInputChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
     };
 
     const handleSpecialityChange = (e) => {
@@ -230,55 +239,43 @@ export default function ProviderMyServices() {
         }
         
         // Reset specialization selection when speciality changes
-        setFormData(prev => ({
-            ...prev,
-            specialization: ''
-        }));
+        setValue('specialization', '', { shouldValidate: true });
+        clearErrors('specialization');
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        
-        // Validation
-        if (!formData.specialization || !formData.base_price) {
-            addToast('Please select a specialization and enter a base price.', 'warning', 4000);
-            return;
-        }
-
-        if (!formData.estimated_duration_min) {
-            addToast('Please specify the minimum estimated duration.', 'warning', 4000);
-            return;
-        }
-
-        const minDuration = parseFloat(formData.estimated_duration_min);
-        const maxDuration = formData.estimated_duration_max ? parseFloat(formData.estimated_duration_max) : null;
-
-        if (maxDuration && minDuration > maxDuration) {
-            addToast('Minimum duration cannot be greater than maximum duration.', 'warning', 4000);
-            return;
-        }
-
+    const onSubmit = async (data) => {
         try {
             setSubmitting(true);
             
+            const minDuration = parseFloat(data.estimated_duration_min);
+            const maxDuration = data.estimated_duration_max ? parseFloat(data.estimated_duration_max) : null;
+
+            if (maxDuration && minDuration > maxDuration) {
+                setFormError('estimated_duration_max', {
+                    type: 'manual',
+                    message: 'Maximum duration must be greater than or equal to minimum duration'
+                });
+                return;
+            }
+
             const avgDuration = maxDuration ? (minDuration + maxDuration) / 2 : minDuration;
             
             // Prepare data - only send fields that backend expects (excluding provider which is set automatically)
             const serviceData = {
-                title: formData.title,
-                description: formData.description,
-                specialization: formData.specialization,
-                base_price: parseFloat(formData.base_price),
-                price_type: formData.price_type,
+                title: data.title,
+                description: data.description,
+                specialization: data.specialization,
+                base_price: parseFloat(data.base_price),
+                price_type: data.price_type,
                 estimated_duration: avgDuration,
                 estimated_duration_min: minDuration,
                 estimated_duration_max: maxDuration,
                 // Default to provider's service area km if user left radius empty
-                service_radius: (formData.service_radius !== '' && formData.service_radius != null)
-                    ? parseInt(formData.service_radius, 10)
+                service_radius: (data.service_radius !== '' && data.service_radius != null)
+                    ? parseInt(data.service_radius, 10)
                     : (providerServiceAreaKm ?? null),
-                emergency_service: formData.emergency_service,
-                is_active: formData.is_active,
+                emergency_service: data.emergency_service,
+                is_active: data.is_active,
             };
             
             if (editingService) {
@@ -582,7 +579,7 @@ export default function ProviderMyServices() {
                             {editingService ? 'Edit Service' : 'Create New Service'}
                         </h3>
 
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                             {providerSpecialities.length === 0 && (
                                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800">
                                     <p className="font-semibold">⚠️ No specializations available</p>
@@ -620,12 +617,13 @@ export default function ProviderMyServices() {
                                 </label>
                                 <input
                                     type="text"
-                                    name="title"
-                                    value={formData.title}
-                                    onChange={handleInputChange}
+                                    {...register('title')}
                                     placeholder="e.g., Emergency Plumbing Repair"
-                                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                    className={`w-full p-3 border ${errors.title ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                 />
+                                {errors.title && (
+                                    <p className="text-red-500 text-xs mt-1">{errors.title.message}</p>
+                                )}
                             </div>
 
                             {/* Description (optional) */}
@@ -634,13 +632,14 @@ export default function ProviderMyServices() {
                                     Description <span className="text-gray-400 text-xs">(Optional)</span>
                                 </label>
                                 <textarea
-                                    name="description"
-                                    value={formData.description}
-                                    onChange={handleInputChange}
+                                    {...register('description')}
                                     placeholder="Describe your service in detail..."
                                     rows="4"
-                                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                    className={`w-full p-3 border ${errors.description ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                 />
+                                {errors.description && (
+                                    <p className="text-red-500 text-xs mt-1">{errors.description.message}</p>
+                                )}
                             </div>
 
                             {/* Specialization */}
@@ -649,10 +648,8 @@ export default function ProviderMyServices() {
                                     Specialization <span className="text-red-500">*</span>
                                 </label>
                                 <select
-                                    name="specialization"
-                                    value={formData.specialization}
-                                    onChange={handleInputChange}
-                                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                    {...register('specialization')}
+                                    className={`w-full p-3 border ${errors.specialization ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                     required
                                     disabled={!selectedSpeciality}
                                 >
@@ -670,6 +667,9 @@ export default function ProviderMyServices() {
                                         ? `${filteredSpecializations.length} specialization(s) available for selected speciality`
                                         : 'Select a speciality first to see available specializations'}
                                 </p>
+                                {errors.specialization && (
+                                    <p className="text-red-500 text-xs mt-1">{errors.specialization.message}</p>
+                                )}
                             </div>
 
                             {/* Price & Price Type */}
@@ -680,15 +680,16 @@ export default function ProviderMyServices() {
                                     </label>
                                     <input
                                         type="number"
-                                        name="base_price"
-                                        value={formData.base_price}
-                                        onChange={handleInputChange}
+                                        {...register('base_price')}
                                         placeholder="1000"
                                         min="0"
                                         step="0.01"
-                                        className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                        className={`w-full p-3 border ${errors.base_price ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                         required
                                     />
+                                    {errors.base_price && (
+                                        <p className="text-red-500 text-xs mt-1">{errors.base_price.message}</p>
+                                    )}
                                 </div>
 
                                 <div>
@@ -696,16 +697,17 @@ export default function ProviderMyServices() {
                                         Price Type <span className="text-red-500">*</span>
                                     </label>
                                     <select
-                                        name="price_type"
-                                        value={formData.price_type}
-                                        onChange={handleInputChange}
-                                        className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                        {...register('price_type')}
+                                        className={`w-full p-3 border ${errors.price_type ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                         required
                                     >
                                         <option value="fixed">Fixed Price</option>
                                         <option value="hourly">Hourly Rate</option>
                                         <option value="negotiable">Negotiable</option>
                                     </select>
+                                    {errors.price_type && (
+                                        <p className="text-red-500 text-xs mt-1">{errors.price_type.message}</p>
+                                    )}
                                 </div>
                             </div>
 
@@ -718,29 +720,31 @@ export default function ProviderMyServices() {
                                     <div>
                                         <input
                                             type="number"
-                                            name="estimated_duration_min"
-                                            value={formData.estimated_duration_min}
-                                            onChange={handleInputChange}
+                                            {...register('estimated_duration_min')}
                                             placeholder="Min (e.g., 1)"
                                             min="0.5"
                                             step="0.5"
-                                            className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                            className={`w-full p-3 border ${errors.estimated_duration_min ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                             required
                                         />
                                         <p className="text-xs text-gray-500 mt-1">Minimum hours</p>
+                                        {errors.estimated_duration_min && (
+                                            <p className="text-red-500 text-xs mt-1">{errors.estimated_duration_min.message}</p>
+                                        )}
                                     </div>
                                     <div>
                                         <input
                                             type="number"
-                                            name="estimated_duration_max"
-                                            value={formData.estimated_duration_max}
-                                            onChange={handleInputChange}
+                                            {...register('estimated_duration_max')}
                                             placeholder="Max (e.g., 2)"
                                             min="0.5"
                                             step="0.5"
-                                            className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                            className={`w-full p-3 border ${errors.estimated_duration_max ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                         />
                                         <p className="text-xs text-gray-500 mt-1">Maximum hours (optional)</p>
+                                        {errors.estimated_duration_max && (
+                                            <p className="text-red-500 text-xs mt-1">{errors.estimated_duration_max.message}</p>
+                                        )}
                                     </div>
                                 </div>
                                 <p className="text-xs text-gray-500 mt-2">
@@ -755,16 +759,17 @@ export default function ProviderMyServices() {
                                 </label>
                                 <input
                                     type="number"
-                                    name="service_radius"
-                                    value={formData.service_radius}
-                                    onChange={handleInputChange}
+                                    {...register('service_radius')}
                                     placeholder="e.g., 20"
                                     min="0"
-                                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:border-green-600"
+                                    className={`w-full p-3 border ${errors.service_radius ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:border-green-600`}
                                 />
                                 <p className="text-xs text-gray-500 mt-1">
                                     Maximum distance you're willing to travel for this service
                                 </p>
+                                {errors.service_radius && (
+                                    <p className="text-red-500 text-xs mt-1">{errors.service_radius.message}</p>
+                                )}
                             </div>
 
                             {/* Checkboxes */}
@@ -772,9 +777,7 @@ export default function ProviderMyServices() {
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input
                                         type="checkbox"
-                                        name="emergency_service"
-                                        checked={formData.emergency_service}
-                                        onChange={handleInputChange}
+                                        {...register('emergency_service')}
                                         className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
                                     />
                                     <span className="text-sm font-semibold text-gray-700">Emergency/24-7 Service Available</span>
@@ -783,9 +786,7 @@ export default function ProviderMyServices() {
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input
                                         type="checkbox"
-                                        name="is_active"
-                                        checked={formData.is_active}
-                                        onChange={handleInputChange}
+                                        {...register('is_active')}
                                         className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
                                     />
                                     <span className="text-sm font-semibold text-gray-700">Active Service</span>

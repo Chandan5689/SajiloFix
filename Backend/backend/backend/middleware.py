@@ -3,6 +3,22 @@
 # API endpoints use token authentication, not session cookies.
 # """
 
+from django.db import connection
+
+class ConnectionCloseMiddleware:
+    """Ensure database connections are properly closed after each request."""
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        try:
+            response = self.get_response(request)
+        finally:
+            # Close the connection to return it to the pool immediately
+            connection.close()
+        return response
+
 # class CSRFExemptApiMiddleware:
 #     """Exempt /api/ paths from CSRF checks."""
     

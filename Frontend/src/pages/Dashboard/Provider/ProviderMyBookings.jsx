@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ProviderDashboardLayout from '../../../layouts/ProviderDashboardLayout';
 import { Modal } from '../../../components/Modal';
 import BookingImageUpload from '../../../components/BookingImageUpload';
+import ActionButton from '../../../components/ActionButton';
 import {
     MdCalendarToday,
     MdLocationOn,
@@ -46,6 +47,7 @@ export default function ProviderMyBookings() {
     const [completePreviews, setCompletePreviews] = useState([]);
     const [completeError, setCompleteError] = useState(null);
     const [completeLoading, setCompleteLoading] = useState(false);
+    const [detailsLoadingId, setDetailsLoadingId] = useState(null);
 
     const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled", "declined"];
 
@@ -109,6 +111,40 @@ export default function ProviderMyBookings() {
             .split(" ")
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(" ");
+    };
+
+    // Format currency
+    const formatCurrency = (amount) => {
+        if (!amount) return "—";
+        return `NRS ${Number(amount).toLocaleString('en-US')}`;
+    };
+
+    // Calculate total price from booking services if main price fields are null
+    const getBookingPrice = (booking) => {
+        if (booking.final_price) {
+            return formatCurrency(booking.final_price);
+        }
+        if (booking.quoted_price) {
+            return formatCurrency(booking.quoted_price);
+        }
+        // Fallback: calculate from booking_services if available
+        if (booking.booking_services && Array.isArray(booking.booking_services) && booking.booking_services.length > 0) {
+            const total = booking.booking_services.reduce((sum, svc) => {
+                return sum + (Number(svc.price_at_booking) || 0);
+            }, 0);
+            return total > 0 ? formatCurrency(total) : "TBD";
+        }
+        return "TBD";
+    };
+
+    const getServiceTitle = (booking) => {
+        if (!booking) return "Service";
+        return (
+            booking.service_title ||
+            booking.service?.title ||
+            booking.service?.name ||
+            "Service"
+        );
     };
 
     // Handle Accept Booking
@@ -214,14 +250,10 @@ export default function ProviderMyBookings() {
             setCompleteError(null);
             // Complete booking first (sets provider_completed status)
             const completed = await bookingsService.completeBooking(selectedBooking.id);
-            // Then upload after photos
+            // Then upload after photos (which will auto-complete the booking)
             await bookingsService.uploadBookingImages(completed.id, 'after', completeFiles, completeNote);
-            // Refresh booking to get final status
+            // Refresh booking to get final status (should be 'completed' now)
             const updated = await bookingsService.getBookingDetail(completed.id);
-            // Explicitly set status to awaiting_customer if we just uploaded after photos
-            if (updated.status === 'provider_completed') {
-                updated.status = 'awaiting_customer';
-            }
             setBookings(bookings.map((b) => (b.id === updated.id ? updated : b)));
             setSelectedBooking(updated);
             setShowCompleteModal(false);
@@ -324,8 +356,7 @@ export default function ProviderMyBookings() {
         selectedBooking?.service_specialization ??
         selectedBooking?.service?.specialization?.name ??
         selectedBooking?.specialization?.name;
-    const serviceTitle =
-        selectedBooking?.service_title ?? selectedBooking?.service?.title;
+    const serviceTitle = getServiceTitle(selectedBooking);
     const priceType = selectedBooking?.service?.price_type;
     const mapLinkService =
         serviceLat != null && serviceLng != null
@@ -392,7 +423,7 @@ export default function ProviderMyBookings() {
                         >
                             <div className="flex justify-between items-start mb-3">
                                 <div>
-                                    <p className="font-semibold text-lg">{booking.service_title}</p>
+                                    <p className="font-semibold text-lg">{getServiceTitle(booking)}</p>
                                     <p className="text-gray-600 text-sm flex items-center gap-1">
                                         <MdPerson className="inline" /> {booking.customer_name}
                                     </p>
@@ -416,7 +447,7 @@ export default function ProviderMyBookings() {
                                     <MdLocationOn /> {booking.service_address}
                                 </p>
                                 <p className="font-semibold text-gray-800">
-                                    NRS {booking.quoted_price || booking.final_price || "TBD"}
+                                    {getBookingPrice(booking)}
                                 </p>
                             </div>
 
@@ -424,50 +455,75 @@ export default function ProviderMyBookings() {
 
                             {/* Action Buttons */}
                             <div className="flex flex-wrap gap-2">
-                                <button
-                                    className="px-4 py-2 border border-green-600 text-green-600 rounded-md text-sm font-semibold hover:bg-green-50 transition"
-                                    onClick={() => setSelectedBooking(booking)}
-                                >
-                                    View Details
-                                </button>
+                                <ActionButton
+                                    label="View Details"
+                                    loadingLabel="Loading..."
+                                    isLoading={detailsLoadingId === booking.id}
+                                    onClick={async () => {
+                                        try {
+                                            setDetailsLoadingId(booking.id);
+                                            const fullBooking = await bookingsService.getBookingDetail(booking.id);
+                                            setSelectedBooking(fullBooking);
+                                        } catch (err) {
+                                            console.error("Error loading booking details:", err);
+                                            alert("Failed to load booking details");
+                                        } finally {
+                                            setDetailsLoadingId(null);
+                                        }
+                                    }}
+                                    disabled={detailsLoadingId === booking.id}
+                                    variant="secondary"
+                                    size="md"
+                                />
 
                                 {booking.status === "pending" && (
                                     <>
-                                        <button
-                                            className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 transition flex items-center gap-1"
+                                        <ActionButton
+                                            label="Accept"
+                                            loadingLabel="Accepting..."
+                                            isLoading={actionInProgress === booking.id}
                                             onClick={() => handleAccept(booking.id)}
                                             disabled={actionInProgress === booking.id}
-                                        >
-                                            <MdCheckCircle /> Accept
-                                        </button>
-                                        <button
-                                            className="px-4 py-2 border border-red-500 text-red-500 rounded-md text-sm font-semibold hover:bg-red-50 transition flex items-center gap-1"
+                                            icon={MdCheckCircle}
+                                            variant="primary"
+                                            size="md"
+                                        />
+                                        <ActionButton
+                                            label="Decline"
+                                            loadingLabel="Processing..."
+                                            isLoading={actionInProgress === booking.id}
                                             onClick={() => handleDeclineClick(booking)}
                                             disabled={actionInProgress === booking.id}
-                                        >
-                                            <MdCancel /> Decline
-                                        </button>
+                                            icon={MdCancel}
+                                            variant="danger"
+                                            size="md"
+                                        />
                                     </>
                                 )}
 
                                 {(booking.status === "confirmed" || booking.status === "scheduled") && (
-                                    <button
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition flex items-center gap-1"
+                                    <ActionButton
+                                        label="Start Work"
+                                        loadingLabel="Starting..."
+                                        isLoading={actionInProgress === booking.id}
                                         onClick={() => handleStartWork(booking.id)}
                                         disabled={actionInProgress === booking.id}
-                                    >
-                                        <MdPlayArrow /> Start Work
-                                    </button>
+                                        icon={MdPlayArrow}
+                                        variant="info"
+                                        size="md"
+                                    />
                                 )}
 
                                 {booking.status === "in_progress" && (
-                                    <button
-                                        className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 transition"
+                                    <ActionButton
+                                        label="Complete Job"
+                                        loadingLabel="Loading..."
+                                        isLoading={actionInProgress === booking.id}
                                         onClick={() => handleOpenCompleteModal(booking)}
                                         disabled={actionInProgress === booking.id}
-                                    >
-                                        Complete Job
-                                    </button>
+                                        variant="primary"
+                                        size="md"
+                                    />
                                 )}
 
                                 {["confirmed", "scheduled", "in_progress"].includes(booking.status) && (
@@ -507,7 +563,7 @@ export default function ProviderMyBookings() {
                         <h3 className="text-lg font-semibold mb-4">Decline Booking</h3>
                         <p className="text-gray-600 mb-4">
                             Are you sure you want to decline the booking for{" "}
-                            <strong>{selectedBooking.service_title}</strong> from{" "}
+                            <strong>{getServiceTitle(selectedBooking)}</strong> from{" "}
                             <strong>{selectedBooking.customer_name}</strong>?
                         </p>
                         <textarea
@@ -567,7 +623,7 @@ export default function ProviderMyBookings() {
                         </div>
 
                         <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
-                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{selectedBooking.service_title}</span></p>
+                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{getServiceTitle(selectedBooking)}</span></p>
                             <p className="flex justify-between"><span className="font-semibold">Customer:</span> <span>{selectedBooking.customer_name}</span></p>
                             <p className="mt-2 text-orange-700 font-semibold text-xs">After photos are required to complete the job.</p>
                         </div>
@@ -735,7 +791,7 @@ export default function ProviderMyBookings() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <p className="text-gray-500 font-semibold">Service</p>
-                                    <p>{selectedBooking.service_title}</p>
+                                    <p>{getServiceTitle(selectedBooking)}</p>
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Customer</p>
@@ -747,7 +803,7 @@ export default function ProviderMyBookings() {
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Price</p>
-                                    <p>NRS {selectedBooking.quoted_price || selectedBooking.final_price || "TBD"}</p>
+                                    <p>{getBookingPrice(selectedBooking)}</p>
                                 </div>
                                 {/* Only show phone after booking is accepted */}
                                 {["confirmed", "scheduled", "in_progress", "completed", "provider_completed", "awaiting_customer"].includes(selectedBooking.status) && (
@@ -763,7 +819,7 @@ export default function ProviderMyBookings() {
                                     </div>
                                 )}
                                 <div>
-                                    <p className="text-gray-500 font-semibold">Scheduled</p>
+                                    <p className="text-gray-500 font-semibold">Service Scheduled on:</p>
                                     <p>
                                         {formatDate(selectedBooking.scheduled_date || selectedBooking.preferred_date)}{" "}
                                         at {formatTime(selectedBooking.scheduled_time || selectedBooking.preferred_time)}
@@ -784,20 +840,56 @@ export default function ProviderMyBookings() {
                                     </div>
                                 )}
                                 {selectedBooking.images && selectedBooking.images.length > 0 && (
-                                    <div className="col-span-2">
-                                        <p className="text-gray-500 font-semibold mb-2">Photos</p>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            {selectedBooking.images.map((img) => (
-                                                <div key={img.id} className="text-center">
-                                                    <img
-                                                        src={img.image_url}
-                                                        alt={img.image_type}
-                                                        className="w-full h-24 object-cover rounded-md"
-                                                    />
-                                                    <p className="text-xs text-gray-500 mt-1">{img.image_type}</p>
+                                    <div className="col-span-2 space-y-4">
+                                       
+
+                                        {/* Before Photos */}
+                                        {selectedBooking.images.filter(img => img.image_type === 'before').length > 0 && (
+                                            <div>
+                                                <p className="text-gray-500 font-semibold mb-2 flex items-center gap-2">
+                                                    <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">Before Service</span>
+                                                    <span className="text-xs font-normal text-gray-400">Uploaded by customer</span>
+                                                </p>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    {selectedBooking.images
+                                                        .filter(img => img.image_type === 'before')
+                                                        .map((img) => (
+                                                            <div key={img.id} className="text-center">
+                                                                <img
+                                                                    src={img.image_url}
+                                                                    alt="Before service"
+                                                                    className="w-full h-24 object-cover rounded-md border-2 border-blue-200"
+                                                                    onError={(e) => { e.target.style.display = 'none'; console.error('Image failed to load:', img.image_url); }}
+                                                                />
+                                                            </div>
+                                                        ))}
                                                 </div>
-                                            ))}
-                                        </div>
+                                            </div>
+                                        )}
+                                        
+                                        {/* After Photos */}
+                                        {selectedBooking.images.filter(img => img.image_type === 'after').length > 0 && (
+                                            <div>
+                                                <p className="text-gray-500 font-semibold mb-2 flex items-center gap-2">
+                                                    <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs">After Service</span>
+                                                    <span className="text-xs font-normal text-gray-400">Uploaded by provider</span>
+                                                </p>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    {selectedBooking.images
+                                                        .filter(img => img.image_type === 'after')
+                                                        .map((img) => (
+                                                            <div key={img.id} className="text-center">
+                                                                <img
+                                                                    src={img.image_url}
+                                                                    alt="After service"
+                                                                    className="w-full h-24 object-cover rounded-md border-2 border-green-200"
+                                                                    onError={(e) => { e.target.style.display = 'none'; console.error('Image failed to load:', img.image_url); }}
+                                                                />
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                                 {/* Upload Photos Button */}

@@ -1,41 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useSupabaseAuth } from "../context/SupabaseAuthContext";
+import { useUserProfile } from '../context/UserProfileContext';
 import UserDashboard from '../pages/Dashboard/User/UserDashboard';
 import ProviderDashboard from '../pages/Dashboard/Provider/ProviderDashboard';
 import { UserProfileProvider } from '../context/UserProfileContext';
 
 function DashboardRouter() {
-    const { isLoaded, isSignedIn } = useUser();
-    const { getToken } = useAuth();
-    const [userType, setUserType] = useState(null);
-    const [checking, setChecking] = useState(true);
+    const { isAuthenticated, loading: authLoading } = useSupabaseAuth();
+    const { userType, loading: profileLoading } = useUserProfile();
 
-    useEffect(() => {
-        const fetchUserType = async () => {
-            if (!isLoaded) return;
-            if (!isSignedIn) {
-                setChecking(false);
-                return;
-            }
-            try {
-                const token = await getToken();
-                const resp = await fetch('http://127.0.0.1:8000/api/auth/registration-status/', {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (!resp.ok) throw new Error('Failed to fetch registration status');
-                const data = await resp.json();
-                setUserType(data.user_type);
-            } catch (err) {
-                console.error('Error fetching user type:', err);
-            } finally {
-                setChecking(false);
-            }
-        };
-        fetchUserType();
-    }, [getToken, isLoaded, isSignedIn]);
+    const loading = authLoading || profileLoading;
 
-    if (!isLoaded || checking) {
+    if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="text-center">
@@ -46,24 +23,16 @@ function DashboardRouter() {
         );
     }
 
-    if (!isSignedIn) {
+    if (!isAuthenticated) {
         return <Navigate to="/login" replace />;
     }
 
     if (userType === 'offer') {
-        return (
-            <UserProfileProvider>
-                <ProviderDashboard />
-            </UserProfileProvider>
-        );
+        return <ProviderDashboard />;
     }
 
     if (userType === 'find') {
-        return (
-            <UserProfileProvider>
-                <UserDashboard />
-            </UserProfileProvider>
-        );
+        return <UserDashboard />;
     }
 
     // Fallback for unexpected type

@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { FiEdit2 } from "react-icons/fi";
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import DashboardLayout from "../../../layouts/DashboardLayout";
 import userService from "../../../services/userService";
 import { useUserProfile } from "../../../context/UserProfileContext";
+import { userProfileEditSchema } from "../../../validations/userSchemas";
 
 export default function UserMyProfile() {
     const [activeMenuKey, setActiveMenuKey] = useState("my-profile");
@@ -12,28 +15,48 @@ export default function UserMyProfile() {
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
     const { userProfile: userData } = useUserProfile();
-    
-    // Form state
-    const [form, setForm] = useState({
-        first_name: "",
-        middle_name: "",
-        last_name: "",
-        email: "",
-        phone_number: "",
-        address: "",
-        city: "",
-        district: "",
-        postal_code: "",
-        bio: "",
-        location: "",
-        profile_picture: null,
-    });
-
     const [isEditing, setIsEditing] = useState(false);
-    const [backupForm, setBackupForm] = useState(form);
-    const [backupProfilePicturePreview, setBackupProfilePicturePreview] = useState(null);
     const [userProfile, setUserProfile] = useState(null);
     const [profilePicturePreview, setProfilePicturePreview] = useState(null);
+
+    const {
+        register,
+        handleSubmit,
+        formState: { errors },
+        setValue,
+        watch,
+        reset,
+        clearErrors,
+    } = useForm({
+        resolver: yupResolver(userProfileEditSchema),
+        defaultValues: {
+            first_name: "",
+            middle_name: "",
+            last_name: "",
+            address: "",
+            city: "",
+            district: "",
+            postal_code: "",
+            bio: "",
+            location: "",
+            profile_picture: null,
+        },
+        mode: 'onBlur',
+    });
+
+    const profilePictureFile = watch('profile_picture');
+
+    useEffect(() => {
+        register('profile_picture');
+    }, [register]);
+
+    useEffect(() => {
+        if (profilePictureFile) {
+            const reader = new FileReader();
+            reader.onloadend = () => setProfilePicturePreview(reader.result);
+            reader.readAsDataURL(profilePictureFile);
+        }
+    }, [profilePictureFile]);
 
     // Fetch user profile on mount
     useEffect(() => {
@@ -48,12 +71,10 @@ export default function UserMyProfile() {
             setUserProfile(data);
             
             // Map API response to form fields
-            setForm({
+            reset({
                 first_name: data.first_name || "",
                 middle_name: data.middle_name || "",
                 last_name: data.last_name || "",
-                email: data.email || "",
-                phone_number: data.phone_number || "",
                 address: data.address || "",
                 city: data.city || "",
                 district: data.district || "",
@@ -75,56 +96,38 @@ export default function UserMyProfile() {
         }
     };
 
-    // Handle input changes
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setForm((prev) => ({ ...prev, [name]: value }));
-    };
-
     // Handle file input for profile picture
     const handleProfilePictureChange = (e) => {
         const file = e.target.files?.[0];
-        if (file) {
-            // Validate file type
-            if (!file.type.startsWith('image/')) {
-                setError('Please select a valid image file');
-                return;
-            }
-            
-            // Validate file size (max 5MB)
-            if (file.size > 5 * 1024 * 1024) {
-                setError('Image size must be less than 5MB');
-                return;
-            }
-            
-            setForm((prev) => ({ ...prev, profile_picture: file }));
-            
-            // Create preview
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setProfilePicturePreview(reader.result);
-            };
-            reader.readAsDataURL(file);
-        }
+        setValue('profile_picture', file || null, { shouldValidate: true });
+        clearErrors('profile_picture');
     };
 
     // Handle Edit button click
     const handleEditClick = () => {
-        setBackupForm(form);
-        setBackupProfilePicturePreview(profilePicturePreview);
         setIsEditing(true);
     };
 
     // Handle Cancel button click
     const handleCancel = () => {
-        setForm(backupForm);
-        setProfilePicturePreview(backupProfilePicturePreview);
+        reset({
+            first_name: userProfile?.first_name || "",
+            middle_name: userProfile?.middle_name || "",
+            last_name: userProfile?.last_name || "",
+            address: userProfile?.address || "",
+            city: userProfile?.city || "",
+            district: userProfile?.district || "",
+            postal_code: userProfile?.postal_code || "",
+            bio: userProfile?.bio || "",
+            location: userProfile?.location || "",
+            profile_picture: null,
+        });
+        setProfilePicturePreview(userProfile?.profile_picture_url || null);
         setIsEditing(false);
     };
 
     // Handle Save Changes
-    const handleSave = async (e) => {
-        e.preventDefault();
+    const onSubmit = async (data) => {
         try {
             setSaving(true);
             setError(null);
@@ -132,19 +135,19 @@ export default function UserMyProfile() {
             
             // Create FormData for multipart submission
             const updateData = new FormData();
-            updateData.append('first_name', form.first_name);
-            updateData.append('middle_name', form.middle_name);
-            updateData.append('last_name', form.last_name);
-            updateData.append('address', form.address);
-            updateData.append('city', form.city);
-            updateData.append('district', form.district);
-            updateData.append('postal_code', form.postal_code);
-            updateData.append('bio', form.bio);
-            updateData.append('location', form.location);
+            updateData.append('first_name', data.first_name || '');
+            updateData.append('middle_name', data.middle_name || '');
+            updateData.append('last_name', data.last_name || '');
+            updateData.append('address', data.address || '');
+            updateData.append('city', data.city || '');
+            updateData.append('district', data.district || '');
+            updateData.append('postal_code', data.postal_code || '');
+            updateData.append('bio', data.bio || '');
+            updateData.append('location', data.location || '');
             
             // Include profile picture if selected
-            if (form.profile_picture) {
-                updateData.append('profile_picture', form.profile_picture);
+            if (data.profile_picture) {
+                updateData.append('profile_picture', data.profile_picture);
             }
             
             const updated = await userService.updateProfile(updateData);
@@ -170,14 +173,17 @@ export default function UserMyProfile() {
 
     // Get initials for avatar
     const getInitials = () => {
-        const first = form.first_name?.charAt(0) || "";
-        const last = form.last_name?.charAt(0) || "";
+        const first = watch('first_name')?.charAt(0) || "";
+        const last = watch('last_name')?.charAt(0) || "";
         return (first + last).toUpperCase() || "U";
     };
 
     // Get full name
     const getFullName = () => {
-        const parts = [form.first_name, form.middle_name, form.last_name];
+        const first = watch('first_name');
+        const middle = watch('middle_name');
+        const last = watch('last_name');
+        const parts = [first, middle, last];
         return parts.filter(p => p).join(' ').trim() || "User";
     };
 
@@ -234,8 +240,8 @@ export default function UserMyProfile() {
                             </div>
                             <div>
                                 <p className="font-semibold text-lg">{getFullName()}</p>
-                                <p className="text-gray-600">{form.email}</p>
-                                <p className="text-gray-600">{form.phone_number || "Phone not set"}</p>
+                                <p className="text-gray-600">{userProfile?.email}</p>
+                                <p className="text-gray-600">{userProfile?.phone_number || "Phone not set"}</p>
                                 <span className="mt-1 inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded">
                                     Verified Customer
                                 </span>
@@ -280,7 +286,7 @@ export default function UserMyProfile() {
                     {/* Personal Information Form */}
                     {activeTab === "Personal Info" && (
                         <form
-                            onSubmit={handleSave}
+                            onSubmit={handleSubmit(onSubmit)}
                             className="bg-white rounded-b-lg shadow px-6 py-8 mt-6 grid grid-cols-1 md:grid-cols-2 gap-6"
                         >
                             {/* Profile Picture Upload - full width */}
@@ -321,6 +327,9 @@ export default function UserMyProfile() {
                                             <p className="text-xs text-gray-500 mt-2">
                                                 JPG, PNG or GIF (max. 5MB)
                                             </p>
+                                            {errors.profile_picture && (
+                                                <p className="text-red-500 text-xs mt-1">{errors.profile_picture.message}</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -329,13 +338,11 @@ export default function UserMyProfile() {
                                 { label: "First Name", name: "first_name", type: "text" },
                                 { label: "Middle Name (Optional)", name: "middle_name", type: "text" },
                                 { label: "Last Name", name: "last_name", type: "text" },
-                                { label: "Email", name: "email", type: "email", disabled: true },
-                                { label: "Phone", name: "phone_number", type: "tel", disabled: true },
                                 { label: "Address", name: "address", type: "text" },
                                 { label: "City", name: "city", type: "text" },
                                 { label: "District", name: "district", type: "text" },
                                 { label: "Postal Code", name: "postal_code", type: "text" },
-                            ].map(({ label, name, type, disabled }) => (
+                            ].map(({ label, name, type }) => (
                                 <div key={name}>
                                     <label
                                         htmlFor={name}
@@ -345,17 +352,18 @@ export default function UserMyProfile() {
                                     </label>
                                     <input
                                         id={name}
-                                        name={name}
                                         type={type}
-                                        value={form[name]}
-                                        onChange={handleChange}
-                                        disabled={!isEditing || disabled}
+                                        {...register(name)}
+                                        disabled={!isEditing}
                                         className={`w-full rounded border px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 ${
-                                            isEditing && !disabled
-                                                ? "border-gray-300 focus:ring-green-500"
+                                            isEditing
+                                                ? `border-${errors[name] ? 'red' : 'gray'}-300 focus:ring-green-500`
                                                 : "border-transparent bg-gray-100 cursor-not-allowed"
-                                            }`}
+                                            } ${errors[name] ? 'border-red-500' : ''}`}
                                     />
+                                    {errors[name] && (
+                                        <p className="text-red-500 text-xs mt-1">{errors[name].message}</p>
+                                    )}
                                 </div>
                             ))}
 
@@ -366,17 +374,17 @@ export default function UserMyProfile() {
                                 </label>
                                 <input
                                     id="location"
-                                    name="location"
-                                    type="text"
-                                    value={form.location}
-                                    onChange={handleChange}
+                                    {...register('location')}
                                     disabled={!isEditing}
                                     className={`w-full rounded border px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 ${
                                         isEditing
-                                            ? "border-gray-300 focus:ring-green-500"
+                                            ? `border-${errors.location ? 'red' : 'gray'}-300 focus:ring-green-500`
                                             : "border-transparent bg-gray-100 cursor-not-allowed"
-                                        }`}
+                                        } ${errors.location ? 'border-red-500' : ''}`}
                                 />
+                                {errors.location && (
+                                    <p className="text-red-500 text-xs mt-1">{errors.location.message}</p>
+                                )}
                             </div>
 
                             {/* Bio Textarea - full width */}
@@ -386,18 +394,19 @@ export default function UserMyProfile() {
                                 </label>
                                 <textarea
                                     id="bio"
-                                    name="bio"
-                                    value={form.bio}
-                                    onChange={handleChange}
+                                    {...register('bio')}
                                     disabled={!isEditing}
                                     rows={4}
                                     placeholder="Tell us about yourself"
                                     className={`w-full rounded border px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 resize-none ${
                                         isEditing
-                                            ? "border-gray-300 focus:ring-green-500"
+                                            ? `border-${errors.bio ? 'red' : 'gray'}-300 focus:ring-green-500`
                                             : "border-transparent bg-gray-100 cursor-not-allowed"
-                                        }`}
+                                        } ${errors.bio ? 'border-red-500' : ''}`}
                                 />
+                                {errors.bio && (
+                                    <p className="text-red-500 text-xs mt-1">{errors.bio.message}</p>
+                                )}
                             </div>
 
                             {/* Save/Cancel Buttons */}

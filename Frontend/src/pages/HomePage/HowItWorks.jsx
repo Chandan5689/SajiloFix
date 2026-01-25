@@ -63,7 +63,7 @@ function HowItWorks() {
                     ))}
 
                 </div>
-                <Link to='#'>
+                <Link to='/services'>
                     <div className='text-center mt-12'>
                         <button className="bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-lg font-medium cursor-pointer transition-colors whitespace-nowrap">
                             Get Started Now

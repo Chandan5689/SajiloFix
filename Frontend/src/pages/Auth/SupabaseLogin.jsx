@@ -1,21 +1,37 @@
 import React, { useState } from 'react';
-import { useSignIn, useAuth } from '@clerk/clerk-react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import { FaEnvelope, FaLock, FaUser, FaTools, FaShieldAlt, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { FcGoogle } from 'react-icons/fc';
+import { useSupabaseAuth } from '../../context/SupabaseAuthContext';
+import { loginSchema } from '../../validations/authSchemas';
 import api from '../../api/axios';
 
-function ClerkLogin() {
-    const { isLoaded, signIn, setActive } = useSignIn();
-    const { getToken, signOut } = useAuth();
+function SupabaseLogin() {
+    const { signIn, signInWithOAuth, getToken, signOut } = useSupabaseAuth();
     const navigate = useNavigate();
     
     const [userType, setUserType] = useState('find');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    // React Hook Form with Yup validation
+    const {
+        register,
+        handleSubmit,
+        formState: { errors: formErrors },
+        reset,
+        setValue,
+    } = useForm({
+        resolver: yupResolver(loginSchema),
+        defaultValues: {
+            email: '',
+            password: '',
+        },
+        mode: 'onBlur', // Validate on blur for better UX
+    });
 
     const userTypes = [
         { key: 'find', label: 'Customer', icon: FaUser, color: 'blue' },
@@ -25,104 +41,120 @@ function ClerkLogin() {
 
     const currentUserType = userTypes.find(t => t.key === userType);
 
-    const handleEmailLogin = async (e) => {
-        e.preventDefault();
-        if (!isLoaded) return;
-
+    const handleEmailLogin = async (data) => {
         setLoading(true);
         setError('');
 
         try {
-            const result = await signIn.create({
-                identifier: email,
-                password,
-            });
+            // Sign in with Supabase Auth (data now comes from React Hook Form)
+            const result = await signIn(data.email, data.password);
 
-            if (result.status === 'complete') {
-                // Activate session to enable token retrieval
-                await setActive({ session: result.createdSessionId });
+            // signIn returns data directly, not { data, error }
+            // If there was an error, it would have thrown
+            if (result.session) {
+                // Get token from session (Supabase uses access_token)
+                const token = result.session.access_token;
+                
+                // Fetch user registration status from backend
+                const response = await api.get('/auth/registration-status/', {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
 
-                // Fetch user details to verify type matches selection
-                try {
-                    const token = await getToken();
-                    const response = await api.get('/auth/registration-status/', {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    });
+                const actualUserType = response.data.user_type;
+                const isAdmin = response.data.is_staff || response.data.is_superuser;
 
-                    const actualUserType = response.data.user_type;
-                    const userTypeLabel = {
-                        'find': 'Customer',
-                        'offer': 'Provider',
-                        'admin': 'Admin'
-                    };
-
-                    // Check if selected type matches actual type - STRICT CHECK
-                    if (actualUserType !== userType) {
-                        // const mismatchMessages = {
-                        //     offer: 'You are not registered as provider',
-                        //     admin: 'You are not registered as admin',
-                        //     find: 'You are not registered with this type of account',
-                        // };
-
-                        // Show message immediately, then sign out after 2 seconds
-                        setError('Account type mismatch, Please select the correct user type to log in.');
-                        setPassword('');
+                // Check if selected type matches actual type
+                if (actualUserType && actualUserType !== userType) {
+                    // Admin tab requires is_staff or is_superuser
+                    if (userType === 'admin') {
+                        if (!isAdmin) {
+                            // Sign out the user immediately to prevent unauthorized access
+                            await signOut();
+                            setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease click ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'} and try again.`);
+                            setValue('password', ''); // Clear password field
+                            setLoading(false);
+                            return;
+                        }
+                    } else {
+                        // Regular user selected wrong tab
+                        // Sign out the user immediately to prevent unauthorized access
+                        await signOut();
+                        const roleLabel = actualUserType === 'find' ? 'Customer' : 'Provider';
+                        const correctTab = actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab';
+                        setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
+                        setValue('password', ''); // Clear password field
                         setLoading(false);
-                        setTimeout(async () => {
-                            try {
-                                await signOut();
-                            } catch (signOutErr) {
-                                console.error('Error signing out after mismatch:', signOutErr);
-                            }
-                        }, 1500);
                         return;
                     }
-
-                    // Type matches - check registration status
-                    if (response.data.registration_completed) {
-                        setLoading(false);
-                        navigate('/dashboard');
-                    } else {
-                        setLoading(false);
-                        navigate('/verify-phone-flow');
-                    }
-                } catch (typeCheckErr) {
-                    console.error('Error verifying user type:', typeCheckErr);
+                } else if (userType === 'admin' && !isAdmin) {
+                    // Admin tab selected but user is not admin
                     await signOut();
-                    setError('Unable to verify account type. Please try again.');
-                    setPassword('');
+                    setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease use ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'}.`);
+                    setValue('password', ''); // Clear password field
                     setLoading(false);
+                    return;
+                }
+
+                // Check registration status and redirect accordingly
+                if (userType === 'admin' && isAdmin) {
+                    // Admin user - redirect to Django admin panel
+                    setLoading(false);
+                    window.location.href = 'http://127.0.0.1:8000/admin/';
+                    return;
+                }
+
+                if (response.data.registration_completed) {
+                    setLoading(false);
+                    // Redirect based on user type
+                    if (actualUserType === 'offer') {
+                        navigate('/provider/dashboard');
+                    } else {
+                        navigate('/dashboard');
+                    }
+                } else {
+                    // User needs to complete registration
+                    setLoading(false);
+                    if (actualUserType === 'offer') {
+                        navigate('/complete-provider-profile');
+                    } else {
+                        // For service seekers, redirect to register to complete profile
+                        navigate('/register');
+                    }
                 }
             } else {
-                setError('Login incomplete. Please try again.');
+                console.error('No session returned from signIn');
+                setError('Login failed. Please try again.');
                 setLoading(false);
             }
         } catch (err) {
             console.error('Login error:', err);
-            setError(err.errors?.[0]?.message || 'Invalid email or password');
-            setPassword('');
+            
+            // Check if it's a network or auth error
+            if (err.response?.status === 401 || err.response?.status === 403) {
+                setError('Invalid email or password. Please try again.');
+            } else if (err.message?.includes('Invalid login credentials')) {
+                setError('Invalid email or password. Please try again.');
+            } else {
+                setError(err.message || 'Login failed. Please try again.');
+            }
+            
+            setValue('password', ''); // Clear password field
             setLoading(false);
         }
     };
 
     const handleTabChange = (newUserType) => {
-        
         setUserType(newUserType);
         setError('');
-        setPassword('');
+        setValue('password', ''); // Clear password field
     };
 
     const handleGoogleLogin = async () => {
-        if (!isLoaded) return;
 
         try {
-            await signIn.authenticateWithRedirect({
-                strategy: 'oauth_google',
-                redirectUrl: '/sso-callback',
-                redirectUrlComplete: '/',
-            });
+            await signInWithOAuth('google');
         } catch (err) {
             console.error('Google login error:', err);
             setError('Google login failed. Please try again.');
@@ -170,10 +202,7 @@ function ClerkLogin() {
                             <button
                                 key={type.key}
                                 type="button"
-                                onClick={() => {
-                                    console.log('Tab clicked:', type.key);
-                                    handleTabChange(type.key);
-                                }}
+                                onClick={() => handleTabChange(type.key)}
                                 className={`flex-1 py-3 px-3 rounded-lg font-medium flex flex-col items-center gap-2 transition-all duration-300 ${bgClass} ${textClass} ${shadowClass} ${!loading && 'hover:scale-105'} ${loading && 'opacity-50 cursor-not-allowed'}`}
                                 disabled={loading}
                             >
@@ -193,7 +222,7 @@ function ClerkLogin() {
                     </div>
                 )}
 
-                <form onSubmit={handleEmailLogin} className="space-y-6">
+                <form onSubmit={handleSubmit(handleEmailLogin)} className="space-y-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                             Email address
@@ -202,14 +231,19 @@ function ClerkLogin() {
                             <FaEnvelope className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
                             <input
                                 type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
+                                {...register('email')}
                                 placeholder="Enter your email"
-                                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                required
+                                className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 ${
+                                    formErrors.email 
+                                        ? 'border-red-500 focus:ring-red-500' 
+                                        : 'border-gray-300 focus:ring-blue-500'
+                                }`}
                                 disabled={loading}
                             />
                         </div>
+                        {formErrors.email && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors.email.message}</p>
+                        )}
                     </div>
 
                     <div>
@@ -220,11 +254,13 @@ function ClerkLogin() {
                             <FaLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
                             <input
                                 type={showPassword ? 'text' : 'password'}
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
+                                {...register('password')}
                                 placeholder="Enter your password"
-                                className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                required
+                                className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 ${
+                                    formErrors.password 
+                                        ? 'border-red-500 focus:ring-red-500' 
+                                        : 'border-gray-300 focus:ring-blue-500'
+                                }`}
                                 disabled={loading}
                             />
                             <button
@@ -236,6 +272,9 @@ function ClerkLogin() {
                                 {showPassword ? <FaEyeSlash /> : <FaEye />}
                             </button>
                         </div>
+                        {formErrors.password && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors.password.message}</p>
+                        )}
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -286,4 +325,4 @@ function ClerkLogin() {
     );
 }
 
-export default ClerkLogin;
+export default SupabaseLogin;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useClerk } from "@clerk/clerk-react";
+import { useSupabaseAuth } from "../context/SupabaseAuthContext";
 import { useUserProfile } from "../context/UserProfileContext";
 import {
   AiOutlineDashboard,
@@ -41,13 +41,14 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
     return null;
   });
   const navigate = useNavigate();
-  const { signOut } = useClerk();
+  const { signOut } = useSupabaseAuth();
   const { userProfile } = useUserProfile();
   const [defaultProfileData, setDefaultProfileData] = useState({
     name: "Service Provider",
     specialization: "Service Provider",
     rating: 0,
     reviewCount: 0,
+    profilePicture: null,
   });
 
   useEffect(() => {
@@ -57,13 +58,14 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
 
   // Fetch provider stats to keep rating/review count available across tabs
   useEffect(() => {
-    // Only fetch once if we don't already have rating data
-    if (profileData?.rating || sidebarStats) return;
+    // Only fetch once if we don't already have rating data from props or context
+    if (profileData || (userProfile && userProfile.full_name) || sidebarStats) return;
     let isMounted = true;
     (async () => {
       try {
         const stats = await bookingsService.getProviderDashboardStats();
         if (isMounted) {
+          // Store complete stats including profile info
           setSidebarStats(stats);
           try {
             sessionStorage.setItem('providerSidebarStats', JSON.stringify(stats));
@@ -78,7 +80,7 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
     return () => {
       isMounted = false;
     };
-  }, [profileData, sidebarStats]);
+  }, [profileData, userProfile, sidebarStats]);
 
   // Generate initials from name
   const getInitials = (name) => {
@@ -99,13 +101,25 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
             : userProfile.email?.split("@")[0] || "Service Provider"),
         specialization:
           userProfile.user_specializations?.map((s) => s.specialization?.name).join(", ") || "Service Provider",
-        rating: profileData?.rating ?? sidebarStats?.average_rating ?? 0,
-        reviewCount: profileData?.reviewCount ?? sidebarStats?.review_count ?? 0,
+        rating: sidebarStats?.average_rating ?? profileData?.rating ?? 0,
+        reviewCount: sidebarStats?.review_count ?? profileData?.reviewCount ?? 0,
         profilePicture: userProfile.profile_picture_url || userProfile.profile_picture || null,
       }
     : null;
 
-  const displayProfile = contextProfile || profileData || defaultProfileData;
+  // Build profile from stats if context profile is not available
+  const statsProfile = sidebarStats
+    ? {
+        name: profileData?.name || 'Service Provider',
+        specialization: profileData?.specialization || 'Service Provider',
+        rating: sidebarStats.average_rating ?? 0,
+        reviewCount: sidebarStats.review_count ?? 0,
+        profilePicture: profileData?.profilePicture || null,
+      }
+    : null;
+
+  // Priority: userProfile context > profileData prop > sidebarStats > default
+  const displayProfile = contextProfile || profileData || statsProfile || defaultProfileData;
 
   // Handle logout for providers
   const handleLogout = async () => {
@@ -129,34 +143,33 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 bottom-0 bg-white border-r border-gray-200 z-50
+        className={`fixed top-12 left-0 bottom-0 bg-white border-r border-gray-200 z-40
             transform transition-transform duration-300 ease-in-out
             md:static md:translate-x-0
             ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
             md:flex md:flex-col
             ${sidebarCollapsed ? "w-20" : "w-64"}`}
       >
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <div className="flex items-center gap-3 truncate">
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-lg select-none overflow-hidden">
-              {displayProfile.profilePicture ? (
+        <div className="flex items-center justify-between px-4 py-5 border-b border-gray-200">
+          <div className="flex items-center gap-3 truncate flex-1">
+            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm select-none overflow-hidden shrink-0">
+              {displayProfile?.profilePicture ? (
                 <img
                   src={displayProfile.profilePicture}
                   alt="Profile"
                   className="w-full h-full object-cover"
                 />
               ) : (
-                getInitials(displayProfile.name)
+                getInitials(displayProfile?.name || "SP")
               )}
             </div>
             {!sidebarCollapsed && (
-              <div className="truncate">
-                <p className="font-semibold truncate">{displayProfile.name}</p>
-                <p className="text-sm text-gray-500 truncate">{displayProfile.specialization}</p>
-                <div className="flex items-center text-yellow-400 space-x-1 mt-1">
-                  <AiOutlineStar size={16} />
-                  <span className="font-semibold text-gray-700">{displayProfile.rating || "N/A"}</span>
-                  <span className="text-gray-500">({displayProfile.reviewCount})</span>
+              <div className="truncate min-w-0">
+                <p className="font-semibold truncate text-sm text-gray-900">{displayProfile?.name || "Service Provider"}</p>
+                <div className="flex items-center text-yellow-400 space-x-1 mt-1 flex-wrap">
+                  <AiOutlineStar size={14} />
+                  <span className="font-semibold text-gray-700 text-xs">{displayProfile?.rating || "N/A"}</span>
+                  <span className="text-gray-500 text-xs">({displayProfile?.reviewCount || 0})</span>
                 </div>
               </div>
             )}
@@ -174,12 +187,12 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
                   key={key}
                   onClick={handleLogout}
                   title={sidebarCollapsed ? label : undefined}
-                  className={`flex items-center gap-4 rounded-md px-4 py-3 select-none truncate transition-colors text-red-600 hover:bg-red-100 ${
+                  className={`flex items-center cursor-pointer gap-4 rounded-md px-4 py-3 select-none truncate transition-colors text-red-600 hover:bg-red-100 ${
                     sidebarCollapsed ? "justify-center px-0" : "justify-start"
                   }`}
                 >
-                  {React.cloneElement(icon, { className: `h-6 w-6 ` })}
-                  {!sidebarCollapsed && <span>{label}</span>}
+                  {React.cloneElement(icon, { className: "h-5 w-5" })}
+                  {!sidebarCollapsed && <span className="text-sm">{label}</span>}
                 </button>
               );
             }
@@ -201,8 +214,8 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
                   }
                   ${sidebarCollapsed ? "justify-center px-0" : "justify-start"}`}
               >
-                {React.cloneElement(icon, { className: `h-6 w-6 ` })}
-                {!sidebarCollapsed && <span>{label}</span>}
+                {React.cloneElement(icon, { className: "h-5 w-5" })}
+                {!sidebarCollapsed && <span className="text-sm">{label}</span>}
               </Link>
             );
           })}
@@ -229,7 +242,7 @@ export default function ProviderDashboardLayout({ activeMenuKey, onMenuChange, c
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-
+          <span className="ml-4 text-lg font-semibold">SajiloFix Provider</span>
         </header>
 
         {/* Place dashboard page content here */}

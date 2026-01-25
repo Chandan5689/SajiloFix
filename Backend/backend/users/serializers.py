@@ -116,3 +116,12 @@ class UserSerializer(serializers.ModelSerializer):
             }
             for us in user_specializations
         ]
+    
+    def validate_citizenship_number(self, value):
+        """Validate that citizenship number is exactly 11 digits"""
+        if value:
+            if not value.isdigit() or len(value) != 11:
+                raise serializers.ValidationError(
+                    "Citizenship number must be exactly 11 digits"
+                )
+        return value

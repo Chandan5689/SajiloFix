@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as Yup from 'yup';
 import { Save,Calendar, Clock, Settings, Zap } from 'lucide-react';
 import ProviderDashboardLayout from '../../../../layouts/ProviderDashboardLayout';
 import availabilityService from '../../../../services/availabilityService';
@@ -21,72 +24,109 @@ const generateTimeOptions = () => {
 };
 const timeOptions = generateTimeOptions();
 
+const parseTimeToMinutes = (timeStr) => {
+    const [time, period] = timeStr.split(' ');
+    const [h, m] = time.split(':').map(Number);
+    const hours24 = period === 'PM' ? (h % 12) + 12 : h % 12;
+    return hours24 * 60 + (m || 0);
+};
+
+const defaultSchedule = [
+    { day: 'Monday', enabled: false, startTime: '9:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
+    { day: 'Tuesday', enabled: true, startTime: '8:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
+    { day: 'Wednesday', enabled: true, startTime: '8:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
+    { day: 'Thursday', enabled: false, startTime: '9:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
+    { day: 'Friday', enabled: true, startTime: '8:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
+    { day: 'Saturday', enabled: false, startTime: '10:00 AM', endTime: '2:00 PM', breakStart: '12:00 PM', breakEnd: '12:30 PM' },
+    { day: 'Sunday', enabled: true, startTime: '10:00 AM', endTime: '2:00 PM', breakStart: '12:00 PM', breakEnd: '12:30 PM' },
+];
+
+const defaultSettings = {
+    emergencyAvailability: true,
+    advanceBooking: '30 days',
+    bufferTime: '15 minutes',
+    sessionDuration: '30 minutes',
+};
+
+const daySchema = Yup.object({
+    day: Yup.string().required(),
+    enabled: Yup.boolean().required(),
+    startTime: Yup.string().when('enabled', ([enabled], schema) => {
+        return enabled
+            ? schema.matches(/^(\d{1,2}):(\d{2}) (AM|PM)$/i, 'Choose a valid time').required('Start time required')
+            : schema.nullable();
+    }),
+    endTime: Yup.string().when('enabled', ([enabled], schema) => {
+        return enabled
+            ? schema.matches(/^(\d{1,2}):(\d{2}) (AM|PM)$/i, 'Choose a valid time').required('End time required')
+            : schema.nullable();
+    }),
+    breakStart: Yup.string().when('enabled', ([enabled], schema) => {
+        return enabled
+            ? schema.matches(/^(\d{1,2}):(\d{2}) (AM|PM)$/i, 'Choose a valid time').required('Break start required')
+            : schema.nullable();
+    }),
+    breakEnd: Yup.string().when('enabled', ([enabled], schema) => {
+        return enabled
+            ? schema.matches(/^(\d{1,2}):(\d{2}) (AM|PM)$/i, 'Choose a valid time').required('Break end required')
+            : schema.nullable();
+    }),
+}).test('time-order', 'Invalid schedule times', function (value) {
+    if (!value?.enabled) return true;
+    const start = parseTimeToMinutes(value.startTime);
+    const end = parseTimeToMinutes(value.endTime);
+    const bStart = parseTimeToMinutes(value.breakStart);
+    const bEnd = parseTimeToMinutes(value.breakEnd);
+
+    if (start >= end) {
+        return this.createError({ path: 'startTime', message: `On ${value.day}, start must be before end.` });
+    }
+    if (bStart < start || bEnd > end || bStart >= bEnd) {
+        return this.createError({ path: 'breakStart', message: `On ${value.day}, break must be within working hours and start before end.` });
+    }
+    return true;
+});
+
+const availabilitySchema = Yup.object({
+    schedule: Yup.array().of(daySchema).length(7, 'All 7 days required'),
+    settings: Yup.object({
+        emergencyAvailability: Yup.boolean().required(),
+        advanceBooking: Yup.string().oneOf(['7 days', '14 days', '30 days', '60 days', '90 days']).required(),
+        bufferTime: Yup.string().oneOf(['No buffer', '15 minutes', '30 minutes', '45 minutes', '1 hour']).required(),
+        sessionDuration: Yup.string().oneOf(['30 minutes', '45 minutes', '1 hour', '1 hour 30 minutes', '2 hours']).required(),
+    }),
+});
+
 const Availability = () => {
     const [activeTab, setActiveTab] = useState('Weekly Schedule');
     const [activeMenu, setActiveMenu] = useState("availability");
     const { addToast } = useToast();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [validationError, setValidationError] = useState('');
-    // Initial State; will hydrate from backend when available
-    const [schedule, setSchedule] = useState([
-        { day: 'Monday', enabled: false, startTime: '9:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
-        { day: 'Tuesday', enabled: true, startTime: '8:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
-        { day: 'Wednesday', enabled: true, startTime: '8:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
-        { day: 'Thursday', enabled: false, startTime: '9:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
-        { day: 'Friday', enabled: true, startTime: '8:00 AM', endTime: '5:00 PM', breakStart: '12:00 PM', breakEnd: '1:00 PM' },
-        { day: 'Saturday', enabled: false, startTime: '10:00 AM', endTime: '2:00 PM', breakStart: '12:00 PM', breakEnd: '12:30 PM' },
-        { day: 'Sunday', enabled: false, startTime: '10:00 AM', endTime: '2:00 PM', breakStart: '12:00 PM', breakEnd: '12:30 PM' },
-    ]);
 
-    // Toggle Day Availability
-    const toggleDay = (index) => {
-        const newSchedule = [...schedule];
-        newSchedule[index].enabled = !newSchedule[index].enabled;
-        setSchedule(newSchedule);
-    };
+    const {
+        register,
+        handleSubmit,
+        watch,
+        setValue,
+        formState: { errors },
+    } = useForm({
+        resolver: yupResolver(availabilitySchema),
+        defaultValues: {
+            schedule: defaultSchedule,
+            settings: defaultSettings,
+        },
+        mode: 'onBlur',
+    });
 
-    // Handle Time Changes
-    const handleTimeChange = (index, field, value) => {
-        const newSchedule = [...schedule];
-        newSchedule[index][field] = value;
-        setSchedule(newSchedule);
-    };
+    const schedule = watch('schedule') || [];
+    const settings = watch('settings') || defaultSettings;
 
-    const parseTimeToMinutes = (timeStr) => {
-        // expects like "8:30 AM"
-        const [time, period] = timeStr.split(' ');
-        const [h, m] = time.split(':').map(Number);
-        let hours24 = period === 'PM' ? (h % 12) + 12 : h % 12;
-        return hours24 * 60 + (m || 0);
-    };
-
-    const validateSchedule = () => {
-        for (const day of schedule) {
-            if (!day.enabled) continue;
-            const start = parseTimeToMinutes(day.startTime);
-            const end = parseTimeToMinutes(day.endTime);
-            const bStart = parseTimeToMinutes(day.breakStart);
-            const bEnd = parseTimeToMinutes(day.breakEnd);
-
-            if (start >= end) return `On ${day.day}, start time must be before end time.`;
-            if (bStart < start || bEnd > end || bStart >= bEnd) return `On ${day.day}, break must be inside working hours and start before end.`;
-        }
-        return '';
-    };
-
-    const handleSave = async () => {
-        const validationMsg = validateSchedule();
-        if (validationMsg) {
-            setValidationError(validationMsg);
-            addToast(validationMsg, 'error');
-            return;
-        }
-        setValidationError('');
+    const onSubmit = async (formData) => {
         try {
             setSaving(true);
             const payload = {
-                weekly_schedule: schedule.map(d => ({
+                weekly_schedule: (formData.schedule || []).map((d) => ({
                     day: d.day,
                     enabled: d.enabled,
                     start_time: d.startTime,
@@ -94,37 +134,17 @@ const Availability = () => {
                     break_start: d.breakStart,
                     break_end: d.breakEnd,
                 })),
-                settings,
+                settings: formData.settings,
             };
             await availabilityService.saveAvailability(payload);
             addToast('Availability saved successfully!', 'success');
         } catch (err) {
             console.error('Save error:', err);
             const errorMsg = typeof err === 'string' ? err : err?.message || 'Failed to save availability';
-            setValidationError(errorMsg);
             addToast(errorMsg, 'error');
         } finally {
             setSaving(false);
         }
-    };
-
-    const [settings, setSettings] = useState({
-        emergencyAvailability: true,
-        advanceBooking: '30 days',
-        bufferTime: '15 minutes',
-        sessionDuration: '30 minutes',
-    });
-
-    const handleSettingChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setSettings(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
-    };
-
-    const handleSaveSettings = () => {
-        handleSave(); // use same payload/save call
     };
 
     useEffect(() => {
@@ -133,17 +153,18 @@ const Availability = () => {
                 setLoading(true);
                 const data = await availabilityService.getAvailability();
                 if (data?.weekly_schedule) {
-                    setSchedule(data.weekly_schedule.map(d => ({
+                    const mapped = data.weekly_schedule.map(d => ({
                         day: d.day,
                         enabled: !!d.enabled,
                         startTime: d.start_time || '8:00 AM',
                         endTime: d.end_time || '5:00 PM',
                         breakStart: d.break_start || '12:00 PM',
                         breakEnd: d.break_end || '1:00 PM',
-                    })));
+                    }));
+                    setValue('schedule', mapped);
                 }
                 if (data?.settings) {
-                    setSettings(prev => ({ ...prev, ...data.settings }));
+                    setValue('settings', { ...defaultSettings, ...data.settings });
                 }
             } catch (err) {
                 addToast(err.error || err.message || 'Failed to load availability', 'error');
@@ -152,7 +173,7 @@ const Availability = () => {
             }
         };
         load();
-    }, [addToast]);
+    }, [addToast, setValue]);
 
     return (
         <ProviderDashboardLayout activeMenuKey={activeMenu} onMenuChange={setActiveMenu}>
@@ -187,15 +208,56 @@ const Availability = () => {
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8">
 
                         {loading && (
-                            <div className="text-center text-gray-600 py-6">Loading availability...</div>
+                            <div className="space-y-6 animate-pulse">
+                                {/* Loading skeleton for Weekly Schedule */}
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                                    <div className="h-6 bg-gray-200 rounded w-48"></div>
+                                </div>
+                                
+                                {/* Loading skeleton for schedule items */}
+                                {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                                    <div key={i} className="border rounded-lg border-gray-200 bg-white p-6">
+                                        <div className="flex items-center mb-4">
+                                            <div className="w-5 h-5 bg-gray-200 rounded"></div>
+                                            <div className="ml-3 h-4 bg-gray-200 rounded w-24"></div>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-16 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-16 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-20 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                            <div>
+                                                <div className="h-3 bg-gray-200 rounded w-20 mb-2"></div>
+                                                <div className="h-10 bg-gray-100 rounded"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                
+                                {/* Loading skeleton for save button */}
+                                <div className="flex justify-end mt-8">
+                                    <div className="h-10 bg-gray-200 rounded w-40"></div>
+                                </div>
+                            </div>
                         )}
-                        {validationError && (
-                            <div className="mb-4 p-3 rounded border border-red-200 bg-red-50 text-sm text-red-700">{validationError}</div>
+                        
+                        {!loading && (errors?.schedule || errors?.settings) && (
+                            <div className="mb-4 p-3 rounded border border-red-200 bg-red-50 text-sm text-red-700">
+                                {errors?.schedule?.message || errors?.settings?.message || 'Please fix the highlighted fields.'}
+                            </div>
                         )}
 
                         {/* Card Header */}
-                        {activeTab === "Weekly Schedule" && (
-                            <form action="">
+                        {!loading && activeTab === "Weekly Schedule" && (
+                            <form onSubmit={handleSubmit(onSubmit)} noValidate>
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                                     <h2 className="text-xl font-bold text-gray-800">Weekly Schedule</h2>
 
@@ -214,8 +276,7 @@ const Availability = () => {
                                                     <input
                                                         id={`day-${index}`}
                                                         type="checkbox"
-                                                        checked={daySchedule.enabled}
-                                                        onChange={() => toggleDay(index)}
+                                                        {...register(`schedule.${index}.enabled`)}
                                                         className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer transition"
                                                     />
                                                 </div>
@@ -237,8 +298,7 @@ const Availability = () => {
                                                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Start Time</label>
                                                         <div className="relative">
                                                             <select
-                                                                value={daySchedule.startTime}
-                                                                onChange={(e) => handleTimeChange(index, 'startTime', e.target.value)}
+                                                                {...register(`schedule.${index}.startTime`)}
                                                                 className="block w-full pl-3 pr-10 py-2.5 text-sm border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md shadow-sm bg-white border"
                                                             >
                                                                 {timeOptions.map((time) => (
@@ -253,8 +313,7 @@ const Availability = () => {
                                                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">End Time</label>
                                                         <div className="relative">
                                                             <select
-                                                                value={daySchedule.endTime}
-                                                                onChange={(e) => handleTimeChange(index, 'endTime', e.target.value)}
+                                                                {...register(`schedule.${index}.endTime`)}
                                                                 className="block w-full pl-3 pr-10 py-2.5 text-sm border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md shadow-sm bg-white border"
                                                             >
                                                                 {timeOptions.map((time) => (
@@ -269,8 +328,7 @@ const Availability = () => {
                                                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Break Start</label>
                                                         <div className="relative">
                                                             <select
-                                                                value={daySchedule.breakStart}
-                                                                onChange={(e) => handleTimeChange(index, 'breakStart', e.target.value)}
+                                                                {...register(`schedule.${index}.breakStart`)}
                                                                 className="block w-full pl-3 pr-10 py-2.5 text-sm border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md shadow-sm bg-white border"
                                                             >
                                                                 {timeOptions.map((time) => (
@@ -285,8 +343,7 @@ const Availability = () => {
                                                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Break End</label>
                                                         <div className="relative">
                                                             <select
-                                                                value={daySchedule.breakEnd}
-                                                                onChange={(e) => handleTimeChange(index, 'breakEnd', e.target.value)}
+                                                                {...register(`schedule.${index}.breakEnd`)}
                                                                 className="block w-full pl-3 pr-10 py-2.5 text-sm border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md shadow-sm bg-white border"
                                                             >
                                                                 {timeOptions.map((time) => (
@@ -302,18 +359,19 @@ const Availability = () => {
                                 </div>
                                 <div className='flex justify-end mt-8'>
                                     <button
-                                        onClick={handleSave}
-                                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-colors shadow-sm"
+                                        type="submit"
+                                        disabled={saving}
+                                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-colors shadow-sm disabled:opacity-60 cursor-pointer"
                                     >
-                                        <Save size={18} />
-                                        Save Schedule
+                                        <Save size={18} className={saving ? 'animate-spin' : ''} />
+                                        {saving ? 'Saving...' : 'Save Schedule'}
                                     </button>
                                 </div>
                             </form>
                         )}
 
-                        {activeTab === 'Settings' && (
-                            <div className="space-y-8 max-w-3xl animate-in fade-in duration-500">
+                        {!loading && activeTab === 'Settings' && (
+                            <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-8 max-w-3xl animate-in fade-in duration-500">
                                 <h2 className="text-xl font-bold text-gray-800 mb-6">Booking Rules and Preferences</h2>
 
                                 {/* Session Duration Dropdown */}
@@ -322,9 +380,7 @@ const Availability = () => {
                                         <Calendar size={18} className="text-blue-500" /> Default Session Duration
                                     </label>
                                     <select
-                                        name="sessionDuration"
-                                        value={settings.sessionDuration}
-                                        onChange={handleSettingChange}
+                                        {...register('settings.sessionDuration')}
                                         className="block w-full max-w-md rounded-lg border-gray-300 py-2.5 px-3 text-gray-900 shadow-sm border focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                     >
                                         {['30 minutes', '45 minutes', '1 hour', '1 hour 30 minutes', '2 hours'].map(duration => (
@@ -340,9 +396,7 @@ const Availability = () => {
                                         <Clock size={18} className="text-blue-500" /> Buffer Time Between Appointments
                                     </label>
                                     <select
-                                        name="bufferTime"
-                                        value={settings.bufferTime}
-                                        onChange={handleSettingChange}
+                                        {...register('settings.bufferTime')}
                                         className="block w-full max-w-md rounded-lg border-gray-300 py-2.5 px-3 text-gray-900 shadow-sm border focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                     >
                                         {['No buffer', '15 minutes', '30 minutes', '45 minutes', '1 hour'].map(buffer => (
@@ -358,9 +412,7 @@ const Availability = () => {
                                         <Calendar size={18} className="text-blue-500" /> Maximum Advance Booking
                                     </label>
                                     <select
-                                        name="advanceBooking"
-                                        value={settings.advanceBooking}
-                                        onChange={handleSettingChange}
+                                        {...register('settings.advanceBooking')}
                                         className="block w-full max-w-md rounded-lg border-gray-300 py-2.5 px-3 text-gray-900 shadow-sm border focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                     >
                                         {['7 days', '14 days', '30 days', '60 days', '90 days'].map(days => (
@@ -382,9 +434,7 @@ const Availability = () => {
                                         <input
                                             type="checkbox"
                                             id="emergencyAvailability"
-                                            name="emergencyAvailability"
-                                            checked={settings.emergencyAvailability}
-                                            onChange={handleSettingChange}
+                                            {...register('settings.emergencyAvailability')}
                                             className="sr-only peer"
                                         />
                                         <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -394,14 +444,15 @@ const Availability = () => {
                                 {/* Save Button */}
                                 <div className="pt-8">
                                     <button
-                                        onClick={handleSaveSettings}
-                                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-colors shadow-lg shadow-blue-500/50 hover:shadow-blue-600/60"
+                                        type="submit"
+                                        disabled={saving}
+                                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-colors shadow-lg shadow-blue-500/50 hover:shadow-blue-600/60 disabled:opacity-60"
                                     >
-                                        <Save size={18} />
-                                        Save Settings
+                                        <Save size={18} className={saving ? 'animate-spin' : ''} />
+                                        {saving ? 'Saving...' : 'Save Settings'}
                                     </button>
                                 </div>
-                            </div>
+                            </form>
                         )}
 
                     </div>

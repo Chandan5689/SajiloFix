@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FaLocationDot } from "react-icons/fa6";
 import { FaSearch } from 'react-icons/fa'
@@ -8,9 +8,46 @@ import specialitiesService from "../../services/specialitiesService";
 import locationsService from "../../services/locationsService";
 import { nepaliCities, nepaliDistricts } from "../../constants/nepaliLocations";
 
+// Cache keys and TTL
+const CATEGORIES_CACHE_KEY = 'service_categories_cache';
+const LOCATIONS_CACHE_KEY = 'service_locations_cache';
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour - these rarely change
+
+// Helper functions for localStorage caching
+const getCachedData = (key) => {
+  try {
+    const cached = localStorage.getItem(key);
+    if (!cached) return null;
+    
+    const { data, timestamp } = JSON.parse(cached);
+    if (Date.now() - timestamp > CACHE_TTL) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.error('[Service] Cache read error:', e);
+    return null;
+  }
+};
+
+const setCachedData = (key, data) => {
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }));
+  } catch (e) {
+    console.error('[Service] Cache write error:', e);
+  }
+};
+
 export default function Service() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [categories, setCategories] = useState(["All Services"]);
+  const [categories, setCategories] = useState(() => {
+    const cached = getCachedData(CATEGORIES_CACHE_KEY);
+    return cached || ["All Services"];
+  });
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || "All Services");
   const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || "");
   const [city, setCity] = useState(searchParams.get('city') || "");
@@ -32,6 +69,9 @@ export default function Service() {
   const [districtSearch, setDistrictSearch] = useState("");
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
+  
+  // Refs for debouncing URL updates
+  const paramsUpdateTimeoutRef = useRef(null);
   
   const itemsPerPage = 12;
   const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/';
@@ -74,57 +114,59 @@ export default function Service() {
     setSearchParams(new URLSearchParams()); // Clear URL params
   };
 
-  // Helper to update URL search params
-  const updateSearchParams = (params) => {
-    const newParams = new URLSearchParams(searchParams);
-    Object.entries(params).forEach(([key, value]) => {
-      if (value === null || value === "" || value === "All Services") {
-        newParams.delete(key);
-      } else {
-        newParams.set(key, value);
-      }
+  // Batched URL params update with debouncing
+  const updateSearchParams = useCallback((params) => {
+    if (paramsUpdateTimeoutRef.current) {
+      clearTimeout(paramsUpdateTimeoutRef.current);
+    }
+    
+    paramsUpdateTimeoutRef.current = setTimeout(() => {
+      const newParams = new URLSearchParams(searchParams);
+      Object.entries(params).forEach(([key, value]) => {
+        if (value === null || value === "" || value === "All Services") {
+          newParams.delete(key);
+        } else {
+          newParams.set(key, value);
+        }
+      });
+      setSearchParams(newParams);
+    }, 300); // Debounce by 300ms
+  }, [searchParams, setSearchParams]);
+
+  // Sync all filters to URL (batch updates)
+  useEffect(() => {
+    updateSearchParams({ 
+      category: selectedCategory,
+      q: searchTerm,
+      city,
+      district,
+      sort: sortBy,
+      topRated: topRated ? 'true' : null
     });
-    setSearchParams(newParams);
-  };
-
-  // Sync each filter to URL
-  useEffect(() => {
-    updateSearchParams({ category: selectedCategory });
-  }, [selectedCategory]);
-
-  useEffect(() => {
-    updateSearchParams({ q: searchTerm });
-  }, [searchTerm]);
-
-  useEffect(() => {
-    updateSearchParams({ city });
-  }, [city]);
-
-  useEffect(() => {
-    updateSearchParams({ district });
-  }, [district]);
-
-  useEffect(() => {
-    updateSearchParams({ sort: sortBy });
-  }, [sortBy]);
-
-  useEffect(() => {
-    updateSearchParams({ topRated: topRated ? 'true' : null });
-  }, [topRated]);
+  }, [selectedCategory, searchTerm, city, district, sortBy, topRated, updateSearchParams]);
 
   // Fetch providers on component mount
   useEffect(() => {
     fetchProviders(buildFilters(), 1, false);
   }, []);
 
-  // Fetch categories (specialities) from backend
+  // Fetch categories (specialities) from backend or cache
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
+        // Check cache first
+        const cached = getCachedData(CATEGORIES_CACHE_KEY);
+        if (cached && Array.isArray(cached)) {
+          setCategories(cached);
+          if (mounted) return;
+        }
+        
         const list = await specialitiesService.getSpecialities();
         if (mounted && Array.isArray(list)) {
-          setCategories(["All Services", ...list.map(s => s.name)]);
+          const categoryList = ["All Services", ...list.map(s => s.name)];
+          setCategories(categoryList);
+          setCachedData(CATEGORIES_CACHE_KEY, categoryList);
         }
       } catch (e) {
         console.error("Failed to load categories", e);
@@ -133,11 +175,19 @@ export default function Service() {
     return () => { mounted = false; };
   }, []);
 
-  // Fetch locations from backend
+  // Fetch locations from backend or cache
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
+        // Check cache first
+        const cached = getCachedData(LOCATIONS_CACHE_KEY);
+        if (cached && cached.cities && cached.districts) {
+          setAvailableCities(cached.cities);
+          setAvailableDistricts(cached.districts);
+          if (mounted) return;
+        }
+        
         const data = await locationsService.getLocations();
         if (mounted) {
           const dynamicCities = data.cities || [];
@@ -159,6 +209,10 @@ export default function Service() {
           });
           setAvailableCities(mergedCities);
           setAvailableDistricts(mergedDistricts);
+          setCachedData(LOCATIONS_CACHE_KEY, {
+            cities: mergedCities,
+            districts: mergedDistricts
+          });
         }
       } catch (e) {
         console.error("Failed to load locations", e);
@@ -250,13 +304,15 @@ export default function Service() {
   }, [selectedCategory, searchTerm, city, district, topRated]);
 
   // Server-side filtering already applied; keep light client filters for safety
+  const selectedCategoryLower = selectedCategory.toLowerCase();
+  const term = searchTerm.toLowerCase();
+
   let filteredProviders = providers.filter((provider) => {
     const matchesCategory =
-      selectedCategory === "All Services" || 
-      provider.specialties.some(spec => 
-        spec.toLowerCase().includes(selectedCategory.toLowerCase())
-      );
-    const term = searchTerm.toLowerCase();
+      selectedCategory === "All Services" ||
+      provider.specialties.some(spec => spec.toLowerCase().includes(selectedCategoryLower)) ||
+      provider.primarySpecialization?.toLowerCase().includes(selectedCategoryLower) ||
+      provider.serviceCategory?.toLowerCase().includes(selectedCategoryLower);
     const matchesSearch =
       provider.name.toLowerCase().includes(term) ||
       provider.profession.toLowerCase().includes(term) ||

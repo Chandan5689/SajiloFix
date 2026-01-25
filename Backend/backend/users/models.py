@@ -33,6 +33,11 @@ class User(AbstractUser):
             "Examples: 9812345678, 9712345678, +9779812345678"
         )
     )
+    # Citizenship number validator for exactly 11 digits
+    citizenship_regex = RegexValidator(
+        regex=r'^\d{11}$',
+        message="Citizenship number must be exactly 11 digits"
+    )
     # Basic Info
     email = models.EmailField(unique=True)
     phone_number = models.CharField(
@@ -48,8 +53,15 @@ class User(AbstractUser):
     # Middle name (optional)
     middle_name = models.CharField(max_length=150, blank=True, null=True)
 
-    #Clerk Integration
-    clerk_user_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
+    # Authentication IDs
+    supabase_uid = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="Supabase user UUID (from JWT sub claim)"
+    )
+    clerk_user_id = models.CharField(max_length=255, blank=True, null=True, unique=True, help_text="Deprecated: Clerk integration ID")
     phone_verified = models.BooleanField(default=False)
     firebase_phone_uid = models.CharField(max_length=255, blank=True, null=True)
     registration_completed = models.BooleanField(default=False, help_text="Set to True only after phone verification is complete")
@@ -99,10 +111,11 @@ class User(AbstractUser):
         help_text="Back side of citizenship or national ID card"
     )
     citizenship_number = models.CharField(
-        max_length=50,
+        max_length=11,
         blank=True,
         null=True,
-        help_text="Citizenship or national ID number"
+        validators=[citizenship_regex],
+        help_text="Citizenship or national ID number (11 digits)"
     )
     citizenship_verified = models.BooleanField(default=False)
     

@@ -1,5 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import RatingBadge from "../../components/RatingBadge";
@@ -7,6 +9,12 @@ import BookingConflictWarning from "../../components/BookingConflictWarning";
 import { useUserProfile } from "../../context/UserProfileContext";
 import api from "../../api/axios";
 import bookingsService from "../../services/bookingsService";
+import { 
+  bookingStep1Schema, 
+  bookingStep2Schema, 
+  bookingStep3Schema, 
+  bookingStep4Schema 
+} from "../../validations/userSchemas";
 
 const getNepalNowParts = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -45,31 +53,21 @@ const isPastNepalDateTime = (dateStr, timeStr, nepalNow) => {
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { userProfile } = useUserProfile();
+  const { userProfile, loading: profileLoading, registrationStatus } = useUserProfile();
 
-  // State variables
+  // State variables - MUST BE BEFORE any conditional returns
   const [provider, setProvider] = useState(null);
   const [loading, setLoading] = useState(true); // initial page load for provider details
   const [error, setError] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
-  const [selectedServiceIds, setSelectedServiceIds] = useState([]);
-  const [preferredDate, setPreferredDate] = useState('');
-  const [preferredTime, setPreferredTime] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [address, setAddress] = useState('');
-  const [serviceCity, setServiceCity] = useState('');
-  const [serviceDistrict, setServiceDistrict] = useState('');
+  // Form fields now managed by React Hook Form (selectedServiceIds, preferredDate, preferredTime, 
+  // fullName, phone, email, address, serviceCity, serviceDistrict, description, specialInstructions, 
+  // imageDescription, isEmergency, selectedFiles)
   const [serviceLat, setServiceLat] = useState(null);
   const [serviceLng, setServiceLng] = useState(null);
-  const [description, setDescription] = useState('');
-  const [specialInstructions, setSpecialInstructions] = useState('');
-  const [imageDescription, setImageDescription] = useState('');
-  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]); // Keep for preview management
   const [previewUrls, setPreviewUrls] = useState([]);
   const [uploadError, setUploadError] = useState('');
-  const [isEmergency, setIsEmergency] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [providerAvailability, setProviderAvailability] = useState(null);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
@@ -88,24 +86,71 @@ export default function BookingPage() {
   const [addressDropdownOpen, setAddressDropdownOpen] = useState(false);
   const [selectedLocationName, setSelectedLocationName] = useState(''); // Store human-readable address from reverse geocode
   const [prefilledFromProfile, setPrefilledFromProfile] = useState(false);
-  const toggleServiceSelection = (serviceId) => {
-    setSelectedServiceIds((prev) => {
-      const idStr = String(serviceId);
-      return prev.includes(idStr)
-        ? prev.filter((id) => id !== idStr)
-        : [...prev, idStr];
-    });
-  };
-  const mapContainerRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const serviceMarkerRef = useRef(null);
-  const serviceRadiusCircleRef = useRef(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdBooking, setCreatedBooking] = useState(null);
   const [conflictData, setConflictData] = useState(null);
   const [checkingConflict, setCheckingConflict] = useState(false);
   const [nepalNow, setNepalNow] = useState(getNepalNowParts());
   const minDate = nepalNow.date;
+
+  // React Hook Form setup with dynamic schema based on current step
+  const getSchemaForStep = (step) => {
+    switch(step) {
+      case 1: return bookingStep1Schema;
+      case 2: return bookingStep2Schema;
+      case 3: return bookingStep3Schema;
+      case 4: return bookingStep4Schema;
+      default: return bookingStep1Schema;
+    }
+  };
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    watch,
+    setValue,
+    reset,
+    clearErrors,
+  } = useForm({
+    resolver: yupResolver(getSchemaForStep(currentStep)),
+    defaultValues: {
+      selectedServiceIds: [],
+      preferredDate: '',
+      preferredTime: '',
+      fullName: '',
+      phone: '',
+      email: '',
+      address: '',
+      serviceCity: '',
+      serviceDistrict: '',
+      selectedLocationName: '',
+      description: '',
+      specialInstructions: '',
+      imageDescription: '',
+      isEmergency: false,
+      selectedFiles: [],
+    },
+    mode: 'onBlur',
+  });
+
+  const watchedFields = watch();
+
+  // Refs - MUST BE BEFORE any conditional returns
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const serviceMarkerRef = useRef(null);
+  const serviceRadiusCircleRef = useRef(null);
+
+  const toggleServiceSelection = (serviceId) => {
+    const currentIds = watchedFields.selectedServiceIds || [];
+    const idStr = String(serviceId);
+    const updated = currentIds.includes(idStr)
+      ? currentIds.filter((id) => id !== idStr)
+      : [...currentIds, idStr];
+    setValue('selectedServiceIds', updated, { shouldValidate: true });
+    clearErrors('selectedServiceIds');
+  };
 
   // Fetch provider details + availability (once per provider)
   useEffect(() => {
@@ -125,8 +170,8 @@ export default function BookingPage() {
         setProvider(providerData);
         setProviderLat(providerData.latitude);
         setProviderLng(providerData.longitude);
-        setServiceCity(providerData.city || '');
-        setServiceDistrict(providerData.district || '');
+        setValue('serviceCity', providerData.city || '');
+        setValue('serviceDistrict', providerData.district || '');
         setProviderAvailability(availabilityRes.data || null);
       } catch (err) {
         if (!isMounted) return;
@@ -155,43 +200,48 @@ export default function BookingPage() {
   }, []);
 
   // Pre-fill contact and location fields from user profile (one-time, non-destructive)
+  // Uses location field as fallback if address is empty, ensuring all users get pre-filled
   useEffect(() => {
-    if (!userProfile || prefilledFromProfile) return;
+    // Only run when profile is done loading AND we have a profile AND haven't pre-filled yet
+    if (profileLoading || !userProfile || prefilledFromProfile) {
+      return;
+    }
 
     const derivedFullName = userProfile.full_name
       || [userProfile.first_name, userProfile.middle_name, userProfile.last_name].filter(Boolean).join(' ').trim();
     const derivedPhone = userProfile.phone || userProfile.phone_number;
     const derivedEmail = userProfile.email;
+    // Priority: use address field first, fallback to location field if address is empty
     const derivedAddress = userProfile.address || userProfile.location;
     const derivedCity = userProfile.city;
     const derivedDistrict = userProfile.district;
     const derivedLat = userProfile.latitude;
     const derivedLng = userProfile.longitude;
 
-    if (!fullName && derivedFullName) setFullName(derivedFullName);
-    if (!phone && derivedPhone) setPhone(derivedPhone);
-    if (!email && derivedEmail) setEmail(derivedEmail);
-    if (!address && derivedAddress) setAddress(derivedAddress);
-    if (!serviceCity && derivedCity) setServiceCity(derivedCity);
-    if (!serviceDistrict && derivedDistrict) setServiceDistrict(derivedDistrict);
+    if (!watchedFields.fullName && derivedFullName) setValue('fullName', derivedFullName);
+    if (!watchedFields.phone && derivedPhone) setValue('phone', derivedPhone);
+    if (!watchedFields.email && derivedEmail) setValue('email', derivedEmail);
+    if (!watchedFields.address && derivedAddress) setValue('address', derivedAddress);
+    if (!watchedFields.serviceCity && derivedCity) setValue('serviceCity', derivedCity);
+    if (!watchedFields.serviceDistrict && derivedDistrict) setValue('serviceDistrict', derivedDistrict);
     if (serviceLat === null && derivedLat != null) setServiceLat(derivedLat);
     if (serviceLng === null && derivedLng != null) setServiceLng(derivedLng);
-    if (!selectedLocationName && derivedAddress) setSelectedLocationName(derivedAddress);
+    if (!watchedFields.selectedLocationName && derivedAddress) setValue('selectedLocationName', derivedAddress);
 
     setPrefilledFromProfile(true);
-  }, [userProfile, prefilledFromProfile, fullName, phone, email, address, serviceCity, serviceDistrict, serviceLat, serviceLng, selectedLocationName]);
+  }, [userProfile, profileLoading, prefilledFromProfile, watchedFields, setValue]);
 
   // Fetch booked slots when date changes (non-blocking for whole page)
   useEffect(() => {
     let isMounted = true;
     const fetchBookedSlots = async () => {
-      if (!preferredDate) {
+      if (!watchedFields.preferredDate) {
         setBookedSlots([]);
         return;
       }
       try {
         setLoadingAvailability(true);
-        const res = await api.get(`/bookings/providers/${id}/booked-slots/`, { params: { date: preferredDate } });
+        const res = await api.get(`/bookings/providers/${id}/booked-slots/`, { params: { date: watchedFields.preferredDate } });
         if (isMounted) {
           setBookedSlots(res.data?.booked_slots || []);
         }
@@ -207,13 +257,13 @@ export default function BookingPage() {
 
     fetchBookedSlots();
     return () => { isMounted = false; };
-  }, [id, preferredDate]);
+  }, [id, watchedFields.preferredDate]);
 
   // Check for booking conflicts when date or time changes
   useEffect(() => {
     let isMounted = true;
     const checkConflicts = async () => {
-      if (!provider || !preferredDate) {
+      if (!provider || !watchedFields.preferredDate) {
         setConflictData(null);
         return;
       }
@@ -222,9 +272,9 @@ export default function BookingPage() {
         setCheckingConflict(true);
         const result = await bookingsService.checkBookingConflict(
           provider.id,
-          preferredDate,
-          preferredTime || null,
-          selectedServiceIds[0] || null
+          watchedFields.preferredDate,
+          watchedFields.preferredTime || null,
+          watchedFields.selectedServiceIds?.[0] || null
         );
         
         if (isMounted) {
@@ -243,7 +293,7 @@ export default function BookingPage() {
 
     checkConflicts();
     return () => { isMounted = false; };
-  }, [provider, preferredDate, preferredTime, selectedServiceIds]);
+  }, [provider, watchedFields.preferredDate, watchedFields.preferredTime, watchedFields.selectedServiceIds]);
 
   // Generate hourly time slots (8 AM to 5 PM) with 24h value for backend
   const generateTimeSlots = () => {
@@ -339,7 +389,7 @@ export default function BookingPage() {
     setServiceLng(lng);
     if (label) {
       setSelectedLocationName(label);
-      setAddress(label);
+      setValue('address', label);
     }
     setAddressDropdownOpen(false);
     setAddressSuggestions([]);
@@ -360,7 +410,7 @@ export default function BookingPage() {
     try {
       setMapSearchLoading(true);
       setMapSearchError(null);
-      const contextualQuery = [mapSearchQuery, serviceCity, serviceDistrict, 'Nepal']
+      const contextualQuery = [mapSearchQuery, watchedFields.serviceCity, watchedFields.serviceDistrict, 'Nepal']
         .filter(Boolean)
         .join(', ');
       const coords = await geocodeAddress(contextualQuery);
@@ -387,7 +437,7 @@ export default function BookingPage() {
 
   // Debounced address suggestions as user types in the service address field
   useEffect(() => {
-    const query = address?.trim();
+    const query = watchedFields.address?.trim();
     if (!query || query.length < 3) {
       setAddressSuggestions([]);
       setAddressSuggestError(null);
@@ -417,25 +467,25 @@ export default function BookingPage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [address]);
+  }, [watchedFields.address]);
 
   const validateStep = (step) => {
     // Clear previous error
     setError(null);
     if (step === 1) {
-      if (!selectedServiceIds.length) {
+      if (!watchedFields.selectedServiceIds?.length) {
         setError("Please select at least one service");
         return false;
       }
-      if (!preferredDate || !preferredTime) {
+      if (!watchedFields.preferredDate || !watchedFields.preferredTime) {
         setError("Please select preferred date and time");
         return false;
       }
-      if (preferredDate < minDate) {
+      if (watchedFields.preferredDate < minDate) {
         setError("Please select today or a future date (Nepal time)");
         return false;
       }
-      const dayCheck = isProviderAvailableOnDay(preferredDate);
+      const dayCheck = isProviderAvailableOnDay(watchedFields.preferredDate);
       if (!dayCheck.available) {
         setError(dayCheck.message);
         return false;
@@ -444,24 +494,24 @@ export default function BookingPage() {
     }
 
     if (step === 2) {
-      if (!fullName.trim()) {
+      if (!watchedFields.fullName?.trim()) {
         setError("Please enter full name");
         return false;
       }
       const phoneRegex = /^(97|98)\d{8}$/;
-      if (!phoneRegex.test(phone)) {
+      if (!phoneRegex.test(watchedFields.phone)) {
         setError("Enter a valid Nepal mobile number (e.g., 9812345678)");
         return false;
       }
-      if (!email.trim()) {
+      if (!watchedFields.email?.trim()) {
         setError("Please enter email");
         return false;
       }
-      if (!address || address.trim().length < 5) {
+      if (!watchedFields.address || watchedFields.address.trim().length < 5) {
         setError("Please enter a valid service address");
         return false;
       }
-      if (!serviceCity.trim()) {
+      if (!watchedFields.serviceCity?.trim()) {
         setError("Please enter service city");
         return false;
       }
@@ -478,7 +528,7 @@ export default function BookingPage() {
     }
 
     if (step === 3) {
-      if (!description.trim()) {
+      if (!watchedFields.description?.trim()) {
         setError("Please describe the service you need");
         return false;
       }
@@ -488,33 +538,79 @@ export default function BookingPage() {
     return true;
   };
 
-  const handleStepSubmit = async (e) => {
-    e.preventDefault();
-    if (currentStep < 4) {
-      if (!validateStep(currentStep)) return;
-      setCurrentStep((prev) => prev + 1);
-      return;
+  const onStepSubmit = async (data) => {
+    // Additional custom validations that Yup can't handle
+    if (currentStep === 1) {
+      if (!data.selectedServiceIds || data.selectedServiceIds.length === 0) {
+        setError('Please select at least one service');
+        return;
+      }
     }
-    // Final submit
-    await submitBooking();
+
+    if (currentStep === 2) {
+      if (!data.preferredDate || !data.preferredTime) {
+        setError('Please select preferred date and time');
+        return;
+      }
+      if (isPastNepalDateTime(data.preferredDate, data.preferredTime, nepalNow)) {
+        setError(`Selected time is in the past for Nepal time (${nepalNow.time}). Please pick a future slot.`);
+        return;
+      }
+      const selectedDate = new Date(data.preferredDate);
+      const day = selectedDate.getDay();
+      if (Number.isNaN(day) || selectedDate < new Date(minDate)) {
+        setError('Please pick a valid future date');
+        return;
+      }
+      const dayCheck = isProviderAvailableOnDay(data.preferredDate);
+      if (!dayCheck.available) {
+        setError(dayCheck.message);
+        return;
+      }
+    }
+
+    if (currentStep === 3) {
+      // Map location validation
+      if (selectedServices.some((s) => s.service_radius) && (serviceLat == null || serviceLng == null)) {
+        setError('Please locate the service address on the map to continue');
+        return;
+      }
+      const radiusExceeded = selectedServices.some((s) => s.service_radius && distanceKm != null && distanceKm > s.service_radius);
+      if (radiusExceeded) {
+        setError('Selected location is outside the provider\'s service radius for one or more services');
+        return;
+      }
+    }
+
+    setError(null);
+
+    // Move to next step or submit
+    if (currentStep < 4) {
+      setCurrentStep((prev) => prev + 1);
+    } else {
+      // Final submission
+      await submitBooking(data);
+    }
   };
+
+  const handleStepSubmit = handleSubmit(onStepSubmit);
 
   // Clear inline errors when the user edits fields
   useEffect(() => {
     setError(null);
   }, [
-    selectedServiceIds,
-    preferredDate,
-    preferredTime,
-    fullName,
-    phone,
-    email,
-    address,
-    serviceCity,
-    serviceDistrict,
-    description,
-    specialInstructions,
-    isEmergency
+    watchedFields.selectedServiceIds,
+    watchedFields.preferredDate,
+    watchedFields.preferredTime,
+    watchedFields.fullName,
+    watchedFields.phone,
+    watchedFields.email,
+    watchedFields.address,
+    watchedFields.serviceCity,
+    watchedFields.serviceDistrict,
+    watchedFields.description,
+    watchedFields.specialInstructions,
+    watchedFields.isEmergency
   ]);
 
   // Compute distance when coords available
@@ -553,10 +649,10 @@ export default function BookingPage() {
       // Reverse geocode to get address name
       const addressName = await reverseGeocodeLocation(lat, lng);
       if (addressName) {
-        setSelectedLocationName(addressName);
+        setValue('selectedLocationName', addressName);
         // Only update address field if it's empty or user hasn't manually edited it
-        if (!address || address.trim() === '') {
-          setAddress(addressName);
+        if (!watchedFields.address || watchedFields.address.trim() === '') {
+          setValue('address', addressName);
         }
       }
     };
@@ -607,7 +703,7 @@ export default function BookingPage() {
   const providerSpecialties = provider?.specializations?.length > 0 
     ? provider.specializations.join(', ')
     : 'Service Provider';
-  const selectedServices = providerServices.filter((s) => selectedServiceIds.includes(String(s.id)));
+  const selectedServices = providerServices.filter((s) => (watchedFields.selectedServiceIds || []).includes(String(s.id)));
   const primaryService = selectedServices[0] || null;
   const getServiceDurationHours = (service) => {
     if (!service) return 0;
@@ -710,14 +806,14 @@ export default function BookingPage() {
 
   // Check if a time slot is available based on provider schedule and booked slots (single-slot check)
   const isSlotAvailable = (slotValue) => {
-    if (isPastNepalDateTime(preferredDate, slotValue, nepalNow)) {
+    if (isPastNepalDateTime(watchedFields.preferredDate, slotValue, nepalNow)) {
       return false;
     }
 
-    if (!preferredDate || !providerAvailability) return true; // Default to available
+    if (!watchedFields.preferredDate || !providerAvailability) return true; // Default to available
     
     // Get day of week for selected date
-    const dayName = getDayName(preferredDate);
+    const dayName = getDayName(watchedFields.preferredDate);
     
     // Find day schedule
     const daySchedule = providerAvailability.weekly_schedule?.find(d => d.day === dayName);
@@ -776,19 +872,19 @@ export default function BookingPage() {
 
   // Handle selecting an alternative time slot
   const handleSelectAlternativeTime = (time) => {
-    setPreferredTime(time);
+    setValue('preferredTime', time);
     setError(null);
   };
 
   // Handle selecting an alternative date
   const handleSelectAlternativeDate = (date) => {
-    setPreferredDate(date);
-    setPreferredTime(''); // Reset time when date changes
+    setValue('preferredDate', date);
+    setValue('preferredTime', ''); // Reset time when date changes
     setError(null);
   };
 
   const allTimeSlots = generateTimeSlots();
-  const dayAvailability = isProviderAvailableOnDay(preferredDate);
+  const dayAvailability = isProviderAvailableOnDay(watchedFields.preferredDate);
   const timeSlots = allTimeSlots.map(slot => ({
     ...slot,
     available: isSlotAvailable(slot.value),
@@ -796,15 +892,15 @@ export default function BookingPage() {
   }));
   const availableSlotsCount = timeSlots.filter((s) => s.available).length;
 
-  const preferredTimeLabel = preferredTime
-    ? (timeSlots.find((t) => t.value === preferredTime)?.label || preferredTime)
+  const preferredTimeLabel = watchedFields.preferredTime
+    ? (timeSlots.find((t) => t.value === watchedFields.preferredTime)?.label || watchedFields.preferredTime)
     : "";
 
-  const isPastNepalSlot = isPastNepalDateTime(preferredDate, preferredTime, nepalNow);
+  const isPastNepalSlot = isPastNepalDateTime(watchedFields.preferredDate, watchedFields.preferredTime, nepalNow);
 
   const dateTimeSummary =
-    preferredDate && preferredTime
-      ? `${preferredDate} at ${preferredTimeLabel}`
+    watchedFields.preferredDate && watchedFields.preferredTime
+      ? `${watchedFields.preferredDate} at ${preferredTimeLabel}`
       : "Not selected";
 
   // Booking summary math for multi-service
@@ -812,7 +908,7 @@ export default function BookingPage() {
   const vatRate = 0.13;
   const vatAmount = null; // kept null for display (future use)
   const totalAmount = effectiveBase;
-  const appointmentDateLabel = preferredDate || '—';
+  const appointmentDateLabel = watchedFields.preferredDate || '—';
   const appointmentTimeLabel = preferredTimeLabel || '—';
   const totalEstimatedDuration = selectedServices.reduce((sum, s) => {
     const baseDuration = getServiceDurationHours(s);
@@ -827,65 +923,24 @@ export default function BookingPage() {
     : providerSpecialties;
   const formatNpr = (val) => (val != null ? `NPR ${Number(val).toLocaleString('en-US')}` : '—');
 
-  const submitBooking = async () => {
+  const submitBooking = async (data) => {
     if (!selectedServices.length) {
       setError("Please select at least one service");
       return;
     }
 
-    if (!description.trim()) {
+    if (!data.description || !data.description.trim()) {
       setError("Please describe the service you need");
       return;
     }
 
-    if (!address || address.trim().length < 5) {
+    if (!data.address || data.address.trim().length < 5) {
       setError("Please enter a valid service address");
       return;
     }
 
-    if (!serviceCity.trim()) {
+    if (!data.serviceCity || !data.serviceCity.trim()) {
       setError("Please enter service city");
-      return;
-    }
-
-    const phoneRegex = /^(97|98)\d{8}$/;
-    if (!phoneRegex.test(phone)) {
-      setError("Enter a valid Nepal mobile number (e.g., 9812345678)");
-      return;
-    }
-
-    if (!preferredDate || !preferredTime) {
-      setError("Please select preferred date and time");
-      return;
-    }
-
-    if (isPastNepalDateTime(preferredDate, preferredTime, nepalNow)) {
-      setError(`Selected time is in the past for Nepal time (${nepalNow.time}). Please pick a future slot.`);
-      return;
-    }
-
-    // Validate location when service radius is defined
-    if (selectedServices.some((s) => s.service_radius) && (serviceLat == null || serviceLng == null)) {
-      setError("Please locate the service address on the map to continue");
-      return;
-    }
-    const radiusExceeded = selectedServices.some((s) => s.service_radius && distanceKm != null && distanceKm > s.service_radius);
-    if (radiusExceeded) {
-      setError("Selected location is outside the provider's service radius for one or more services");
-      return;
-    }
-
-    const selectedDate = new Date(preferredDate);
-    const day = selectedDate.getDay(); // 0=Sun
-    if (Number.isNaN(day) || selectedDate < new Date(minDate)) {
-      setError("Please pick a valid future date");
-      return;
-    }
-
-    // Check if provider is available on selected day
-    const dayCheck = isProviderAvailableOnDay(preferredDate);
-    if (!dayCheck.available) {
-      setError(dayCheck.message);
       return;
     }
 
@@ -894,29 +949,29 @@ export default function BookingPage() {
       setError(null);
 
       const payload = {
-        service: Number(selectedServiceIds[0]),
-        services: selectedServiceIds.map((id) => Number(id)),
-        preferred_date: preferredDate,
-        preferred_time: preferredTime, // already HH:MM:SS
-        service_address: address,
-        service_city: serviceCity || provider?.city || "",
-        service_district: serviceDistrict || provider?.district || "",
-        description: description || "",
-        special_instructions: specialInstructions.trim() || "",
-        customer_phone: phone,
-        customer_name: fullName,
+        service: Number((watchedFields.selectedServiceIds || [])[0]),
+        services: (watchedFields.selectedServiceIds || []).map((id) => Number(id)),
+        preferred_date: data.preferredDate,
+        preferred_time: data.preferredTime,
+        service_address: data.address,
+        service_city: data.serviceCity || provider?.city || "",
+        service_district: data.serviceDistrict || provider?.district || "",
+        description: data.description || "",
+        special_instructions: (data.specialInstructions || "").trim() || "",
+        customer_phone: data.phone,
+        customer_name: data.fullName,
         latitude: serviceLat,
         longitude: serviceLng,
-        is_emergency: isEmergency,
+        is_emergency: data.isEmergency,
       };
 
       const created = await bookingsService.createBooking(payload);
 
       // Optional: upload before-service images if provided
-      if (created?.id && selectedFiles.length > 0) {
+      if (created?.id && data.selectedFiles && data.selectedFiles.length > 0) {
         try {
           setUploadError(null);
-          await bookingsService.uploadBookingImages(created.id, 'before', selectedFiles, imageDescription);
+          await bookingsService.uploadBookingImages(created.id, 'before', data.selectedFiles, data.imageDescription);
         } catch (uploadErr) {
           console.error('Image upload failed', uploadErr);
           setUploadError(uploadErr?.error || uploadErr?.message || 'Image upload failed');
@@ -1000,7 +1055,7 @@ export default function BookingPage() {
                     const serviceSpecialization = srv.specialization_name || srv.specialization?.name || provider.specializations?.[0] || 'Service';
                     const priceDisplay = srv.base_price ? `NPR ${srv.base_price}` : 'Contact for price';
                     const priceTypeLabel = srv.price_type === 'hourly' ? '/hour' : 'fixed';
-                    const checked = selectedServiceIds.includes(String(srv.id));
+                    const checked = watchedFields.selectedServiceIds?.includes(String(srv.id));
                     return (
                       <label
                         key={srv.id}
@@ -1173,8 +1228,7 @@ export default function BookingPage() {
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={isEmergency}
-                    onChange={(e) => setIsEmergency(e.target.checked)}
+                    {...register('isEmergency')}
                     className="mt-1 w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
                   />
                   <div className="flex-1">
@@ -1185,7 +1239,7 @@ export default function BookingPage() {
                         ? 'This provider accepts emergency bookings.'
                         : 'Note: This provider may not accept emergency requests.'}
                     </p>
-                    {isEmergency && !provider?.emergency_availability && (
+                    {watchedFields.isEmergency && !provider?.emergency_availability && (
                       <p className="text-xs text-orange-700 font-medium mt-2">
                         ⚠️ Provider emergency availability not confirmed. They may decline or charge extra.
                       </p>
@@ -1198,28 +1252,27 @@ export default function BookingPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="preferredDate" className="block font-medium mb-1">
-                    Preferred Date *
+                    Preferred Date * {errors.preferredDate && <span className="text-red-500 text-sm">({errors.preferredDate.message})</span>}
                   </label>
                   <input
                     id="preferredDate"
                     type="date"
                     required
                     min={minDate}
-                    className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                    value={preferredDate}
-                    onChange={(e) => setPreferredDate(e.target.value)}
+                    {...register('preferredDate')}
+                    className={`w-full border ${errors.preferredDate ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                   />
-                  {preferredDate && !dayAvailability.available && (
+                  {watchedFields.preferredDate && !dayAvailability.available && (
                     <p className="text-xs text-red-600 mt-1 font-medium">
                       ✗ {dayAvailability.message}
                     </p>
                   )}
-                  {preferredDate && dayAvailability.available && timeSlots.filter(s => s.available).length > 0 && (
+                  {watchedFields.preferredDate && dayAvailability.available && timeSlots.filter(s => s.available).length > 0 && (
                     <p className="text-xs text-green-600 mt-1">
                       ✓ {timeSlots.filter(s => s.available).length} slot(s) available
                     </p>
                   )}
-                  {preferredDate && dayAvailability.available && timeSlots.filter(s => s.available).length === 0 && (
+                  {watchedFields.preferredDate && dayAvailability.available && timeSlots.filter(s => s.available).length === 0 && (
                     <p className="text-xs text-orange-600 mt-1">
                       ⚠ All time slots are booked for this date
                     </p>
@@ -1227,7 +1280,7 @@ export default function BookingPage() {
                 </div>
                 <div>
                   <label htmlFor="preferredTime" className="block font-medium mb-1">
-                    Preferred Time *
+                    Preferred Time * {errors.preferredTime && <span className="text-red-500 text-sm">({errors.preferredTime.message})</span>}
                     {loadingAvailability && (
                       <span className="ml-2 text-xs text-gray-500">(checking availability...)</span>
                     )}
@@ -1237,11 +1290,10 @@ export default function BookingPage() {
                       id="preferredTime"
                       required
                       disabled={!dayAvailability.available || loadingAvailability}
-                      className={`w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                      {...register('preferredTime')}
+                      className={`w-full border ${errors.preferredTime ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
                         (!dayAvailability.available || loadingAvailability) ? 'bg-gray-100 cursor-not-allowed' : ''
                       }`}
-                      value={preferredTime}
-                      onChange={(e) => setPreferredTime(e.target.value)}
                     >
                       <option value="" disabled>
                         {!dayAvailability.available ? 'Provider not available this day' : 'Select time'}
@@ -1260,7 +1312,7 @@ export default function BookingPage() {
                         </option>
                       ))}
                     </select>
-                    {preferredDate && timeSlots.filter(s => s.available).length === 0 && dayAvailability.available && (
+                    {watchedFields.preferredDate && timeSlots.filter(s => s.available).length === 0 && dayAvailability.available && (
                       <p className="text-xs text-red-600 mt-1">
                         No available time slots for this date. Provider may be fully booked or not working this day.
                       </p>
@@ -1269,7 +1321,7 @@ export default function BookingPage() {
               </div>
 
               {/* Booking Conflict Detection Warning */}
-              {preferredDate && preferredTime && availableSlotsCount > 0 && (
+              {watchedFields.preferredDate && watchedFields.preferredTime && availableSlotsCount > 0 && (
                 <BookingConflictWarning
                   conflictData={conflictData}
                   onSelectAlternativeTime={handleSelectAlternativeTime}
@@ -1301,55 +1353,66 @@ export default function BookingPage() {
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="fullName" className="block font-medium mb-1">
-                      Full Name *
+                      Full Name * {errors.fullName && <span className="text-red-500 text-sm">({errors.fullName.message})</span>}
                     </label>
                     <input
                       id="fullName"
                       type="text"
                       required
-                      className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
+                      {...register('fullName')}
+                      className={`w-full border ${errors.fullName ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                     />
                   </div>
                   <div>
                     <label htmlFor="phone" className="block font-medium mb-1">
-                      Phone Number *
+                      Phone Number * {errors.phone && <span className="text-red-500 text-sm">({errors.phone.message})</span>}
                     </label>
-                    <input
-                      id="phone"
-                      type="tel"
-                      required
-                      className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                    />
+                    <div className="flex">
+                      <span className="inline-flex items-center px-4 bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-600 font-medium">
+                        +977
+                      </span>
+                      <input
+                        id="phone"
+                        type="tel"
+                        required
+                        {...register('phone', {
+                          onChange: (e) => {
+                            const value = e.target.value.replace(/\D/g, '');
+                            setValue('phone', value);
+                          }
+                        })}
+                        className={`flex-1 border ${errors.phone ? 'border-red-500' : 'border-gray-300'} rounded-r-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
+                        placeholder="9812345678"
+                        maxLength="10"
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Enter 10 digits starting with 97 or 98
+                    </p>
                   </div>
                   <div>
                     <label htmlFor="email" className="block font-medium mb-1">
-                      Email Address *
+                      Email Address * {errors.email && <span className="text-red-500 text-sm">({errors.email.message})</span>}
                     </label>
                     <input
                       id="email"
                       type="email"
                       required
-                      className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      {...register('email')}
+                      className={`w-full border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                     />
                   </div>
                   <div className="relative">
                     <label htmlFor="address" className="block font-medium mb-1">
-                      Service Address *
+                      Service Address * {errors.address && <span className="text-red-500 text-sm">({errors.address.message})</span>}
                     </label>
                     <input
                       id="address"
                       type="text"
                       required
                       placeholder="Where should the service be performed"
-                      className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400"
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
+                      {...register('address')}
+                      className={`w-full border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400`}
                       onFocus={() => setAddressDropdownOpen(addressSuggestions.length > 0)}
                       onBlur={() => setTimeout(() => setAddressDropdownOpen(false), 150)}
                     />
@@ -1376,27 +1439,25 @@ export default function BookingPage() {
                   </div>
                   <div>
                     <label htmlFor="serviceCity" className="block font-medium mb-1">
-                      Service City *
+                      Service City * {errors.serviceCity && <span className="text-red-500 text-sm">({errors.serviceCity.message})</span>}
                     </label>
                     <input
                       id="serviceCity"
                       type="text"
                       required
-                      className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      value={serviceCity}
-                      onChange={(e) => setServiceCity(e.target.value)}
+                      {...register('serviceCity')}
+                      className={`w-full border ${errors.serviceCity ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                     />
                   </div>
                   <div>
                     <label htmlFor="serviceDistrict" className="block font-medium mb-1">
-                      Service District
+                      Service District {errors.serviceDistrict && <span className="text-red-500 text-sm">({errors.serviceDistrict.message})</span>}
                     </label>
                     <input
                       id="serviceDistrict"
                       type="text"
-                      className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      value={serviceDistrict}
-                      onChange={(e) => setServiceDistrict(e.target.value)}
+                      {...register('serviceDistrict')}
+                      className={`w-full border ${errors.serviceDistrict ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -1408,7 +1469,7 @@ export default function BookingPage() {
                           try {
                             setGeocodeLoading(true);
                             setGeocodeError(null);
-                            const query = [address, serviceCity, serviceDistrict, 'Nepal'].filter(Boolean).join(', ');
+                            const query = [watchedFields.address, watchedFields.serviceCity, watchedFields.serviceDistrict, 'Nepal'].filter(Boolean).join(', ');
                             const coords = await geocodeAddress(query);
                             if (!coords) {
                               setGeocodeError('Could not locate this address. Please refine the address.');
@@ -1416,7 +1477,7 @@ export default function BookingPage() {
                               setServiceLng(null);
                               return;
                             }
-                            applySelectedLocation(coords.lat, coords.lng, coords.display_name || address);
+                            applySelectedLocation(coords.lat, coords.lng, coords.display_name || watchedFields.address);
                           } catch (err) {
                             console.error('Geocode failed', err);
                             setGeocodeError('Failed to locate address');
@@ -1440,11 +1501,14 @@ export default function BookingPage() {
                           navigator.geolocation.getCurrentPosition(
                             (pos) => {
                               const { latitude, longitude } = pos.coords;
-                              applySelectedLocation(latitude, longitude, selectedLocationName || address);
+                              applySelectedLocation(latitude, longitude, selectedLocationName || watchedFields.address);
                               reverseGeocodeLocation(latitude, longitude).then((name) => {
                                 if (name) {
                                   setSelectedLocationName(name);
-                                  setAddress((prev) => (prev && prev.trim().length > 0 ? prev : name));
+                                  const currentAddress = watchedFields.address;
+                                  if (!currentAddress || currentAddress.trim().length === 0) {
+                                    setValue('address', name);
+                                  }
                                 }
                               });
                               setGeocodeLoading(false);
@@ -1482,8 +1546,8 @@ export default function BookingPage() {
                   {/* Service Location */}
                   <div className="bg-white border border-green-200 rounded p-3">
                     <p className="text-xs text-gray-600 font-semibold mb-1">SERVICE LOCATION</p>
-                    {selectedLocationName || address ? (
-                      <p className="text-sm font-semibold text-gray-900 mb-1">{selectedLocationName || address}</p>
+                    {selectedLocationName || watchedFields.address ? (
+                      <p className="text-sm font-semibold text-gray-900 mb-1">{selectedLocationName || watchedFields.address}</p>
                     ) : (
                       <p className="text-sm text-gray-500 italic">Not selected</p>
                     )}
@@ -1586,26 +1650,25 @@ export default function BookingPage() {
               {/* Service Description */}
               <div>
                 <label htmlFor="description" className="block font-medium mb-1">
-                  Service Description <span className="text-red-500">*</span>
+                  Service Description <span className="text-red-500">*</span> {errors.description && <span className="text-red-500 text-sm">({errors.description.message})</span>}
                 </label>
                 <textarea
                   id="description"
                   rows={4}
                   maxLength={500}
                   placeholder="Please describe what you need help with... (e.g., 'Need to fix leaking kitchen sink' or 'Install new ceiling fan in bedroom')"
+                  {...register('description')}
                   className={`w-full border rounded-md px-4 py-2 focus:outline-none focus:ring-2 placeholder-gray-400 resize-none ${
-                    description.trim() ? 'border-gray-300 focus:ring-green-500' : 'border-red-300 focus:ring-red-500'
+                    errors.description ? 'border-red-500 focus:ring-red-500' : (watchedFields.description?.trim() ? 'border-gray-300 focus:ring-green-500' : 'border-red-300 focus:ring-red-500')
                   }`}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
                   required
                 />
                 <div className="flex justify-between items-center mt-1">
-                  <p className={`text-xs ${description.trim() ? 'text-green-600' : 'text-red-500'}`}>
-                    {description.trim() ? '✓ Description provided' : '⚠️ Required - Please describe your service needs'}
+                  <p className={`text-xs ${watchedFields.description?.trim() ? 'text-green-600' : 'text-red-500'}`}>
+                    {watchedFields.description?.trim() ? '✓ Description provided' : '⚠️ Required - Please describe your service needs'}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {description.length}/500 characters
+                    {(watchedFields.description || '').length}/500 characters
                   </p>
                 </div>
               </div>
@@ -1613,19 +1676,18 @@ export default function BookingPage() {
               {/* Special Instructions */}
               <div>
                 <label htmlFor="specialInstructions" className="block font-medium mb-1">
-                  Special Instructions <span className="text-gray-500 text-xs">(Optional)</span>
+                  Special Instructions <span className="text-gray-500 text-xs">(Optional)</span> {errors.specialInstructions && <span className="text-red-500 text-sm">({errors.specialInstructions.message})</span>}
                 </label>
                 <textarea
                   id="specialInstructions"
                   rows={3}
                   maxLength={300}
                   placeholder='e.g., "Call before arriving", "Park on street", "Gate code: 1234","House no: 194"'
-                  className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400 resize-none"
-                  value={specialInstructions}
-                  onChange={(e) => setSpecialInstructions(e.target.value)}
+                  {...register('specialInstructions')}
+                  className={`w-full border ${errors.specialInstructions ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400 resize-none`}
                 />
                 <p className="text-xs text-gray-500 text-right mt-1">
-                  {specialInstructions.length}/300 characters
+                  {(watchedFields.specialInstructions || '').length}/300 characters
                 </p>
               </div>
 
@@ -1695,6 +1757,7 @@ export default function BookingPage() {
                         // Append to existing files instead of replacing
                         const newFiles = [...selectedFiles, ...valid];
                         const newUrls = [...previewUrls, ...valid.map((f) => URL.createObjectURL(f))];
+                        setValue('selectedFiles', newFiles);
                         setSelectedFiles(newFiles);
                         setPreviewUrls(newUrls);
                       }}
@@ -1705,8 +1768,7 @@ export default function BookingPage() {
                   rows={2}
                   placeholder="Optional image description"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  value={imageDescription}
-                  onChange={(e) => setImageDescription(e.target.value)}
+                  {...register('imageDescription')}
                   disabled={submitLoading}
                 />
                 {previewUrls.length > 0 && (
@@ -1723,6 +1785,7 @@ export default function BookingPage() {
                           onClick={() => {
                             const nextFiles = selectedFiles.filter((_, i) => i !== idx);
                             const nextUrls = previewUrls.filter((_, i) => i !== idx);
+                            setValue('selectedFiles', nextFiles);
                             setSelectedFiles(nextFiles);
                             setPreviewUrls(nextUrls);
                             if (nextFiles.length === 0) setUploadError('');
@@ -1769,19 +1832,19 @@ export default function BookingPage() {
                 )}
                 <div className="flex justify-between"><span>Date &amp; Time:</span><span>{dateTimeSummary}</span></div>
                 <div className="flex justify-between"><span>Duration (provider est.):</span><span>{appointmentDuration}</span></div>
-                <div className="flex justify-between"><span>Location:</span><span>{address || '—'}</span></div>
-                <div className="flex justify-between"><span>City/District:</span><span>{serviceCity || '—'} {serviceDistrict ? `(${serviceDistrict})` : ''}</span></div>
-                <div className="flex justify-between"><span>Contact Name:</span><span>{fullName || '—'}</span></div>
-                <div className="flex justify-between"><span>Contact Phone:</span><span>{phone || '—'}</span></div>
+                <div className="flex justify-between"><span>Location:</span><span>{watchedFields.address || '—'}</span></div>
+                <div className="flex justify-between"><span>City/District:</span><span>{watchedFields.serviceCity || '—'} {watchedFields.serviceDistrict ? `(${watchedFields.serviceDistrict})` : ''}</span></div>
+                <div className="flex justify-between"><span>Contact Name:</span><span>{watchedFields.fullName || '—'}</span></div>
+                <div className="flex justify-between"><span>Contact Phone:</span><span>{watchedFields.phone || '—'}</span></div>
                 <div className="flex justify-between"><span>Rate:</span><span className="text-blue-600 font-semibold">{priceLabel}</span></div>
                 <div className="flex justify-between"><span>{anyHourly ? 'Estimated Total:' : 'Total:'}</span><span className="font-semibold text-gray-900">{selectedServices.length ? `NPR ${Number(estimatedTotal).toLocaleString('en-US')}${minimumChargeTotal > 0 && estimatedTotal < minimumChargeTotal ? ` (min NPR ${Number(minimumChargeTotal).toLocaleString('en-US')})` : ''}` : 'N/A'}</span></div>
-                {specialInstructions && (
-                  <div className="flex justify-between"><span>Instructions:</span><span className="text-right">{specialInstructions}</span></div>
+                {watchedFields.specialInstructions && (
+                  <div className="flex justify-between"><span>Instructions:</span><span className="text-right">{watchedFields.specialInstructions}</span></div>
                 )}
                 {previewUrls.length > 0 && (
                   <div className="flex justify-between"><span>Before photos:</span><span>{previewUrls.length} selected</span></div>
                 )}
-                {isEmergency && (
+                {watchedFields.isEmergency && (
                   <p className="text-xs text-orange-700 font-semibold">🚨 Marked as emergency request</p>
                 )}
                 <p className="text-xs text-gray-500">Final price may differ based on the provider's quote and on-site assessment.</p>
@@ -1940,7 +2003,7 @@ export default function BookingPage() {
                     <li>• The provider will review your request</li>
                     <li>• You'll receive a response within 24 hours</li>
                     <li>• You can track the status in "My Bookings"</li>
-                    {isEmergency && <li className="font-semibold">• ⚡ Emergency request - faster response expected</li>}
+                    {watchedFields.isEmergency && <li className="font-semibold">• ⚡ Emergency request - faster response expected</li>}
                   </ul>
                 </div>
               </div>

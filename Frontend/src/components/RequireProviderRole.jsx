@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useSupabaseAuth } from '../context/SupabaseAuthContext';
+import api from '../api/axios';
 import { UserProfileProvider } from '../context/UserProfileContext';
 
 /**
@@ -9,31 +10,28 @@ import { UserProfileProvider } from '../context/UserProfileContext';
  * Redirects 'find' users to /dashboard
  */
 function RequireProviderRole({ children }) {
-    const { isSignedIn, isLoaded } = useUser();
-    const { getToken } = useAuth();
+    const { isAuthenticated, loading, getToken } = useSupabaseAuth();
     const navigate = useNavigate();
     const [checking, setChecking] = useState(true);
     const [isProvider, setIsProvider] = useState(false);
 
     useEffect(() => {
         const checkUserType = async () => {
-            if (!isLoaded) return;
+            if (loading) return;
 
-            if (!isSignedIn) {
+            if (!isAuthenticated) {
                 navigate('/login');
                 return;
             }
 
             try {
                 const token = await getToken();
-                const response = await fetch('http://127.0.0.1:8000/api/auth/me/', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                    },
+                const response = await api.get('/auth/me/', {
+                    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
+                if (response.status === 200) {
+                    const data = response.data;
                     if (data.user_type === 'offer') {
                         setIsProvider(true);
                     } else {
@@ -54,9 +52,9 @@ function RequireProviderRole({ children }) {
         };
 
         checkUserType();
-    }, [isLoaded, isSignedIn, getToken, navigate]);
+    }, [loading, isAuthenticated, getToken, navigate]);
 
-    if (!isLoaded || checking) {
+    if (loading || checking) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="text-center">

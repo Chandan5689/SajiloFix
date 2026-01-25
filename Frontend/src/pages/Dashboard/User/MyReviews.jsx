@@ -149,6 +149,13 @@ export default function MyReviews() {
                 {rev.comment && (
                   <p className={`${bodyTextClass} ${isCompact ? "truncate" : ""} ${isCompact ? "mb-2" : "mb-4"}`}>{rev.comment}</p>
                 )}
+                {rev.provider_response && (
+                  <div className={`mt-3 ${isCompact ? "p-2" : "p-3"} bg-green-50 border border-green-200 rounded`}
+                  >
+                    <p className="text-sm font-semibold text-green-800 mb-1">Provider Response</p>
+                    <p className={`${bodyTextClass} text-green-900`}>{rev.provider_response}</p>
+                  </div>
+                )}
                 <div className={`flex items-center justify-between ${metaTextClass} text-gray-500`}>
                   <span>{rev.would_recommend ? "Recommended" : "Not recommended"}</span>
                   <span>

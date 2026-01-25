@@ -1,38 +1,75 @@
 import React, { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
 import StarRating from './StarRating';
 import { FaUser } from 'react-icons/fa';
+import ActionButton from '../../../../components/ActionButton';
 import bookingsService from '../../../../services/bookingsService';
+import { providerResponseSchema } from '../../../../validations/userSchemas';
 
-const ReviewList = ({ reviews, loading = false, totalCount = null }) => {
-    const [responding, setResponding] = useState({}); // { [id]: boolean }
-    const [responses, setResponses] = useState({});   // { [id]: string }
-    const [errors, setErrors] = useState({});         // { [id]: string }
+const ReviewResponseForm = ({ reviewId, onResponseSaved }) => {
+    const [serverError, setServerError] = useState(null);
 
-    const handleChange = (id, value) => {
-        setResponses(prev => ({ ...prev, [id]: value }));
-    };
+    const {
+        register,
+        handleSubmit,
+        reset,
+        formState: { errors, isSubmitting },
+    } = useForm({
+        resolver: yupResolver(providerResponseSchema),
+        defaultValues: { response: '' },
+        mode: 'onBlur',
+    });
 
-    const handleRespond = async (id) => {
-        setErrors(prev => ({ ...prev, [id]: null }));
-        setResponding(prev => ({ ...prev, [id]: true }));
+    const onSubmit = async (data) => {
+        setServerError(null);
         try {
-            const text = (responses[id] || '').trim();
-            if (!text) {
-                setErrors(prev => ({ ...prev, [id]: 'Response cannot be empty.' }));
-                return;
+            await bookingsService.respondToReview(reviewId, data.response.trim());
+            if (onResponseSaved) {
+                onResponseSaved(reviewId, data.response.trim());
             }
-            await bookingsService.respondToReview(id, text);
-            // Optimistically update local review provider_response
-            const idx = reviews.findIndex(r => r.id === id);
-            if (idx !== -1) {
-                reviews[idx].provider_response = text;
-            }
+            reset();
         } catch (err) {
-            setErrors(prev => ({ ...prev, [id]: err.error || err.message || 'Failed to respond' }));
-        } finally {
-            setResponding(prev => ({ ...prev, [id]: false }));
+            setServerError(err?.error || err?.message || 'Failed to submit response');
         }
     };
+
+    return (
+        <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-2">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Respond to this review</label>
+            <textarea
+                {...register('response')}
+                rows={3}
+                placeholder="Thank you for your feedback..."
+                className={`w-full p-2 border ${errors.response ? 'border-red-500' : 'border-gray-300'} rounded focus:outline-none focus:border-green-600`}
+                disabled={isSubmitting}
+            />
+            {errors.response && (
+                <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                    {errors.response.message}
+                </div>
+            )}
+            {serverError && (
+                <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                    {serverError}
+                </div>
+            )}
+            <div className="flex justify-end">
+                <ActionButton
+                    type="submit"
+                    label="Submit Response"
+                    loadingLabel="Submitting..."
+                    isLoading={isSubmitting}
+                    disabled={isSubmitting}
+                    variant="primary"
+                    size="sm"
+                />
+            </div>
+        </form>
+    );
+};
+
+const ReviewList = ({ reviews, loading = false, totalCount = null, onResponseSaved }) => {
 
     return (
         <div className="bg-white rounded-lg shadow-xl p-6">
@@ -87,31 +124,10 @@ const ReviewList = ({ reviews, loading = false, totalCount = null }) => {
                                     <p>{review.provider_response}</p>
                                 </div>
                             ) : (
-                                <div className="mt-4">
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Respond to this review</label>
-                                    <textarea
-                                        value={responses[review.id] || ''}
-                                        onChange={(e) => handleChange(review.id, e.target.value)}
-                                        rows={3}
-                                        placeholder="Thank you for your feedback..."
-                                        className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-green-600"
-                                    />
-                                    {errors[review.id] && (
-                                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                                            {errors[review.id]}
-                                        </div>
-                                    )}
-                                    <div className="mt-2 flex justify-end">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleRespond(review.id)}
-                                            disabled={!!responding[review.id]}
-                                            className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300"
-                                        >
-                                            {responding[review.id] ? 'Submitting...' : 'Submit Response'}
-                                        </button>
-                                    </div>
-                                </div>
+                                <ReviewResponseForm
+                                    reviewId={review.id}
+                                    onResponseSaved={onResponseSaved}
+                                />
                             )}
                         </div>
                         );

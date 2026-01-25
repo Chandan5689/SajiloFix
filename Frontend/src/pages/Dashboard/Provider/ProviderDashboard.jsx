@@ -60,7 +60,7 @@ export default function ProviderDashboard() {
       const specialization = userProfile?.user_specializations?.map(s => s.specialization?.name).join(", ")
         || 'Service Provider';
 
-      const profilePicture = userProfile?.profile_picture || null;
+      const profilePicture = userProfile?.profile_picture_url || userProfile?.profile_picture || null;
 
       setStats({
         totalJobs,
@@ -123,7 +123,17 @@ export default function ProviderDashboard() {
 
   if (loading) {
     return (
-      <ProviderDashboardLayout activeMenuKey={activeMenu} onMenuChange={setActiveMenu}>
+      <ProviderDashboardLayout 
+        activeMenuKey={activeMenu} 
+        onMenuChange={setActiveMenu}
+        profileData={{
+          name: stats.providerName || 'Service Provider',
+          specialization: stats.specialization || 'Service Provider',
+          rating: stats.averageRating,
+          reviewCount: recentReviews.length,
+          profilePicture: stats.profilePicture,
+        }}
+      >
         <div className="flex justify-center items-center py-20">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>

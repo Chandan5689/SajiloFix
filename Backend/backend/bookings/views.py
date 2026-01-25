@@ -12,10 +12,12 @@ from django.utils import timezone
 from django.db.models import Q, Avg, Count, Sum, Case, When, Value, F, DecimalField
 from django.db.models.functions import Coalesce
 from django.core.cache import cache
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from users.authentication import ClerkAuthentication
+from users.authentication import SupabaseAuthentication
 from .models import Service, Booking, BookingImage, Payment, Review, ProviderAvailability
 from .serializers import (
 	ServiceSerializer,
@@ -59,46 +61,60 @@ class IsServiceProvider(BasePermission):
 
 class MyBookingsView(generics.ListAPIView):
 	"""List bookings for the current customer"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
 	serializer_class = BookingListSerializer
 	pagination_class = StandardResultsSetPagination
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		return (
 			Booking.objects
 			.filter(customer=self.request.user)
-			.select_related('service', 'provider', 'customer')
+			.select_related('service', 'service__specialization', 'service__specialization__speciality', 'provider', 'customer')
+			.prefetch_related('booking_services__service', 'booking_services__service__specialization', 'booking_services__service__specialization__speciality')
 			.order_by('-created_at')
 		)
 
 
 class ProviderBookingsView(generics.ListAPIView):
 	"""List bookings for the current provider"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
 	serializer_class = BookingListSerializer
 	pagination_class = StandardResultsSetPagination
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		return (
 			Booking.objects
 			.filter(provider=self.request.user)
-			.select_related('service', 'provider', 'customer')
+			.select_related('service', 'service__specialization', 'service__specialization__speciality', 'provider', 'customer')
+			.prefetch_related('booking_services__service', 'booking_services__service__specialization', 'booking_services__service__specialization__speciality')
 			.order_by('-created_at')
 		)
 
 
 class BookingDetailView(generics.RetrieveAPIView):
 	"""Retrieve a booking if user is customer or provider on it"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated]
 	serializer_class = BookingSerializer
 	queryset = (
 		Booking.objects
-		.select_related('service', 'provider', 'customer')
-		.prefetch_related('images', 'booking_services__service')
+		.select_related('service', 'service__specialization', 'service__specialization__speciality', 'provider', 'customer')
+		.prefetch_related('images', 'booking_services__service', 'booking_services__service__specialization', 'booking_services__service__specialization__speciality')
 	)
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		user = self.request.user
@@ -107,8 +123,12 @@ class BookingDetailView(generics.RetrieveAPIView):
 
 class AcceptBookingView(APIView):
 	"""Provider accepts a pending booking"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
@@ -122,8 +142,12 @@ class AcceptBookingView(APIView):
 
 class DeclineBookingView(APIView):
 	"""Provider declines a pending booking"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
@@ -140,8 +164,12 @@ class DeclineBookingView(APIView):
 
 class CancelBookingView(APIView):
 	"""Customer or provider cancels a booking if allowed"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id)
@@ -161,8 +189,12 @@ class CancelBookingView(APIView):
 
 class ScheduleBookingView(APIView):
 	"""Provider schedules a confirmed booking by setting date/time"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
@@ -206,8 +238,12 @@ class ScheduleBookingView(APIView):
 
 class StartBookingView(APIView):
 	"""Provider marks the booking as in progress"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
@@ -220,8 +256,12 @@ class StartBookingView(APIView):
 
 class CompleteBookingView(APIView):
 	"""Provider marks the booking as completed"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
@@ -242,8 +282,12 @@ class CompleteBookingView(APIView):
 
 class ApproveCompletionView(APIView):
 	"""Customer approves provider's completed work"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, customer=request.user)
@@ -261,8 +305,12 @@ class ApproveCompletionView(APIView):
 
 class DisputeBookingView(APIView):
 	"""Customer disputes provider's completed work"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, customer=request.user)
@@ -280,9 +328,13 @@ class DisputeBookingView(APIView):
 
 class ProviderMyServicesView(generics.ListAPIView):
 	"""List services created by the current provider"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
 	serializer_class = ServiceSerializer
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		qs = Service.objects.filter(provider=self.request.user).order_by('-created_at')
@@ -294,9 +346,13 @@ class ProviderMyServicesView(generics.ListAPIView):
 
 class CreateServiceView(generics.CreateAPIView):
 	"""Create a new service as provider"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
 	serializer_class = ServiceSerializer
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def perform_create(self, serializer):
 		serializer.save(provider=self.request.user)
@@ -304,10 +360,14 @@ class CreateServiceView(generics.CreateAPIView):
 
 class UpdateServiceView(generics.UpdateAPIView):
 	"""Update an existing service for the current provider"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
 	serializer_class = ServiceSerializer
 	lookup_url_kwarg = 'service_id'
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		return Service.objects.filter(provider=self.request.user)
@@ -315,8 +375,12 @@ class UpdateServiceView(generics.UpdateAPIView):
 
 class ToggleServiceActiveView(APIView):
 	"""Activate/Deactivate a service owned by the provider"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, service_id):
 		service = get_object_or_404(Service, id=service_id, provider=request.user)
@@ -334,6 +398,10 @@ class ServicePublicListView(generics.ListAPIView):
 	"""Public list of active services with filters and search"""
 	permission_classes = [AllowAny]
 	serializer_class = ServiceSerializer
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		qs = Service.objects.select_related('provider', 'specialization').filter(is_active=True)
@@ -379,13 +447,21 @@ class ServicePublicDetailView(generics.RetrieveAPIView):
 	permission_classes = [AllowAny]
 	serializer_class = ServiceSerializer
 	queryset = Service.objects.select_related('provider', 'specialization').filter(is_active=True)
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 
 class CreateBookingView(generics.CreateAPIView):
 	"""Create a new booking as a customer"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
 	serializer_class = BookingSerializer
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def perform_create(self, serializer):
 		# BookingSerializer creates BookingService snapshots and sets provider
@@ -405,9 +481,13 @@ class CreateBookingView(generics.CreateAPIView):
 
 class UploadBookingImagesView(APIView):
 	"""Upload booking images (before/during/after)"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated]
 	parser_classes = [MultiPartParser, FormParser]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id)
@@ -434,19 +514,27 @@ class UploadBookingImagesView(APIView):
 		booking.refresh_from_db()
 		
 		# If provider uploaded 'after' images and booking is in provider_completed,
-		# transition to awaiting_customer
+		# automatically complete the booking and trigger payment release
 		if request.user == booking.provider and image_type == 'after' and booking.status == 'provider_completed':
-			booking.status = 'awaiting_customer'
+			booking.status = 'completed'
+			booking.completed_at = timezone.now()
 			booking.save()
+			# Trigger payment release via service
+			from .services import PaymentService
+			PaymentService.release_payment(booking)
 
 		return Response(BookingImageSerializer(created, many=True, context={'request': request}).data)
 
 
 class MyPaymentsView(generics.ListAPIView):
 	"""List payments made by the current customer"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
 	serializer_class = PaymentSerializer
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		return (
@@ -458,8 +546,12 @@ class MyPaymentsView(generics.ListAPIView):
 
 class ProviderEarningsView(APIView):
 	"""Summary of provider earnings"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get(self, request):
 		payments = Payment.objects.filter(provider=request.user, status='completed')
@@ -473,8 +565,12 @@ class ProviderEarningsView(APIView):
 
 class UserDashboardStatsView(APIView):
 	"""Lightweight, cached stats for user dashboard."""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get(self, request):
 		cache_key = f"user_dashboard_stats:{request.user.id}"
@@ -510,8 +606,12 @@ class UserDashboardStatsView(APIView):
 
 class ProviderDashboardStatsView(APIView):
 	"""Lightweight, cached stats for provider dashboard."""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get(self, request):
 		cache_key = f"provider_dashboard_stats:{request.user.id}"
@@ -544,9 +644,13 @@ class ProviderDashboardStatsView(APIView):
 
 class CreateReviewView(generics.CreateAPIView):
 	"""Create a review for a completed booking (customer only)"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
 	serializer_class = ReviewSerializer
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def perform_create(self, serializer):
 		# Use booking_id from URL to ensure the correct booking is reviewed
@@ -581,10 +685,14 @@ class CreateReviewView(generics.CreateAPIView):
 
 class MyProviderReviewsView(generics.ListAPIView):
 	"""List reviews received by current provider"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
 	serializer_class = ReviewSerializer
 	pagination_class = StandardResultsSetPagination
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		qs = Review.objects.filter(provider=self.request.user).select_related('booking', 'customer', 'provider').order_by('-created_at')
@@ -621,10 +729,14 @@ class MyProviderReviewsView(generics.ListAPIView):
 
 class MyCustomerReviewsView(generics.ListAPIView):
 	"""List reviews submitted by current customer"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
 	serializer_class = ReviewSerializer
 	pagination_class = StandardResultsSetPagination
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
 		return (
@@ -637,8 +749,12 @@ class MyCustomerReviewsView(generics.ListAPIView):
 
 class RespondReviewView(APIView):
 	"""Provider responds to a review they received"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request, review_id):
 		review = get_object_or_404(Review, id=review_id, provider=request.user)
@@ -656,8 +772,12 @@ class RespondReviewView(APIView):
 
 class DeleteServiceView(APIView):
 	"""Delete a service (only if no active bookings exist)"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def delete(self, request, service_id):
 		service = get_object_or_404(Service, id=service_id, provider=request.user)
@@ -694,6 +814,10 @@ class ProviderAvailabilityView(APIView):
 	Validates that current user is a service provider.
 	"""
 	permission_classes = [IsAuthenticated, IsServiceProvider]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 	
 	def get(self, request):
 		"""Fetch current provider's availability."""
@@ -752,22 +876,33 @@ class ProviderListView(generics.ListAPIView):
 	permission_classes = [AllowAny]
 	serializer_class = ProviderListSerializer
 	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
+	
 	def get_queryset(self):
 		"""Get active providers (user_type='offer')"""
 		qs = User.objects.filter(
 			user_type='offer',
 			is_active=True
-		).prefetch_related('user_specializations', 'services')
+		).prefetch_related('user_specializations', 'user_specialities', 'services')
 		
 		# Filters
 		specialization = self.request.query_params.get('specialization')
+		speciality = self.request.query_params.get('speciality')
 		city = self.request.query_params.get('city')
 		district = self.request.query_params.get('district')
 		min_rating = self.request.query_params.get('min_rating')
 		search = self.request.query_params.get('q')
 		
-		if specialization:
-			qs = qs.filter(user_specializations__specialization__name__icontains=specialization)
+		# Allow filtering by either specialization or speciality name (e.g., "Carpentry" vs "Carpenter")
+		specialization_value = specialization or speciality
+		if specialization_value:
+			qs = qs.filter(
+				Q(user_specializations__specialization__name__icontains=specialization_value) |
+				Q(user_specializations__specialization__speciality__name__icontains=specialization_value) |
+				Q(user_specialities__speciality__name__icontains=specialization_value)
+			)
 		
 		if city:
 			qs = qs.filter(city__iexact=city)
@@ -787,7 +922,6 @@ class ProviderListView(generics.ListAPIView):
 		qs = qs.distinct()
 		return qs
 
-
 class ProviderDetailView(generics.RetrieveAPIView):
 	"""Get detailed information about a specific provider"""
 	permission_classes = [AllowAny]
@@ -797,6 +931,10 @@ class ProviderDetailView(generics.RetrieveAPIView):
 		is_active=True
 	).prefetch_related('user_specializations', 'services')
 	lookup_field = 'id'
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 
 class ProviderAvailabilityPublicView(APIView):
@@ -805,6 +943,10 @@ class ProviderAvailabilityPublicView(APIView):
 	Returns a specific provider's availability schedule (public endpoint for booking page).
 	"""
 	permission_classes = [AllowAny]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 	
 	def get(self, request, provider_id):
 		"""Fetch provider's availability schedule."""
@@ -852,6 +994,10 @@ class ProviderBookedSlotsView(APIView):
 	Returns booked time slots for a specific provider on a given date.
 	"""
 	permission_classes = [AllowAny]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 	
 	def get(self, request, provider_id):
 		"""Fetch booked slots for a provider on a specific date."""
@@ -917,8 +1063,12 @@ class CheckBookingConflictView(APIView):
 		}
 	}
 	"""
-	authentication_classes = [ClerkAuthentication]
-	permission_classes = [IsAuthenticated, IsServiceSeeker]
+	authentication_classes = [SupabaseAuthentication]
+	permission_classes = [IsAuthenticated]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def post(self, request):
 		provider_id = request.data.get('provider_id')
@@ -983,8 +1133,12 @@ class GetAvailableTimeSlotsView(APIView):
 		'message': str
 	}
 	"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get(self, request):
 		provider_id = request.query_params.get('provider_id')
@@ -1044,8 +1198,12 @@ class GetAlternativeDatesView(APIView):
 		'message': str
 	}
 	"""
-	authentication_classes = [ClerkAuthentication]
+	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
+	
+	@method_decorator(csrf_exempt)
+	def dispatch(self, *args, **kwargs):
+		return super().dispatch(*args, **kwargs)
 
 	def get(self, request):
 		provider_id = request.query_params.get('provider_id')

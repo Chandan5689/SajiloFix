@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
 import { Link } from "react-router-dom";
 import DashboardLayout from "../../../layouts/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import BookingImageUpload from "../../../components/BookingImageUpload";
+import ActionButton from "../../../components/ActionButton";
 import { useToast } from "../../../components/Toast";
 import { useUserProfile } from "../../../context/UserProfileContext";
 import {
@@ -11,6 +14,7 @@ import {
     MdPhone,
 } from "react-icons/md";
 import bookingsService from "../../../services/bookingsService";
+import { reviewFormSchema, decisionFormSchema } from "../../../validations/userSchemas";
 
 // Status color mapping
 const statusColorMap = {
@@ -39,29 +43,58 @@ export default function MyBookingsPage() {
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [uploadImageType, setUploadImageType] = useState("problem_area");
     const [showDecisionModal, setShowDecisionModal] = useState(false);
-    const [decisionType, setDecisionType] = useState("approve");
-    const [decisionNote, setDecisionNote] = useState("");
     const [decisionFiles, setDecisionFiles] = useState([]);
     const [decisionPreviews, setDecisionPreviews] = useState([]);
-    const [decisionError, setDecisionError] = useState(null);
     const [decisionLoading, setDecisionLoading] = useState(false);
+    const [hasReviewed, setHasReviewed] = useState(false);
+    const [reviewSuccess, setReviewSuccess] = useState(null);
+    const [loadingDetailId, setLoadingDetailId] = useState(null);
+    const [showReviewModal, setShowReviewModal] = useState(false);
+    const [loadingReviewModal, setLoadingReviewModal] = useState(false);
     const { addToast } = useToast();
     const { userProfile: userData } = useUserProfile();
 
-    // Review form state
-    const [hasReviewed, setHasReviewed] = useState(false);
-    const [reviewForm, setReviewForm] = useState({
-        rating: 5,
-        title: "",
-        comment: "",
-        would_recommend: true,
-    });
-    const [reviewSubmitting, setReviewSubmitting] = useState(false);
-    const [reviewError, setReviewError] = useState(null);
-    const [reviewSuccess, setReviewSuccess] = useState(null);
-
     const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled"];
-    const decisionEligibleStatuses = ["provider_completed", "awaiting_confirmation", "awaiting_customer"];
+    const decisionEligibleStatuses = ["provider_completed", "awaiting_confirmation", "awaiting_customer", "completed"];
+
+    // React Hook Form - Review Form
+    const {
+        register: registerReview,
+        handleSubmit: handleSubmitReview,
+        formState: { errors: reviewErrors },
+        reset: resetReview,
+        watch: watchReview,
+        setValue: setReviewValue,
+    } = useForm({
+        resolver: yupResolver(reviewFormSchema),
+        defaultValues: {
+            rating: 5,
+            title: "",
+            comment: "",
+            would_recommend: true,
+        },
+        mode: 'onBlur',
+    });
+
+    // React Hook Form - Decision Form
+    const {
+        register: registerDecision,
+        handleSubmit: handleSubmitDecision,
+        formState: { errors: decisionErrors },
+        reset: resetDecision,
+        watch: watchDecision,
+        setValue: setDecisionValue,
+    } = useForm({
+        resolver: yupResolver(decisionFormSchema),
+        defaultValues: {
+            decisionType: 'approve',
+            decisionNote: '',
+            decisionFiles: [],
+        },
+        mode: 'onBlur',
+    });
+
+    const decisionTypeValue = watchDecision('decisionType');
 
     // Fetch bookings on component mount
     useEffect(() => {
@@ -96,6 +129,29 @@ export default function MyBookingsPage() {
     const handleLoadMore = () => {
         if (!hasMore || loadingMore) return;
         fetchBookings(page + 1, true);
+    };
+    // Format currency
+    const formatCurrency = (amount) => {
+        if (!amount) return "—";
+        return `NRS ${Number(amount).toLocaleString('en-US')}`;
+    };
+
+    // Calculate total price from booking services if main price fields are null
+    const getBookingPrice = (booking) => {
+        if (booking.final_price) {
+            return formatCurrency(booking.final_price);
+        }
+        if (booking.quoted_price) {
+            return formatCurrency(booking.quoted_price);
+        }
+        // Fallback: calculate from booking_services if available
+        if (booking.booking_services && Array.isArray(booking.booking_services) && booking.booking_services.length > 0) {
+            const total = booking.booking_services.reduce((sum, svc) => {
+                return sum + (Number(svc.price_at_booking) || 0);
+            }, 0);
+            return total > 0 ? formatCurrency(total) : "TBD";
+        }
+        return "TBD";
     };
 
     // Handle booking cancellation
@@ -133,7 +189,6 @@ export default function MyBookingsPage() {
     useEffect(() => {
         const checkReviewed = async () => {
             if (!selectedBooking) return;
-            setReviewError(null);
             setReviewSuccess(null);
             setHasReviewed(false);
             try {
@@ -151,14 +206,12 @@ export default function MyBookingsPage() {
 
     const handleReviewInputChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setReviewForm(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : (name === 'rating' ? parseInt(value) : value)
-        }));
+        // This function is now replaced by RHF but kept as reference
+        // Form inputs are now managed by register()
     };
 
-    // Star rating input component (1-5)
-    function StarRatingInput({ value, onChange, disabled = false }) {
+    // Star rating input component (1-5) - Updated for RHF
+    function StarRatingInput({ fieldValue, onFieldChange, disabled = false }) {
         const stars = [1, 2, 3, 4, 5];
         return (
             <div className="flex items-center gap-1">
@@ -167,8 +220,9 @@ export default function MyBookingsPage() {
                         type="button"
                         key={n}
                         disabled={disabled}
-                        onClick={() => onChange({ target: { name: 'rating', value: n } })}
-                        className={`text-xl ${n <= value ? 'text-yellow-500' : 'text-gray-300'} ${disabled ? '' : 'hover:text-yellow-600'}`}
+                        onClick={() => onFieldChange(n)}
+                        className={`text-2xl ${n <= fieldValue ? 'text-yellow-500' : 'text-white'} ${disabled ? '' : 'hover:text-yellow-400 hover:scale-110'} transition-all duration-150 cursor-pointer`}
+                        style={{ textShadow: n <= fieldValue ? '0 0 3px rgba(234, 179, 8, 0.5)' : '0 0 2px rgba(0, 0, 0, 0.3)', WebkitTextStroke: '1px #d1d5db' }}
                         aria-label={`Rate ${n} star${n > 1 ? 's' : ''}`}
                     >
                         ★
@@ -178,36 +232,23 @@ export default function MyBookingsPage() {
         );
     }
 
-    const handleSubmitReview = async () => {
+    const onReviewSubmit = async (formData) => {
         if (!selectedBooking) return;
-        // Simple validation
-        if (!reviewForm.rating || reviewForm.rating < 1 || reviewForm.rating > 5) {
-            setReviewError('Please select a rating between 1 and 5');
-            return;
-        }
-        if (!reviewForm.title.trim()) {
-            setReviewError('Please add a short title');
-            return;
-        }
         try {
-            setReviewSubmitting(true);
-            setReviewError(null);
             const payload = {
-                rating: reviewForm.rating,
-                title: reviewForm.title.trim(),
-                comment: reviewForm.comment.trim(),
-                would_recommend: !!reviewForm.would_recommend,
+                rating: formData.rating,
+                title: formData.title.trim(),
+                comment: formData.comment.trim(),
+                would_recommend: !!formData.would_recommend,
             };
             const created = await bookingsService.createReview(selectedBooking.id, payload);
             setReviewSuccess('Thank you! Your review has been submitted.');
             setHasReviewed(true);
-            // Optionally refresh booking or list if needed
+            resetReview();
             setTimeout(() => setReviewSuccess(null), 3000);
         } catch (err) {
             console.error('Error submitting review:', err);
-            setReviewError(err.error || err.message || 'Failed to submit review');
-        } finally {
-            setReviewSubmitting(false);
+            addToast(err?.error || err?.message || 'Failed to submit review', 'error');
         }
     };
 
@@ -218,18 +259,15 @@ export default function MyBookingsPage() {
     };
 
     const resetDecisionState = () => {
-        setDecisionType("approve");
-        setDecisionNote("");
         setDecisionFiles([]);
         setDecisionPreviews([]);
-        setDecisionError(null);
+        resetDecision();
     };
 
     const handleOpenDecisionModal = (type, booking) => {
-        setDecisionType(type);
         setSelectedBooking(booking);
+        setDecisionValue('decisionType', type);
         resetDecisionState();
-        setDecisionType(type);
         // Always refresh booking status when opening modal to ensure we have latest state
         bookingsService.getBookingDetail(booking.id)
             .then(refreshed => {
@@ -244,11 +282,6 @@ export default function MyBookingsPage() {
         const remaining = 5 - decisionFiles.length;
         const toAdd = files.slice(0, remaining);
         const valid = toAdd.filter((file) => file.type.startsWith('image/') && file.size <= 5 * 1024 * 1024);
-        if (valid.length !== toAdd.length) {
-            setDecisionError('Only images up to 5MB are allowed');
-        } else {
-            setDecisionError(null);
-        }
         setDecisionFiles((prev) => [...prev, ...valid]);
         setDecisionPreviews((prev) => [...prev, ...valid.map((f) => URL.createObjectURL(f))]);
     };
@@ -256,33 +289,25 @@ export default function MyBookingsPage() {
     const handleRemoveDecisionFile = (index) => {
         setDecisionFiles((prev) => prev.filter((_, i) => i !== index));
         setDecisionPreviews((prev) => prev.filter((_, i) => i !== index));
-        if (decisionFiles.length <= 1) {
-            setDecisionError(null);
-        }
     };
 
-    const handleDecisionSubmit = async () => {
+    const onDecisionSubmit = async (formData) => {
         if (!selectedBooking) return;
-        if (decisionType === 'dispute' && decisionFiles.length === 0) {
-            setDecisionError('After photos are required to dispute this completion');
-            return;
-        }
         try {
             setDecisionLoading(true);
-            setDecisionError(null);
             // Upload customer photos as 'approval_photos' type (separate from provider 'after' images)
             if (decisionFiles.length > 0) {
-                await bookingsService.uploadBookingImages(selectedBooking.id, 'approval_photos', decisionFiles, decisionNote);
+                await bookingsService.uploadBookingImages(selectedBooking.id, 'approval_photos', decisionFiles, formData.decisionNote);
             }
             // Refresh booking status before approving (in case it auto-transitioned)
             const refreshed = await bookingsService.getBookingDetail(selectedBooking.id);
             setSelectedBooking(refreshed);
-            const updated = decisionType === 'approve'
-                ? await bookingsService.approveCompletion(refreshed.id, decisionNote)
-                : await bookingsService.disputeBooking(refreshed.id, decisionNote, decisionNote);
+            const updated = formData.decisionType === 'approve'
+                ? await bookingsService.approveCompletion(refreshed.id, formData.decisionNote)
+                : await bookingsService.disputeBooking(refreshed.id, formData.decisionNote, formData.decisionNote);
             setBookings(bookings.map((b) => (b.id === updated.id ? updated : b)));
             setSelectedBooking(updated);
-            addToast(decisionType === 'approve' ? 'Booking approved successfully' : 'Dispute submitted', 'success');
+            addToast(formData.decisionType === 'approve' ? 'Booking approved successfully' : 'Dispute submitted', 'success');
             setShowDecisionModal(false);
             resetDecisionState();
         } catch (err) {
@@ -292,7 +317,7 @@ export default function MyBookingsPage() {
             if (selectedBooking) {
                 console.error(`Booking ID: ${selectedBooking.id}, Status: ${selectedBooking.status}`);
             }
-            setDecisionError(errorMsg);
+            addToast(errorMsg, 'error');
         } finally {
             setDecisionLoading(false);
         }
@@ -398,7 +423,7 @@ export default function MyBookingsPage() {
                                 <div className="flex justify-between items-center mb-2">
                                     <div>
                                         <p className="font-semibold text-lg">{booking.service_title}</p>
-                                        <p className="text-gray-700 text-sm">{booking.provider_name}</p>
+                                        <p className="text-gray-700 text-sm">Provider: <span className="text-base text-gray-800 font-semibold capitalize">{booking.provider_name}</span></p>
 
             {hasMore && (
                 <div className="mt-6 text-center">
@@ -426,23 +451,64 @@ export default function MyBookingsPage() {
                                     <p className="flex items-center gap-2">
                                         <MdLocationOn /> {booking.service_address}
                                     </p>
-                                    <p className="font-semibold">NRS {booking.final_price || booking.quoted_price || "TBD"}</p>
+                                    <p className="font-semibold">{getBookingPrice(booking)}</p>
                                 </div>
 
                                 <p className="text-gray-700 text-sm mb-5">{booking.description}</p>
 
                                 <div className="flex space-x-3">
                                     <button
-                                        className="px-4 py-2 border border-green-600 text-green-600 rounded-md text-sm font-semibold hover:bg-green-50 transition"
-                                        onClick={() => setSelectedBooking(booking)}
+                                        className="px-4 py-2 border border-green-600 text-green-600 rounded-md text-sm font-semibold hover:bg-green-50 transition disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                                        onClick={async () => {
+                                            try {
+                                                setLoadingDetailId(booking.id);
+                                                const fullBooking = await bookingsService.getBookingDetail(booking.id);
+                                                setSelectedBooking(fullBooking);
+                                            } catch (err) {
+                                                console.error("Error fetching booking details:", err);
+                                                addToast("Failed to load booking details", "error");
+                                            } finally {
+                                                setLoadingDetailId(null);
+                                            }
+                                        }}
+                                        disabled={loadingDetailId === booking.id}
                                     >
-                                        View Details
+                                        {loadingDetailId === booking.id ? (
+                                            <>
+                                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-600 border-t-transparent"></div>
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            "View Details"
+                                        )}
                                     </button>
 
                                     {booking.status === "completed" && (
-                                        <button className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-green-700 flex items-center gap-1 transition cursor-pointer">
-                                            ★ Rate Service
-                                        </button>
+                                        <ActionButton
+                                            label="★ Rate Service"
+                                            loadingLabel="Loading..."
+                                            isLoading={loadingReviewModal && loadingDetailId === booking.id}
+                                            onClick={async () => {
+                                                try {
+                                                    setLoadingReviewModal(true);
+                                                    setLoadingDetailId(booking.id);
+                                                    const fullBooking = await bookingsService.getBookingDetail(booking.id);
+                                                    setSelectedBooking(fullBooking);
+                                                    setShowReviewModal(true);
+                                                    resetReview();
+                                                    setReviewSuccess(null);
+                                                    setHasReviewed(fullBooking.review ? true : false);
+                                                } catch (err) {
+                                                    console.error("Error fetching booking details:", err);
+                                                    addToast("Failed to load booking details", "error");
+                                                } finally {
+                                                    setLoadingReviewModal(false);
+                                                    setLoadingDetailId(null);
+                                                }
+                                            }}
+                                            variant="primary"
+                                            size="md"
+                                        />
                                     )}
 
                                     {booking.status === "in_progress" && (
@@ -528,19 +594,21 @@ export default function MyBookingsPage() {
 
             {showDecisionModal && selectedBooking && (
                 <Modal onClose={() => { setShowDecisionModal(false); resetDecisionState(); }}>
-                    <div className="p-6 max-w-2xl space-y-4">
+                    <form onSubmit={handleSubmitDecision(onDecisionSubmit)} className="p-6 max-w-2xl space-y-4">
+                        {/* Hidden input for decision type */}
+                        <input type="hidden" {...registerDecision('decisionType')} />
+                        
                         <div className="flex items-start justify-between">
                             <div>
                                 <h3 className="text-xl font-semibold">
-                                    {decisionType === 'approve' ? 'Approve completion' : 'Dispute completion'}
+                                    Report Issue / Dispute Completion
                                 </h3>
                                 <p className="text-sm text-gray-600">
-                                    {decisionType === 'approve'
-                                        ? 'You can approve even without photos. Optional after photos help with records.'
-                                        : 'Please add after photos to support your dispute.'}
+                                    Please describe the issue and add photos showing the problem.
                                 </p>
                             </div>
                             <button
+                                type="button"
                                 className="text-gray-400 hover:text-gray-600"
                                 onClick={() => { setShowDecisionModal(false); resetDecisionState(); }}
                             >
@@ -551,17 +619,17 @@ export default function MyBookingsPage() {
                         <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
                             <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{selectedBooking.service_title}</span></p>
                             <p className="flex justify-between"><span className="font-semibold">Provider:</span> <span>{selectedBooking.provider_name}</span></p>
-                            {decisionType === 'dispute' && (
-                                <p className="mt-2 text-orange-700 font-semibold text-xs">After photos are required when disputing.</p>
-                            )}
+                            <p className="mt-2 text-red-700 font-semibold text-xs">📸 Photos are required to support your dispute claim.</p>
                         </div>
 
-                        {decisionError && (
-                            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{decisionError}</div>
+                        {decisionErrors.decisionFiles && (
+                            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{decisionErrors.decisionFiles.message}</div>
                         )}
 
                         <div className="space-y-2">
-                            <label className="text-sm font-semibold text-gray-700">After photos (optional for approval, required for dispute)</label>
+                            <label className="text-sm font-semibold text-gray-700">
+                                Photos of the Issue <span className="text-red-500">*</span>
+                            </label>
                             <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-md cursor-pointer text-sm text-gray-600 ${decisionFiles.length >= 5 ? 'opacity-60 cursor-not-allowed' : 'hover:border-green-500 hover:bg-green-50'}`}>
                                 <span className="font-medium text-gray-800">{decisionFiles.length >= 5 ? 'Maximum 5 images reached' : 'Drop images here or click to browse'}</span>
                                 <span className="text-xs text-gray-500">JPG/PNG up to 5MB each • Max 5</span>
@@ -575,9 +643,6 @@ export default function MyBookingsPage() {
                                         const files = Array.from(e.target.files || []);
                                         const remaining = 5 - decisionFiles.length;
                                         const toAdd = files.slice(0, remaining);
-                                        if (files.length > remaining) {
-                                            setDecisionError(`Only ${remaining} more image(s) can be added (max 5).`);
-                                        }
                                         handleDecisionFilesChange(toAdd);
                                     }}
                                 />
@@ -599,45 +664,157 @@ export default function MyBookingsPage() {
                                     ))}
                                 </div>
                             )}
-                            {decisionType === 'dispute' && (
-                                <p className="text-xs text-gray-500">At least 1 after photo is required when disputing.</p>
-                            )}
+                            <p className="text-xs text-red-600 font-medium">📌 At least 1 photo is required to submit your dispute.</p>
                         </div>
 
                         <div className="space-y-1">
-                            <label className="text-sm font-semibold text-gray-700">Note {decisionType === 'dispute' ? '(recommended)' : '(optional)'}</label>
+                            <label className="text-sm font-semibold text-gray-700">
+                                Describe the Issue <span className="text-red-500">*</span>
+                            </label>
                             <textarea
-                                rows={3}
-                                value={decisionNote}
-                                onChange={(e) => setDecisionNote(e.target.value)}
-                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                                placeholder={decisionType === 'dispute' ? "Describe what's wrong and what you expect" : "Add any comments for the provider"}
+                                {...registerDecision('decisionNote')}
+                                rows={4}
+                                className={`w-full border ${decisionErrors.decisionNote ? 'border-red-500' : 'border-gray-300'} rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500`}
+                                placeholder="Please describe what went wrong, what issues you found, and what you expect to be resolved..."
                                 disabled={decisionLoading}
                             />
+                            {decisionErrors.decisionNote && (
+                                <p className="text-red-500 text-xs mt-1">{decisionErrors.decisionNote.message}</p>
+                            )}
                         </div>
 
                         <div className="flex gap-3">
                             <button
-                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50"
+                                type="button"
+                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
                                 onClick={() => { setShowDecisionModal(false); resetDecisionState(); }}
                                 disabled={decisionLoading}
                             >
                                 Cancel
                             </button>
-                            <button
-                                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                                onClick={handleDecisionSubmit}
+                            <ActionButton
+                                label="Submit Dispute"
+                                loadingLabel="Submitting..."
+                                isLoading={decisionLoading}
+                                type="submit"
                                 disabled={decisionLoading}
-                            >
-                                {decisionLoading ? 'Submitting...' : decisionType === 'approve' ? 'Approve completion' : 'Submit dispute'}
-                            </button>
+                                variant="danger"
+                                size="md"
+                                className="flex-1"
+                            />
                         </div>
+                    </form>
+                </Modal>
+            )}
+
+            {/* Modal for Review */}
+            {showReviewModal && selectedBooking && (
+                <Modal onClose={() => { setShowReviewModal(false); setSelectedBooking(null); resetReview(); setReviewSuccess(null); }}>
+                    <div className="p-6 max-w-2xl">
+                        <div className="mb-4">
+                            <h3 className="text-xl font-semibold">Rate Your Service</h3>
+                            <p className="text-sm text-gray-600 mt-1">Share your experience with this service</p>
+                        </div>
+
+                        {/* Booking Context */}
+                        <div className="bg-gray-50 border border-gray-200 rounded-md p-4 mb-4 text-sm">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <p className="font-semibold text-gray-800">{selectedBooking.service_title}</p>
+                                    <p className="text-gray-600">Provider: {selectedBooking.provider_name}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-gray-600">{formatDate(selectedBooking.scheduled_date || selectedBooking.preferred_date)}</p>
+                                    <p className="font-semibold text-green-600">{getBookingPrice(selectedBooking)}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Review Form */}
+                        {hasReviewed ? (
+                            <div className="p-4 bg-green-50 border border-green-200 rounded text-green-700 text-center">
+                                <p className="font-semibold mb-2">✓ You have already reviewed this booking</p>
+                                <p className="text-sm">Thank you for sharing your feedback!</p>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleSubmitReview(onReviewSubmit)} className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Rating <span className="text-red-500">*</span></label>
+                                        <StarRatingInput 
+                                            fieldValue={watchReview('rating')} 
+                                            onFieldChange={(val) => {
+                                                setReviewValue('rating', val);
+                                            }} 
+                                        />
+                                        <input type="hidden" {...registerReview('rating')} />
+                                        {reviewErrors.rating && (
+                                            <p className="text-red-500 text-xs mt-1">{reviewErrors.rating.message}</p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Would Recommend</label>
+                                        <label className="inline-flex items-center gap-2 mt-2">
+                                            <input
+                                                type="checkbox"
+                                                {...registerReview('would_recommend')}
+                                                className="w-5 h-5 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                                            />
+                                            <span className="text-sm text-gray-700">Yes, I recommend this provider</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        Title <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        {...registerReview('title')}
+                                        placeholder="e.g., Great work and professional"
+                                        className={`w-full p-3 border ${reviewErrors.title ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:ring-2 focus:ring-green-500`}
+                                    />
+                                    {reviewErrors.title && (
+                                        <p className="text-red-500 text-xs mt-1">{reviewErrors.title.message}</p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Comments (optional)</label>
+                                    <textarea
+                                        {...registerReview('comment')}
+                                        rows={4}
+                                        placeholder="Share more about your experience..."
+                                        className={`w-full p-3 border ${reviewErrors.comment ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:ring-2 focus:ring-green-500`}
+                                    />
+                                    {reviewErrors.comment && (
+                                        <p className="text-red-500 text-xs mt-1">{reviewErrors.comment.message}</p>
+                                    )}
+                                </div>
+                                {reviewSuccess && (
+                                    <div className="p-3 bg-green-50 border border-green-200 rounded text-green-700 text-sm">
+                                        {reviewSuccess}
+                                    </div>
+                                )}
+                                <div className="flex gap-3 pt-2">
+                                    <ActionButton
+                                        label="Submit Review"
+                                        loadingLabel="Submitting..."
+                                        isLoading={false}
+                                        type="submit"
+                                        disabled={reviewSuccess !== null}
+                                        variant="primary"
+                                        size="md"
+                                        className="flex-1"
+                                    />
+                                </div>
+                            </form>
+                        )}
                     </div>
                 </Modal>
             )}
 
             {/* Modal for booking details */}
-            {selectedBooking && !cancelingBookingId && !showUploadModal && !showDecisionModal && (
+            {selectedBooking && !cancelingBookingId && !showUploadModal && !showDecisionModal && !showReviewModal && (
                 <Modal onClose={() => setSelectedBooking(null)}>
                     <div className="p-6 max-w-2xl">
                         <h3 className="text-xl font-semibold mb-4">Booking Details</h3>
@@ -657,7 +834,7 @@ export default function MyBookingsPage() {
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Price</p>
-                                    <p>NRS {selectedBooking.final_price || selectedBooking.quoted_price || "TBD"}</p>
+                                    <p>{getBookingPrice(selectedBooking)}</p>
                                 </div>
                                 <div className="col-span-2">
                                     <p className="text-gray-500 font-semibold">Address</p>
@@ -700,100 +877,33 @@ export default function MyBookingsPage() {
                                         </button>
                                     </div>
                                 )}
-                                {/* Approve/Dispute completion */}
+                                {/* Dispute completion */}
                                 {decisionEligibleStatuses.includes(selectedBooking.status) && (
-                                    <div className="col-span-2 flex gap-2">
-                                        <button
-                                            onClick={() => handleOpenDecisionModal('approve', selectedBooking)}
-                                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 transition"
-                                        >
-                                            Approve Completion
-                                        </button>
+                                    <div className="col-span-2">
                                         <button
                                             onClick={() => handleOpenDecisionModal('dispute', selectedBooking)}
-                                            className="flex-1 px-4 py-2 border border-orange-500 text-orange-500 rounded-md text-sm font-semibold hover:bg-orange-50 transition"
+                                            className="w-full px-4 py-2 bg-red-600 text-white rounded-md text-sm font-semibold hover:bg-red-700 transition"
                                         >
-                                            Report Issue
+                                            Report Issue / Dispute Completion
                                         </button>
                                     </div>
                                 )}
-                                <div className="col-span-2">
-                                    {/* Leave a Review (completed bookings) */}
-                                    {selectedBooking.status === 'completed' && (
-                                        <div className="mt-4">
-                                            <div className="p-4 border border-gray-200 rounded-lg bg-gray-50">
-                                                <p className="font-semibold mb-2">Leave a Review</p>
-                                                {hasReviewed ? (
-                                                    <div className="p-3 bg-green-50 border border-green-200 rounded text-green-700">
-                                                        You have already reviewed this booking.
-                                                    </div>
-                                                ) : (
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Rating</label>
-                                                            <StarRatingInput value={reviewForm.rating} onChange={handleReviewInputChange} />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Would Recommend</label>
-                                                            <label className="inline-flex items-center gap-2">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    name="would_recommend"
-                                                                    checked={reviewForm.would_recommend}
-                                                                    onChange={handleReviewInputChange}
-                                                                    className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
-                                                                />
-                                                                <span className="text-sm text-gray-700">Yes, I recommend this provider</span>
-                                                            </label>
-                                                        </div>
-                                                        <div className="md:col-span-2">
-                                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Title</label>
-                                                            <input
-                                                                type="text"
-                                                                name="title"
-                                                                value={reviewForm.title}
-                                                                onChange={handleReviewInputChange}
-                                                                placeholder="e.g., Great work and professional"
-                                                                className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-green-600"
-                                                            />
-                                                        </div>
-                                                        <div className="md:col-span-2">
-                                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Comments (optional)</label>
-                                                            <textarea
-                                                                name="comment"
-                                                                value={reviewForm.comment}
-                                                                onChange={handleReviewInputChange}
-                                                                rows={3}
-                                                                placeholder="Share more about your experience..."
-                                                                className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-green-600"
-                                                            />
-                                                        </div>
-                                                        {reviewError && (
-                                                            <div className="md:col-span-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                                                                {reviewError}
-                                                            </div>
-                                                        )}
-                                                        {reviewSuccess && (
-                                                            <div className="md:col-span-2 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">
-                                                                {reviewSuccess} <a href="/user/my-reviews" className="underline text-green-700">View My Reviews</a>
-                                                            </div>
-                                                        )}
-                                                        <div className="md:col-span-2 flex justify-end gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={handleSubmitReview}
-                                                                disabled={reviewSubmitting}
-                                                                className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300"
-                                                            >
-                                                                {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
+                                {/* Rate Service Button in Details Modal */}
+                                {selectedBooking.status === 'completed' && (
+                                    <div className="col-span-2">
+                                        <button
+                                            onClick={() => {
+                                                setShowReviewModal(true);
+                                                resetReview();
+                                                setReviewSuccess(null);
+                                                setHasReviewed(selectedBooking.review ? true : false);
+                                            }}
+                                            className="w-full px-4 py-3 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 transition flex items-center justify-center gap-2"
+                                        >
+                                            ★ Leave a Review
+                                        </button>
+                                    </div>
+                                )}
                                 {/* Review block */}
                                 {selectedBooking?.review && (
                                     <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
