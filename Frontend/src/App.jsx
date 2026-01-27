@@ -37,8 +37,14 @@ import HelpSupport from './pages/Public/HelpSupport';
 import React from 'react';
 import Chatbot from './components/Chatbot';
 import { ToastProvider } from './components/Toast';
-import { UserProfileProvider } from './context/UserProfileContext';
-
+import { UserProfileProvider } from './context/UserProfileContext';import AdminLayout from './layouts/AdminLayout';
+import AdminDashboard from './pages/Admin/AdminDashboard';
+import AdminCustomers from './pages/Admin/AdminCustomers';
+import AdminProviders from './pages/Admin/AdminProviders';
+import AdminBookings from './pages/Admin/AdminBookings';
+import AdminAnalytics from './pages/Admin/AdminAnalytics';
+import AdminSettings from './pages/Admin/AdminSettings';
+import RequireAdminRole from './components/RequireAdminRole';
 function ProtectedRoute({ children }) {
     const { isAuthenticated, loading } = useSupabaseAuth();
 
@@ -238,6 +244,25 @@ function App() {
                                             </RequireCompleteRegistration>
                                         </ProtectedRoute>
                                     } />
+
+                                    {/* Admin Routes */}
+                                    <Route
+                                        path="/admin"
+                                        element={
+                                            <ProtectedRoute>
+                                                <RequireAdminRole>
+                                                    <AdminLayout />
+                                                </RequireAdminRole>
+                                            </ProtectedRoute>
+                                        }
+                                    >
+                                        <Route index element={<AdminDashboard />} />
+                                        <Route path="customers" element={<AdminCustomers />} />
+                                        <Route path="providers" element={<AdminProviders />} />
+                                        <Route path="bookings" element={<AdminBookings />} />
+                                        <Route path="analytics" element={<AdminAnalytics />} />
+                                        <Route path="settings" element={<AdminSettings />} />
+                                    </Route>
 
                                 </Routes>
                             </main>

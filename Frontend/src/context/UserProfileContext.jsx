@@ -202,6 +202,13 @@ export const UserProfileProvider = ({ children }) => {
 
   const loading = authLoading || profileLoading;
 
+  const isAdmin = Boolean(
+    userProfile?.is_staff ||
+    userProfile?.is_superuser ||
+    registrationStatus?.is_staff ||
+    registrationStatus?.is_superuser
+  );
+
   const value = useMemo(
     () => ({
       userProfile,
@@ -209,10 +216,11 @@ export const UserProfileProvider = ({ children }) => {
       loading,
       error,
       refreshProfile,
-      isRegistrationComplete: registrationStatus?.registration_completed ?? false,
-      userType: registrationStatus?.user_type || userProfile?.user_type || null,
+      isRegistrationComplete: (registrationStatus?.registration_completed ?? false) || isAdmin,
+      userType: isAdmin ? 'admin' : (registrationStatus?.user_type || userProfile?.user_type || null),
+      isAdmin,
     }),
-    [userProfile, registrationStatus, loading, error, refreshProfile]
+    [userProfile, registrationStatus, loading, error, refreshProfile, isAdmin]
   );
 
   return (

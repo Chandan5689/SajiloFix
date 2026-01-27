@@ -10,7 +10,7 @@ import { useUserProfile } from '../context/UserProfileContext';
  */
 function RequireCompleteRegistration({ children }) {
     const { isAuthenticated, loading: authLoading } = useSupabaseAuth();
-    const { isRegistrationComplete, loading: profileLoading } = useUserProfile();
+    const { isRegistrationComplete, isAdmin, loading: profileLoading } = useUserProfile();
     const navigate = useNavigate();
 
     const loading = authLoading || profileLoading;
@@ -23,10 +23,10 @@ function RequireCompleteRegistration({ children }) {
             return;
         }
 
-        if (!isRegistrationComplete) {
+        if (!isRegistrationComplete && !isAdmin) {
             navigate('/register');
         }
-    }, [loading, isAuthenticated, isRegistrationComplete, navigate]);
+    }, [loading, isAuthenticated, isRegistrationComplete, isAdmin, navigate]);
 
     if (loading) {
         return (
@@ -39,7 +39,7 @@ function RequireCompleteRegistration({ children }) {
         );
     }
 
-    if (!isAuthenticated || !isRegistrationComplete) {
+    if (!isAuthenticated || (!isRegistrationComplete && !isAdmin)) {
         return null; // Will redirect via useEffect
     }
 

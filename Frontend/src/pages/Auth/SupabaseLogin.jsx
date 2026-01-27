@@ -62,52 +62,41 @@ function SupabaseLogin() {
                     },
                 });
 
-                const actualUserType = response.data.user_type;
                 const isAdmin = response.data.is_staff || response.data.is_superuser;
+                const actualUserType = isAdmin ? 'admin' : response.data.user_type;
 
-                // Check if selected type matches actual type
-                if (actualUserType && actualUserType !== userType) {
-                    // Admin tab requires is_staff or is_superuser
-                    if (userType === 'admin') {
-                        if (!isAdmin) {
-                            // Sign out the user immediately to prevent unauthorized access
-                            await signOut();
-                            setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease click ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'} and try again.`);
-                            setValue('password', ''); // Clear password field
-                            setLoading(false);
-                            return;
-                        }
-                    } else {
-                        // Regular user selected wrong tab
-                        // Sign out the user immediately to prevent unauthorized access
-                        await signOut();
-                        const roleLabel = actualUserType === 'find' ? 'Customer' : 'Provider';
-                        const correctTab = actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab';
-                        setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
-                        setValue('password', ''); // Clear password field
-                        setLoading(false);
-                        return;
-                    }
-                } else if (userType === 'admin' && !isAdmin) {
-                    // Admin tab selected but user is not admin
+                // If admin tab selected but user not admin - deny
+                if (userType === 'admin' && !isAdmin) {
                     await signOut();
                     setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease use ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'}.`);
-                    setValue('password', ''); // Clear password field
+                    setValue('password', '');
                     setLoading(false);
                     return;
                 }
 
-                // Check registration status and redirect accordingly
-                if (userType === 'admin' && isAdmin) {
-                    // Admin user - redirect to Django admin panel
+                // If non-admin tab selected but user is admin - redirect to admin
+                if (userType !== 'admin' && isAdmin) {
                     setLoading(false);
-                    window.location.href = 'http://127.0.0.1:8000/admin/';
+                    navigate('/admin');
                     return;
                 }
 
-                if (response.data.registration_completed) {
+                // If non-admin selected wrong tab - deny
+                if (userType !== 'admin' && actualUserType !== userType) {
+                    await signOut();
+                    const roleLabel = actualUserType === 'find' ? 'Customer' : 'Provider';
+                    const correctTab = actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab';
+                    setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
+                    setValue('password', '');
                     setLoading(false);
-                    // Redirect based on user type
+                    return;
+                }
+
+                // All checks passed - redirect based on role
+                setLoading(false);
+                if (isAdmin) {
+                    navigate('/admin');
+                } else if (response.data.registration_completed) {
                     if (actualUserType === 'offer') {
                         navigate('/provider/dashboard');
                     } else {
@@ -115,11 +104,9 @@ function SupabaseLogin() {
                     }
                 } else {
                     // User needs to complete registration
-                    setLoading(false);
                     if (actualUserType === 'offer') {
                         navigate('/complete-provider-profile');
                     } else {
-                        // For service seekers, redirect to register to complete profile
                         navigate('/register');
                     }
                 }
