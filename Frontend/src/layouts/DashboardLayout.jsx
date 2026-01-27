@@ -85,9 +85,9 @@ export default function DashboardLayout({
         {/* Sidebar Header (User Info + Collapse toggle on desktop) */}
         <div className="flex items-center justify-between px-4 py-5 border-b border-gray-200">
           <div className="flex items-center gap-3">
-            {userData?.profile_picture ? (
+            {userData?.profile_picture_url || userData?.profile_picture ? (
               <img
-                src={userData.profile_picture}
+                src={userData.profile_picture_url || userData.profile_picture}
                 alt={userName}
                 className="w-10 h-10 rounded-full object-cover"
               />

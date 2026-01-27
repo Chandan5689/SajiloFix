@@ -6,6 +6,7 @@ import DashboardLayout from "../../../layouts/DashboardLayout";
 import userService from "../../../services/userService";
 import { useUserProfile } from "../../../context/UserProfileContext";
 import { userProfileEditSchema } from "../../../validations/userSchemas";
+import { uploadProfilePicture } from "../../../utils/supabaseStorage";
 
 export default function UserMyProfile() {
     const [activeMenuKey, setActiveMenuKey] = useState("my-profile");
@@ -133,21 +134,31 @@ export default function UserMyProfile() {
             setError(null);
             setSuccess(null);
             
-            // Create FormData for multipart submission
-            const updateData = new FormData();
-            updateData.append('first_name', data.first_name || '');
-            updateData.append('middle_name', data.middle_name || '');
-            updateData.append('last_name', data.last_name || '');
-            updateData.append('address', data.address || '');
-            updateData.append('city', data.city || '');
-            updateData.append('district', data.district || '');
-            updateData.append('postal_code', data.postal_code || '');
-            updateData.append('bio', data.bio || '');
-            updateData.append('location', data.location || '');
+            // Upload profile picture directly to Supabase if provided
+            let profilePictureUrl = userProfile?.profile_picture; // Keep existing if no new file
             
-            // Include profile picture if selected
             if (data.profile_picture) {
-                updateData.append('profile_picture', data.profile_picture);
+                const userId = userProfile?.id;
+                const uploadResult = await uploadProfilePicture(data.profile_picture, userId);
+                profilePictureUrl = uploadResult.url;
+            }
+            
+            // Create update payload with URL instead of file
+            const updateData = {
+                first_name: data.first_name || '',
+                middle_name: data.middle_name || '',
+                last_name: data.last_name || '',
+                address: data.address || '',
+                city: data.city || '',
+                district: data.district || '',
+                postal_code: data.postal_code || '',
+                bio: data.bio || '',
+                location: data.location || '',
+            };
+            
+            // Include profile picture URL if changed
+            if (data.profile_picture && profilePictureUrl) {
+                updateData.profile_picture = profilePictureUrl;
             }
             
             const updated = await userService.updateProfile(updateData);

@@ -49,12 +49,8 @@ function SupabaseLogin() {
             // Sign in with Supabase Auth (data now comes from React Hook Form)
             const result = await signIn(data.email, data.password);
 
-            // signIn returns data directly, not { data, error }
-            // If there was an error, it would have thrown
             if (result.session) {
-                // Get token from session (Supabase uses access_token)
                 const token = result.session.access_token;
-                
                 // Fetch user registration status from backend
                 const response = await api.get('/auth/registration-status/', {
                     headers: {
@@ -63,43 +59,37 @@ function SupabaseLogin() {
                 });
 
                 const actualUserType = response.data.user_type;
-                const isAdmin = response.data.is_staff || response.data.is_superuser;
+                const isAdmin = response.data.is_admin; // Use backend is_admin
 
                 // Check if selected type matches actual type
                 if (actualUserType && actualUserType !== userType) {
-                    // Admin tab requires is_staff or is_superuser
                     if (userType === 'admin') {
                         if (!isAdmin) {
-                            // Sign out the user immediately to prevent unauthorized access
                             await signOut();
                             setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease click ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'} and try again.`);
-                            setValue('password', ''); // Clear password field
+                            setValue('password', '');
                             setLoading(false);
                             return;
                         }
                     } else {
-                        // Regular user selected wrong tab
-                        // Sign out the user immediately to prevent unauthorized access
                         await signOut();
-                        const roleLabel = actualUserType === 'find' ? 'Customer' : 'Provider';
-                        const correctTab = actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab';
+                        const roleLabel = actualUserType === 'find' ? 'Customer' : actualUserType === 'offer' ? 'Provider' : 'Admin';
+                        const correctTab = actualUserType === 'find' ? 'the Customer tab' : actualUserType === 'offer' ? 'the Provider tab' : 'the Admin tab';
                         setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
-                        setValue('password', ''); // Clear password field
+                        setValue('password', '');
                         setLoading(false);
                         return;
                     }
                 } else if (userType === 'admin' && !isAdmin) {
-                    // Admin tab selected but user is not admin
                     await signOut();
-                    setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease use ${actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab'}.`);
-                    setValue('password', ''); // Clear password field
+                    setError(`⚠️ Access Denied!\n\nYou do not have admin privileges.\nPlease use ${actualUserType === 'find' ? 'the Customer tab' : actualUserType === 'offer' ? 'the Provider tab' : 'the correct tab'}.`);
+                    setValue('password', '');
                     setLoading(false);
                     return;
                 }
 
                 // Check registration status and redirect accordingly
                 if (userType === 'admin' && isAdmin) {
-                    // Admin user - redirect to Django admin panel
                     setLoading(false);
                     window.location.href = 'http://127.0.0.1:8000/admin/';
                     return;
@@ -107,19 +97,16 @@ function SupabaseLogin() {
 
                 if (response.data.registration_completed) {
                     setLoading(false);
-                    // Redirect based on user type
                     if (actualUserType === 'offer') {
                         navigate('/provider/dashboard');
                     } else {
                         navigate('/dashboard');
                     }
                 } else {
-                    // User needs to complete registration
                     setLoading(false);
                     if (actualUserType === 'offer') {
                         navigate('/complete-provider-profile');
                     } else {
-                        // For service seekers, redirect to register to complete profile
                         navigate('/register');
                     }
                 }
@@ -130,8 +117,6 @@ function SupabaseLogin() {
             }
         } catch (err) {
             console.error('Login error:', err);
-            
-            // Check if it's a network or auth error
             if (err.response?.status === 401 || err.response?.status === 403) {
                 setError('Invalid email or password. Please try again.');
             } else if (err.message?.includes('Invalid login credentials')) {
@@ -139,8 +124,7 @@ function SupabaseLogin() {
             } else {
                 setError(err.message || 'Login failed. Please try again.');
             }
-            
-            setValue('password', ''); // Clear password field
+            setValue('password', '');
             setLoading(false);
         }
     };

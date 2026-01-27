@@ -9,6 +9,7 @@ import { registrationSchema, emailVerificationSchema } from '../../validations/a
 import api from '../../api/axios';
 // import PhoneVerification from './PhoneVerification'; // COMMENTED OUT - no longer used
 import AddressAutocomplete from '../../components/AddressAutocomplete';
+import { uploadProfilePicture } from '../../utils/supabaseStorage';
 
 function SupabaseRegister() {
     const { signUp, signInWithOAuth, resendEmailOtp, verifyEmailOtp } = useSupabaseAuth();
@@ -136,44 +137,53 @@ function SupabaseRegister() {
             console.log('✅ Email verified - session active');
             
             // Get all form data from watch
-            const formData = new FormData();
             const registerData = watch(); // Get all form values
             
-            formData.append('user_type', registerData.userType);
-            formData.append('first_name', registerData.firstName);
-            formData.append('middle_name', registerData.middleName || '');
-            formData.append('last_name', registerData.lastName);
-            formData.append('phone_number', registerData.phoneNumber);
+            // Get user ID from backend to use for Supabase uploads
+            const meResponse = await api.get('/auth/me/');
+            const userId = meResponse.data.id;
+            
+            // Upload profile picture directly to Supabase if provided
+            let profilePictureUrl = null;
+            if (registerData.profilePicture) {
+                const uploadResult = await uploadProfilePicture(registerData.profilePicture, userId);
+                profilePictureUrl = uploadResult.url;
+            }
+            
+            // Prepare data payload
+            const dataPayload = {
+                user_type: registerData.userType,
+                first_name: registerData.firstName,
+                middle_name: registerData.middleName || '',
+                last_name: registerData.lastName,
+                phone_number: registerData.phoneNumber,
+            };
+            
+            // Add profile picture URL if uploaded
+            if (profilePictureUrl) {
+                dataPayload.profile_picture = profilePictureUrl;
+            }
             
             // Handle location - can be string or object
             if (typeof registerData.location === 'object' && registerData.location !== null) {
-                formData.append('location', registerData.location.formatted || '');
-                formData.append('address', registerData.location.street || '');
-                formData.append('city', registerData.location.city || '');
-                formData.append('district', registerData.location.district || '');
-                formData.append('postal_code', registerData.location.postal_code || '');
-                if (registerData.location.lat) formData.append('latitude', registerData.location.lat);
-                if (registerData.location.lng) formData.append('longitude', registerData.location.lng);
+                dataPayload.location = registerData.location.formatted || '';
+                dataPayload.address = registerData.location.street || '';
+                dataPayload.city = registerData.location.city || '';
+                dataPayload.district = registerData.location.district || '';
+                dataPayload.postal_code = registerData.location.postal_code || '';
+                if (registerData.location.lat) dataPayload.latitude = registerData.location.lat;
+                if (registerData.location.lng) dataPayload.longitude = registerData.location.lng;
             } else if (typeof registerData.location === 'string') {
-                formData.append('location', registerData.location);
-            }
-            
-            // Add profile picture if selected
-            if (registerData.profilePicture) {
-                formData.append('profile_picture', registerData.profilePicture);
+                dataPayload.location = registerData.location;
             }
             
             // Add service area for providers
             if (registerData.userType === 'offer' && registerData.serviceArea) {
-                formData.append('service_area', registerData.serviceArea);
+                dataPayload.service_area = registerData.serviceArea;
             }
             
-            // Send to backend
-            const response = await api.post('/auth/update-user-type/', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
+            // Send to backend as JSON
+            const response = await api.post('/auth/update-user-type/', dataPayload);
             
             console.log('✅ User data saved:', response.data);
             console.log('✅ Registration complete!');

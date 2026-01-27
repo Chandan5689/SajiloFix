@@ -8,6 +8,7 @@ import { useUserProfile } from '../../context/UserProfileContext';
 import api from '../../api/axios';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
 import { providerProfileSchema } from '../../validations/providerSchemas';
+import { uploadCitizenshipDocument, uploadCertificate } from '../../utils/supabaseStorage';
 
 const allowedCertificateTypes = [
     'application/pdf',
@@ -235,6 +236,26 @@ function CompleteProviderProfile() {
                 longitude: locationData.longitude ?? locationData.lng ?? null,
             };
 
+            // Get current user ID for Supabase uploads
+            const meResponse = await api.get('/auth/me/', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const userId = meResponse.data.id;
+
+            // Upload citizenship documents directly to Supabase
+            let citizenshipFrontUrl = null;
+            let citizenshipBackUrl = null;
+
+            if (data.citizenshipFront) {
+                const frontResult = await uploadCitizenshipDocument(data.citizenshipFront, userId, 'front');
+                citizenshipFrontUrl = frontResult.url;
+            }
+
+            if (data.citizenshipBack) {
+                const backResult = await uploadCitizenshipDocument(data.citizenshipBack, userId, 'back');
+                citizenshipBackUrl = backResult.url;
+            }
+
             await api.post(
                 '/auth/update-user-type/',
                 {
@@ -246,6 +267,9 @@ function CompleteProviderProfile() {
                     bio: data.bio,
                     specialities: data.specialities,
                     specializations: data.specializations,
+                    citizenship_front: citizenshipFrontUrl,
+                    citizenship_back: citizenshipBackUrl,
+                    citizenship_number: data.citizenshipNumber,
                 },
                 {
                     headers: {
@@ -254,28 +278,29 @@ function CompleteProviderProfile() {
                 }
             );
 
-            const citizenshipFormData = new FormData();
-            citizenshipFormData.append('citizenship_front', data.citizenshipFront);
-            citizenshipFormData.append('citizenship_back', data.citizenshipBack);
-            citizenshipFormData.append('citizenship_number', data.citizenshipNumber);
-
-            await api.post('/auth/upload-citizenship/', citizenshipFormData, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
-
+            // Upload certificates directly to Supabase
             if (data.certificates?.length) {
-                const certificatesFormData = new FormData();
-                data.certificates.forEach((cert) => {
-                    certificatesFormData.append('certificates', cert.file);
+                const certificateUploadPromises = data.certificates.map(async (cert) => {
+                    try {
+                        const uploadResult = await uploadCertificate(cert.file, userId, cert.name);
+                        return {
+                            name: cert.name,
+                            url: uploadResult.url,
+                        };
+                    } catch (err) {
+                        console.error(`Failed to upload certificate ${cert.name}:`, err);
+                        throw err;
+                    }
                 });
 
-                await api.post('/auth/upload-certificates/', certificatesFormData, {
+                const uploadedCertificates = await Promise.all(certificateUploadPromises);
+                
+                // Send certificate URLs to backend
+                await api.post('/auth/save-certificates/', {
+                    certificates: uploadedCertificates
+                }, {
                     headers: {
                         Authorization: `Bearer ${token}`,
-                        'Content-Type': 'multipart/form-data',
                     },
                 });
             }

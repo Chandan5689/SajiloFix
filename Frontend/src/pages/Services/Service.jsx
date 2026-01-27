@@ -259,9 +259,10 @@ export default function Service() {
         availability: provider.availability_status || "Schedule on request",
         specialties: provider.specializations || [],
         img: (() => {
-          if (provider.profile_picture) {
-            if (String(provider.profile_picture).startsWith('http')) return provider.profile_picture;
-            const path = String(provider.profile_picture).startsWith('/') ? String(provider.profile_picture).slice(1) : String(provider.profile_picture);
+          const url = provider.profile_picture_url || provider.profile_picture || null;
+          if (url) {
+            if (String(url).startsWith('http')) return url;
+            const path = String(url).startsWith('/') ? String(url).slice(1) : String(url);
             return API_ORIGIN + path;
           }
           return "https://randomuser.me/api/portraits/men/32.jpg";

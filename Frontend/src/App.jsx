@@ -38,6 +38,7 @@ import React from 'react';
 import Chatbot from './components/Chatbot';
 import { ToastProvider } from './components/Toast';
 import { UserProfileProvider } from './context/UserProfileContext';
+import TestPage from './pages/TestPage.jsx';
 
 function ProtectedRoute({ children }) {
     const { isAuthenticated, loading } = useSupabaseAuth();
@@ -72,6 +73,7 @@ function App() {
                             <main>
                                 <Routes>
                                     {/* Public Routes */}
+                                    <Route path="/test-page" element={<TestPage />} />
                                     <Route path='/' element={<HomePage />} />
                                     <Route path='/about' element={<About />} />
                                     <Route path='/contact' element={<Contact />} />

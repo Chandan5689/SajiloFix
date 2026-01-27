@@ -6,6 +6,7 @@ import ProviderDashboardLayout from '../../../layouts/ProviderDashboardLayout';
 import { MdEdit, MdSave, MdCancel } from 'react-icons/md';
 import api from '../../../api/axios';
 import { providerProfileEditSchema } from '../../../validations/providerSchemas';
+import { uploadProfilePicture } from '../../../utils/supabaseStorage';
 
 export default function ProviderProfile() {
     const navigate = useNavigate();
@@ -181,23 +182,31 @@ export default function ProviderProfile() {
         setSaving(true);
 
         try {
-            const profileFormData = new FormData();
-            profileFormData.append('business_name', data.businessName || '');
-            profileFormData.append('years_of_experience', parseInt(data.yearsOfExperience) || 0);
-            profileFormData.append('service_area', data.serviceArea || '');
-            profileFormData.append('city', data.city || '');
-            profileFormData.append('address', data.address || '');
-            profileFormData.append('bio', data.bio || '');
-
+            // Upload profile picture directly to Supabase if provided
+            let profilePictureUrl = profileData?.profile_picture; // Keep existing if no new file
+            
             if (data.profilePicture) {
-                profileFormData.append('profile_picture', data.profilePicture);
+                const userId = profileData?.id;
+                const uploadResult = await uploadProfilePicture(data.profilePicture, userId);
+                profilePictureUrl = uploadResult.url;
             }
 
-            await api.patch('/auth/me/update/', profileFormData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
+            // Create update payload with URL instead of file
+            const profileUpdateData = {
+                business_name: data.businessName || '',
+                years_of_experience: parseInt(data.yearsOfExperience) || 0,
+                service_area: data.serviceArea || '',
+                city: data.city || '',
+                address: data.address || '',
+                bio: data.bio || '',
+            };
+
+            // Include profile picture URL if changed
+            if (data.profilePicture && profilePictureUrl) {
+                profileUpdateData.profile_picture = profilePictureUrl;
+            }
+
+            await api.patch('/auth/me/update/', profileUpdateData);
 
             const userTypeFormData = new FormData();
             userTypeFormData.append('user_type', 'offer');

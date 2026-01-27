@@ -997,7 +997,7 @@ export default function BookingPage() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-4">
               <img
-                src={provider.profile_picture || "https://randomuser.me/api/portraits/men/32.jpg"}
+                src={provider.profile_picture_url || provider.profile_picture || "https://randomuser.me/api/portraits/men/32.jpg"}
                 alt={providerName}
                 className="w-14 h-14 rounded-full object-cover"
               />
