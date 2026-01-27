@@ -24,6 +24,7 @@ from .views import (
     UpdateUserTypeView,
     UploadCitizenshipView,
     UploadCertificatesView,
+    SaveCertificatesView,
     SpecialitiesListView,
     SpecializationsListView,
     LocationsListView
@@ -38,6 +39,7 @@ urlpatterns = [
     path('update-user-type/', UpdateUserTypeView.as_view(), name='update-user-type'),
     path('upload-citizenship/', UploadCitizenshipView.as_view(), name='upload-citizenship'),
     path('upload-certificates/', UploadCertificatesView.as_view(), name='upload-certificates'),
+    path('save-certificates/', SaveCertificatesView.as_view(), name='save-certificates'),
     path('registration-status/', RegistrationStatusView.as_view(), name='registration-status'),
     
     # Lookup endpoints

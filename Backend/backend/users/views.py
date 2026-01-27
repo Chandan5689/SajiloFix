@@ -1,10 +1,11 @@
+
+# --- Imports ---
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, BasePermission
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.contrib.auth import get_user_model
-from rest_framework.permissions import BasePermission
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db.models import Q
@@ -14,6 +15,23 @@ from .models import Speciality, Specialization, UserSpeciality, UserSpecializati
 from .authentication import SupabaseAuthentication
 
 User = get_user_model()
+
+# --- Permissions ---
+class IsAdminUserType(BasePermission):
+    """Allow access only to users with user_type='admin'"""
+    message = 'Admin privileges required.'
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and getattr(request.user, 'user_type', None) == 'admin')
+
+# Example admin-only view using IsAdminUserType
+class AdminOnlyUserListView(generics.ListAPIView):
+    """List all users (admin only)"""
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAdminUserType]
+    serializer_class = UserSerializer
+
+    def get_queryset(self):
+        return User.objects.all()
 
 class IsRegistrationComplete(BasePermission):
     """Permission to check if user has completed registration (phone verified)"""
@@ -46,6 +64,7 @@ class RegistrationStatusView(APIView):
             'phone_number': user.phone_number,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
+            'is_admin': user.user_type == 'admin',
         })
 
 
@@ -121,7 +140,9 @@ class VerifyPhoneView(APIView):
         user.phone_number = phone_number
         user.phone_verified = True
         user.firebase_phone_uid = firebase_uid
-        user.registration_completed = True
+        # Only set registration_completed for 'find' users here. Providers complete registration after full profile.
+        if user.user_type == 'find':
+            user.registration_completed = True
         user.save()
         
         return Response({
@@ -162,9 +183,24 @@ class UpdateUserTypeView(APIView):
         if request.data.get('last_name'):
             user.last_name = request.data.get('last_name')
         
-        # Update profile picture if provided
-        if 'profile_picture' in request.FILES:
-            user.profile_picture = request.FILES['profile_picture']
+        # Update profile picture if provided (now accepts URL string from Supabase)
+        if 'profile_picture' in request.data and request.data['profile_picture']:
+            user.profile_picture = request.data['profile_picture']
+        
+        # Update citizenship documents if provided (now accepts URL strings from Supabase)
+        if 'citizenship_front' in request.data and request.data['citizenship_front']:
+            user.citizenship_front = request.data['citizenship_front']
+        if 'citizenship_back' in request.data and request.data['citizenship_back']:
+            user.citizenship_back = request.data['citizenship_back']
+        if 'citizenship_number' in request.data and request.data['citizenship_number']:
+            citizenship_num = request.data['citizenship_number'].strip()
+            # Validate citizenship number format (must be exactly 11 digits)
+            if citizenship_num and (not citizenship_num.isdigit() or len(citizenship_num) != 11):
+                return Response(
+                    {'error': 'Citizenship number must be exactly 11 digits'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            user.citizenship_number = citizenship_num
         
         # Persist selected user type
         user.user_type = user_type
@@ -346,8 +382,7 @@ class UpdateUserTypeView(APIView):
                     for sp in spec_qs:
                         UserSpecialization.objects.create(user=user, specialization=sp)
         
-        # Mark registration as completed for service seekers (find)
-        # Service providers will complete registration in the provider profile step
+        # Mark registration as completed for service seekers (find) only
         if user_type == 'find':
             user.registration_completed = True
         
@@ -359,10 +394,10 @@ class UpdateUserTypeView(APIView):
         })
 
 class UploadCitizenshipView(APIView):
-    """Upload citizenship/national ID documents"""
+    """Upload citizenship/national ID documents - Now accepts URLs from Supabase"""
     authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]  # Accept both JSON and files
     
     @method_decorator(csrf_exempt)
     def dispatch(self, *args, **kwargs):
@@ -371,11 +406,17 @@ class UploadCitizenshipView(APIView):
     def post(self, request):
         user = request.user
         
-        citizenship_front = request.FILES.get('citizenship_front')
-        citizenship_back = request.FILES.get('citizenship_back')
+        # Check if URLs are provided (new Supabase approach)
+        citizenship_front_url = request.data.get('citizenship_front')
+        citizenship_back_url = request.data.get('citizenship_back')
         citizenship_number = request.data.get('citizenship_number')
         
-        if not citizenship_front or not citizenship_back:
+        # Legacy support: Check if files are uploaded (old approach)
+        citizenship_front_file = request.FILES.get('citizenship_front')
+        citizenship_back_file = request.FILES.get('citizenship_back')
+        
+        # Require either URLs or files
+        if not (citizenship_front_url or citizenship_front_file) or not (citizenship_back_url or citizenship_back_file):
             return Response(
                 {'error': 'Both front and back images of citizenship are required'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -390,23 +431,32 @@ class UploadCitizenshipView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Validate file size (max 5MB each)
-        for file in [citizenship_front, citizenship_back]:
-            if file.size > 5 * 1024 * 1024:
+        # Update user - prefer URLs, fallback to files
+        if citizenship_front_url:
+            user.citizenship_front = citizenship_front_url
+        elif citizenship_front_file:
+            # Validate file size for legacy uploads
+            if citizenship_front_file.size > 5 * 1024 * 1024:
                 return Response(
-                    {'error': f'{file.name} is too large. Maximum size is 5MB'},
+                    {'error': f'{citizenship_front_file.name} is too large. Maximum size is 5MB'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            user.citizenship_front = citizenship_front_file
         
-        # Update user
-        user.citizenship_front = citizenship_front
-        user.citizenship_back = citizenship_back
+        if citizenship_back_url:
+            user.citizenship_back = citizenship_back_url
+        elif citizenship_back_file:
+            # Validate file size for legacy uploads
+            if citizenship_back_file.size > 5 * 1024 * 1024:
+                return Response(
+                    {'error': f'{citizenship_back_file.name} is too large. Maximum size is 5MB'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            user.citizenship_back = citizenship_back_file
+        
         user.citizenship_number = citizenship_number or ''
         
-        # Mark registration as complete for service providers
-        # (they've provided all required documents)
-        if user.user_type == 'offer':
-            user.registration_completed = True
+        # Do not mark registration as complete here; wait for full profile completion
         
         user.save()
         
@@ -456,6 +506,58 @@ class UploadCertificatesView(APIView):
         
         return Response({
             'message': f'{len(uploaded_certificates)} certificate(s) uploaded successfully',
+            'certificates': CertificateSerializer(
+                uploaded_certificates, 
+                many=True, 
+                context={'request': request}
+            ).data
+        })
+
+
+class SaveCertificatesView(APIView):
+    """Save certificate URLs (from Supabase) to database"""
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+    
+    def post(self, request):
+        user = request.user
+        certificates_data = request.data.get('certificates', [])
+        
+        if not certificates_data:
+            return Response(
+                {'error': 'No certificates provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        uploaded_certificates = []
+        
+        for cert_data in certificates_data:
+            cert_name = cert_data.get('name', 'Certificate')
+            cert_url = cert_data.get('url')
+            
+            if not cert_url:
+                continue
+            
+            # Create certificate with URL
+            certificate = Certificate.objects.create(
+                user=user,
+                name=cert_name,
+                file=cert_url  # Now stores URL instead of file
+            )
+            uploaded_certificates.append(certificate)
+
+        # After all required details are provided, mark provider registration as complete
+        if user.user_type == 'offer':
+            user.registration_completed = True
+            user.save()
+        
+        return Response({
+            'message': f'{len(uploaded_certificates)} certificate(s) saved successfully',
             'certificates': CertificateSerializer(
                 uploaded_certificates, 
                 many=True, 

@@ -20,11 +20,25 @@ def user_citizenship_path(instance, filename):
     return os.path.join('citizenship', filename)
 
 class User(AbstractUser):
+    def save(self, *args, **kwargs):
+        # Ensure superusers always have user_type 'admin'
+        if self.is_superuser:
+            self.user_type = 'admin'
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def create_superuser(cls, email, password, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('user_type', 'admin')
+        return cls.objects.create_user(email, password, **extra_fields)
+
     USER_TYPE_CHOICES = (
         ('find', 'Find Services'),
         ('offer', 'Offer Services'),
+        ('admin', 'Admin'),
     )
-    
+
     # Phone number validator for exactly 10 digits
     phone_regex = RegexValidator(
         regex=r'^(97|98)\d{8}$',
@@ -49,7 +63,7 @@ class User(AbstractUser):
         null=True
     )
     user_type = models.CharField(max_length=10, choices=USER_TYPE_CHOICES, default='find')
-    
+
     # Middle name (optional)
     middle_name = models.CharField(max_length=150, blank=True, null=True)
 
@@ -65,13 +79,13 @@ class User(AbstractUser):
     phone_verified = models.BooleanField(default=False)
     firebase_phone_uid = models.CharField(max_length=255, blank=True, null=True)
     registration_completed = models.BooleanField(default=False, help_text="Set to True only after phone verification is complete")
-    
+
     # Profile Picture
-    profile_picture = models.ImageField(
-        upload_to=user_profile_picture_path, 
+    profile_picture = models.URLField(
+        max_length=500,
         blank=True, 
         null=True,
-        help_text="Profile picture of the user"
+        help_text="Profile picture URL from Supabase Storage"
     )
     # Location field for all users
     location = models.CharField(
@@ -87,28 +101,27 @@ class User(AbstractUser):
     postal_code = models.CharField(max_length=20, blank=True, null=True)
     latitude = models.FloatField(blank=True, null=True)
     longitude = models.FloatField(blank=True, null=True)
-    
+
     # Professional Bio
     bio = models.TextField(blank=True, null=True)
-    
+
     # Business Information (for service providers)
     business_name = models.CharField(max_length=255, blank=True, null=True)
     years_of_experience = models.IntegerField(default=0, blank=True, null=True)
     service_area = models.CharField(max_length=255, blank=True, null=True)
 
-
     # Citizenship/National ID (for service providers)
-    citizenship_front = models.ImageField(
-        upload_to=user_citizenship_path,
+    citizenship_front = models.URLField(
+        max_length=500,
         blank=True,
         null=True,
-        help_text="Front side of citizenship or national ID card"
+        help_text="Front side of citizenship or national ID card - Supabase URL"
     )
-    citizenship_back = models.ImageField(
-        upload_to=user_citizenship_path,
+    citizenship_back = models.URLField(
+        max_length=500,
         blank=True,
         null=True,
-        help_text="Back side of citizenship or national ID card"
+        help_text="Back side of citizenship or national ID card - Supabase URL"
     )
     citizenship_number = models.CharField(
         max_length=11,
@@ -118,21 +131,18 @@ class User(AbstractUser):
         help_text="Citizenship or national ID number (11 digits)"
     )
     citizenship_verified = models.BooleanField(default=False)
-    
-    
+
     # Status
     is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    
-    
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
-    
+
     def __str__(self):
         return self.email
-    
+
     class Meta:
         verbose_name = 'User'
         verbose_name_plural = 'Users'
@@ -197,7 +207,7 @@ class Certificate(models.Model):
     """User certificates and documents"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='certificates')
     name = models.CharField(max_length=255)
-    file = models.FileField(upload_to=user_certificate_path)
+    file = models.URLField(max_length=500, help_text="Certificate URL from Supabase Storage")
     uploaded_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):

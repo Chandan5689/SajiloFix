@@ -32,11 +32,8 @@ class CertificateSerializer(serializers.ModelSerializer):
         read_only_fields = ['uploaded_at']
     
     def get_file_url(self, obj):
-        if obj.file:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.file.url)
-        return None
+        """Return certificate URL (already a full Supabase URL)"""
+        return obj.file if obj.file else None
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -68,28 +65,16 @@ class UserSerializer(serializers.ModelSerializer):
         return ' '.join([p for p in parts if p]).strip()
     
     def get_profile_picture_url(self, obj):
-        """Return absolute URL for profile picture"""
-        if obj.profile_picture:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.profile_picture.url)
-        return None
+        """Return profile picture URL (already a full Supabase URL)"""
+        return obj.profile_picture if obj.profile_picture else None
     
     def get_citizenship_front_url(self, obj):
-        """Return absolute URL for citizenship front"""
-        if obj.citizenship_front:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.citizenship_front.url)
-        return None
+        """Return citizenship front URL (already a full Supabase URL)"""
+        return obj.citizenship_front if obj.citizenship_front else None
     
     def get_citizenship_back_url(self, obj):
-        """Return absolute URL for citizenship back"""
-        if obj.citizenship_back:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.citizenship_back.url)
-        return None
+        """Return citizenship back URL (already a full Supabase URL)"""
+        return obj.citizenship_back if obj.citizenship_back else None
     
     def get_specialities(self, obj):
         """Get all specialities for the user"""

@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'users',
     'chatbot',
     'bookings',
+    'storages',
     
     
 ]
@@ -176,10 +177,12 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# Set default storage backend
+DEFAULT_FILE_STORAGE = 'users.supabase_storage.SupabaseStorage'
 
+# Media files configuration (for backward compatibility)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -218,6 +221,7 @@ REST_FRAMEWORK = {
 
 # Supabase Settings
 SUPABASE_URL = config('SUPABASE_URL', default='')
+SUPABASE_KEY = config('SUPABASE_ANON_KEY', default='')  # Used by storage backend
 SUPABASE_ANON_KEY = config('SUPABASE_ANON_KEY', default='')
 SUPABASE_JWT_SECRET = config('SUPABASE_JWT_SECRET', default='')
 
