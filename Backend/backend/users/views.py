@@ -56,10 +56,12 @@ class RegistrationStatusView(APIView):
     def get(self, request):
         print(f"RegistrationStatusView called - User: {request.user}, Authenticated: {request.user.is_authenticated}")
         user = request.user
+        admin_complete = user.is_staff or user.is_superuser
+        effective_user_type = 'admin' if admin_complete else user.user_type
         return Response({
             'phone_verified': user.phone_verified,
-            'registration_completed': user.registration_completed,
-            'user_type': user.user_type,
+            'registration_completed': user.registration_completed or admin_complete,
+            'user_type': effective_user_type,
             'email': user.email,
             'phone_number': user.phone_number,
             'is_staff': user.is_staff,

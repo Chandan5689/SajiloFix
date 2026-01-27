@@ -50,6 +50,13 @@ api.interceptors.request.use(
             }
             console.error('Error in auth interceptor:', error);
         }
+
+        // If the request body is FormData, remove Content-Type header
+        // so the browser can set it with the proper boundary
+        if (config.data instanceof FormData) {
+            delete config.headers['Content-Type'];
+        }
+
         return config;
     },
     (error) => {

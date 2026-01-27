@@ -27,6 +27,10 @@ function DashboardRouter() {
         return <Navigate to="/login" replace />;
     }
 
+    if (userType === 'admin') {
+        return <Navigate to="/admin" replace />;
+    }
+
     if (userType === 'offer') {
         return <ProviderDashboard />;
     }

@@ -204,6 +204,8 @@ export const UserProfileProvider = ({ children }) => {
 
   const userType = registrationStatus?.user_type || userProfile?.user_type || null;
   const isAdmin = userType === 'admin';
+  
+
   const value = useMemo(
     () => ({
       userProfile,

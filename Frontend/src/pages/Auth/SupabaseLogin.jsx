@@ -91,11 +91,17 @@ function SupabaseLogin() {
                 // Check registration status and redirect accordingly
                 if (userType === 'admin' && isAdmin) {
                     setLoading(false);
-                    window.location.href = 'http://127.0.0.1:8000/admin/';
+                    navigate('/admin');
                     return;
                 }
 
-                if (response.data.registration_completed) {
+                // If non-admin selected wrong tab - deny
+                if (userType !== 'admin' && actualUserType !== userType) {
+                    await signOut();
+                    const roleLabel = actualUserType === 'find' ? 'Customer' : 'Provider';
+                    const correctTab = actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab';
+                    setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
+                    setValue('password', '');
                     setLoading(false);
                     if (actualUserType === 'offer') {
                         navigate('/provider/dashboard');
