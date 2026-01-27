@@ -3,7 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
-import { FcGoogle } from 'react-icons/fc';
 import { useSupabaseAuth } from '../../context/SupabaseAuthContext';
 import { registrationSchema, emailVerificationSchema } from '../../validations/authSchemas';
 import api from '../../api/axios';
@@ -12,7 +11,7 @@ import AddressAutocomplete from '../../components/AddressAutocomplete';
 import { uploadProfilePicture } from '../../utils/supabaseStorage';
 
 function SupabaseRegister() {
-    const { signUp, signInWithOAuth, resendEmailOtp, verifyEmailOtp } = useSupabaseAuth();
+    const { signUp, resendEmailOtp, verifyEmailOtp } = useSupabaseAuth();
     const navigate = useNavigate();
 
     const [step, setStep] = useState(1); // 1: Basic Info, 2: Email Verification
@@ -193,9 +192,9 @@ function SupabaseRegister() {
             
             // Route based on user type
             if (registerData.userType === 'offer') {
-                navigate('/complete-provider-profile', { state: { location: registerData.location } });
+                navigate('/complete-provider-profile', { state: { location: registerData.location }, replace: true });
             } else {
-                navigate('/');
+                navigate('/', { replace: true });
             }
             return;
         } catch (err) {
@@ -225,9 +224,9 @@ function SupabaseRegister() {
             console.log('📱 Phone verified! Registration complete.');
             // Route based on user type
             if (userType === 'offer') {
-                navigate('/complete-provider-profile', { state: { location } });
+                navigate('/complete-provider-profile', { state: { location }, replace: true });
             } else {
-                navigate('/');
+                navigate('/', { replace: true });
             }
         } catch (err) {
             console.error('Navigation error:', err);
@@ -235,15 +234,6 @@ function SupabaseRegister() {
         }
     };
     */
-
-    const handleGoogleSignup = async () => {
-        try {
-            await signInWithOAuth('google');
-        } catch (err) {
-            console.error('Google signup error:', err);
-            setError('Google signup failed. Please try again.');
-        }
-    };
 
     // Step 2: Email verification form
     if (step === 2) {

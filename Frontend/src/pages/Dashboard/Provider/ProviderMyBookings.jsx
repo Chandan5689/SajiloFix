@@ -139,12 +139,24 @@ export default function ProviderMyBookings() {
 
     const getServiceTitle = (booking) => {
         if (!booking) return "Service";
+        // If booking has multiple services, return all titles
+        if (booking.booking_services && Array.isArray(booking.booking_services) && booking.booking_services.length > 0) {
+            return booking.booking_services.map(bs => bs.service_title || bs.specialization_name || 'Service').join(', ');
+        }
         return (
             booking.service_title ||
             booking.service?.title ||
             booking.service?.name ||
             "Service"
         );
+    };
+
+    // Get count of services in booking
+    const getServiceCount = (booking) => {
+        if (booking && booking.booking_services && Array.isArray(booking.booking_services)) {
+            return booking.booking_services.length;
+        }
+        return 1;
     };
 
     // Handle Accept Booking
@@ -422,8 +434,15 @@ export default function ProviderMyBookings() {
                             className="bg-white p-6 rounded-lg shadow border border-gray-100"
                         >
                             <div className="flex justify-between items-start mb-3">
-                                <div>
-                                    <p className="font-semibold text-lg">{getServiceTitle(booking)}</p>
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <p className="font-semibold text-lg">{getServiceTitle(booking)}</p>
+                                        {getServiceCount(booking) > 1 && (
+                                            <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                                                {getServiceCount(booking)} services
+                                            </span>
+                                        )}
+                                    </div>
                                     <p className="text-gray-600 text-sm flex items-center gap-1">
                                         <MdPerson className="inline" /> {booking.customer_name}
                                     </p>
@@ -561,11 +580,24 @@ export default function ProviderMyBookings() {
                 <Modal onClose={() => setShowDeclineModal(false)}>
                     <div className="p-6">
                         <h3 className="text-lg font-semibold mb-4">Decline Booking</h3>
-                        <p className="text-gray-600 mb-4">
-                            Are you sure you want to decline the booking for{" "}
-                            <strong>{getServiceTitle(selectedBooking)}</strong> from{" "}
+                        <p className="text-gray-600 mb-2">
+                            Are you sure you want to decline the booking from{" "}
                             <strong>{selectedBooking.customer_name}</strong>?
                         </p>
+                        {getServiceCount(selectedBooking) > 1 ? (
+                            <div className="mb-4">
+                                <p className="text-sm text-gray-500 mb-1">Services:</p>
+                                <ul className="list-disc list-inside text-sm text-gray-700">
+                                    {selectedBooking.booking_services?.map((bs, idx) => (
+                                        <li key={idx}>{bs.service_title || bs.specialization_name || 'Service'}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : (
+                            <p className="text-gray-600 mb-4">
+                                <strong>{getServiceTitle(selectedBooking)}</strong>
+                            </p>
+                        )}
                         <textarea
                             placeholder="Reason for declining (optional)"
                             value={declineReason}
@@ -623,7 +655,18 @@ export default function ProviderMyBookings() {
                         </div>
 
                         <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
-                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{getServiceTitle(selectedBooking)}</span></p>
+                            {getServiceCount(selectedBooking) > 1 ? (
+                                <>
+                                    <p className="font-semibold mb-1">Services:</p>
+                                    <ul className="list-disc list-inside mb-2">
+                                        {selectedBooking.booking_services?.map((bs, idx) => (
+                                            <li key={idx}>{bs.service_title || bs.specialization_name || 'Service'}</li>
+                                        ))}
+                                    </ul>
+                                </>
+                            ) : (
+                                <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{getServiceTitle(selectedBooking)}</span></p>
+                            )}
                             <p className="flex justify-between"><span className="font-semibold">Customer:</span> <span>{selectedBooking.customer_name}</span></p>
                             <p className="mt-2 text-orange-700 font-semibold text-xs">After photos are required to complete the job.</p>
                         </div>
@@ -789,9 +832,20 @@ export default function ProviderMyBookings() {
                         <h3 className="text-xl font-semibold mb-4">Booking Details</h3>
                         <div className="space-y-4 text-sm">
                             <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <p className="text-gray-500 font-semibold">Service</p>
-                                    <p>{getServiceTitle(selectedBooking)}</p>
+                                <div className="col-span-2">
+                                    <p className="text-gray-500 font-semibold mb-2">Service{getServiceCount(selectedBooking) > 1 ? 's' : ''}</p>
+                                    {selectedBooking.booking_services && selectedBooking.booking_services.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {selectedBooking.booking_services.map((bs, idx) => (
+                                                <div key={idx} className="flex justify-between items-center bg-gray-50 p-2 rounded">
+                                                    <span>{bs.service_title || bs.specialization_name || 'Service'}</span>
+                                                    <span className="text-gray-600 font-medium">Rs. {bs.price_at_booking || 0}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p>{getServiceTitle(selectedBooking)}</p>
+                                    )}
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Customer</p>
@@ -802,8 +856,8 @@ export default function ProviderMyBookings() {
                                     <p>{getStatusDisplay(selectedBooking.status)}</p>
                                 </div>
                                 <div>
-                                    <p className="text-gray-500 font-semibold">Price</p>
-                                    <p>{getBookingPrice(selectedBooking)}</p>
+                                    <p className="text-gray-500 font-semibold">Total Price</p>
+                                    <p className="font-semibold text-green-600">{getBookingPrice(selectedBooking)}</p>
                                 </div>
                                 {/* Only show phone after booking is accepted */}
                                 {["confirmed", "scheduled", "in_progress", "completed", "provider_completed", "awaiting_customer"].includes(selectedBooking.status) && (

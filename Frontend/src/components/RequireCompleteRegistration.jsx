@@ -19,12 +19,12 @@ function RequireCompleteRegistration({ children }) {
         if (loading) return;
 
         if (!isAuthenticated) {
-            navigate('/login');
+            navigate('/login', { replace: true });
             return;
         }
 
         if (!isRegistrationComplete && !isAdmin) {
-            navigate('/register');
+            navigate('/register', { replace: true });
         }
     }, [loading, isAuthenticated, isRegistrationComplete, isAdmin, navigate]);
 

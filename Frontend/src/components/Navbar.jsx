@@ -42,7 +42,7 @@ function Navbar() {
     const handleLogout = async () => {
         await signOut();
         setIsDropdownOpen(false);
-        navigate('/');
+        navigate('/', { replace: true });
     };
 
     const getInitials = () => {

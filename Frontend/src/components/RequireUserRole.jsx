@@ -20,7 +20,7 @@ function RequireUserRole({ children }) {
             if (loading) return;
 
             if (!isAuthenticated) {
-                navigate('/login');
+                navigate('/login', { replace: true });
                 return;
             }
 
@@ -37,15 +37,15 @@ function RequireUserRole({ children }) {
                     } else {
                         // User is 'offer' type, redirect to provider dashboard
                         console.log('⚠️ Access denied: User is a provider, redirecting to provider dashboard');
-                        navigate('/provider/dashboard');
+                        navigate('/provider/dashboard', { replace: true });
                     }
                 } else {
                     console.error('Failed to check user type');
-                    navigate('/');
+                    navigate('/', { replace: true });
                 }
             } catch (error) {
                 console.error('Error checking user type:', error);
-                navigate('/');
+                navigate('/', { replace: true });
             } finally {
                 setChecking(false);
             }

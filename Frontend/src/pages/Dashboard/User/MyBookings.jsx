@@ -154,6 +154,22 @@ export default function MyBookingsPage() {
         return "TBD";
     };
 
+    // Get all service titles from booking_services array
+    const getAllServiceTitles = (booking) => {
+        if (booking.booking_services && Array.isArray(booking.booking_services) && booking.booking_services.length > 0) {
+            return booking.booking_services.map(bs => bs.service_title || bs.specialization_name || 'Service').join(', ');
+        }
+        return booking.service_title || 'Service';
+    };
+
+    // Get count of services in booking
+    const getServiceCount = (booking) => {
+        if (booking.booking_services && Array.isArray(booking.booking_services)) {
+            return booking.booking_services.length;
+        }
+        return 1;
+    };
+
     // Handle booking cancellation
     const handleCancelBooking = async () => {
         if (!selectedBooking) return;
@@ -420,9 +436,16 @@ export default function MyBookingsPage() {
                                 key={booking.id}
                                 className="bg-white p-6 rounded-lg shadow border border-gray-100"
                             >
-                                <div className="flex justify-between items-center mb-2">
-                                    <div>
-                                        <p className="font-semibold text-lg">{booking.service_title}</p>
+                                <div className="flex justify-between items-start mb-2">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <p className="font-semibold text-lg">{getAllServiceTitles(booking)}</p>
+                                            {getServiceCount(booking) > 1 && (
+                                                <span className="bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                                                    {getServiceCount(booking)} services
+                                                </span>
+                                            )}
+                                        </div>
                                         <p className="text-gray-700 text-sm">Provider: <span className="text-base text-gray-800 font-semibold capitalize">{booking.provider_name}</span></p>
 
             {hasMore && (
@@ -552,7 +575,7 @@ export default function MyBookingsPage() {
                     <div className="p-6">
                         <h3 className="text-lg font-semibold mb-4">Cancel Booking</h3>
                         <p className="text-gray-600 mb-4">
-                            Are you sure you want to cancel this booking for <strong>{selectedBooking.service_title}</strong>?
+                            Are you sure you want to cancel this booking for <strong>{getAllServiceTitles(selectedBooking)}</strong>?
                         </p>
                         <textarea
                             placeholder="Reason for cancellation (optional)"
@@ -617,7 +640,7 @@ export default function MyBookingsPage() {
                         </div>
 
                         <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
-                            <p className="flex justify-between"><span className="font-semibold">Service:</span> <span>{selectedBooking.service_title}</span></p>
+                            <p className="flex justify-between"><span className="font-semibold">Service{getServiceCount(selectedBooking) > 1 ? 's' : ''}:</span> <span>{getAllServiceTitles(selectedBooking)}</span></p>
                             <p className="flex justify-between"><span className="font-semibold">Provider:</span> <span>{selectedBooking.provider_name}</span></p>
                             <p className="mt-2 text-red-700 font-semibold text-xs">📸 Photos are required to support your dispute claim.</p>
                         </div>
@@ -720,7 +743,10 @@ export default function MyBookingsPage() {
                         <div className="bg-gray-50 border border-gray-200 rounded-md p-4 mb-4 text-sm">
                             <div className="flex justify-between items-center">
                                 <div>
-                                    <p className="font-semibold text-gray-800">{selectedBooking.service_title}</p>
+                                    <p className="font-semibold text-gray-800">{getAllServiceTitles(selectedBooking)}</p>
+                                    {getServiceCount(selectedBooking) > 1 && (
+                                        <p className="text-xs text-green-600 mt-1">{getServiceCount(selectedBooking)} services booked</p>
+                                    )}
                                     <p className="text-gray-600">Provider: {selectedBooking.provider_name}</p>
                                 </div>
                                 <div className="text-right">
@@ -820,9 +846,20 @@ export default function MyBookingsPage() {
                         <h3 className="text-xl font-semibold mb-4">Booking Details</h3>
                         <div className="space-y-4 text-sm">
                             <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <p className="text-gray-500 font-semibold">Service</p>
-                                    <p>{selectedBooking.service_title}</p>
+                                <div className="col-span-2">
+                                    <p className="text-gray-500 font-semibold">Service{getServiceCount(selectedBooking) > 1 ? 's' : ''}</p>
+                                    {selectedBooking.booking_services && selectedBooking.booking_services.length > 0 ? (
+                                        <div className="space-y-1 mt-1">
+                                            {selectedBooking.booking_services.map((bs, idx) => (
+                                                <div key={idx} className="flex justify-between items-start text-sm bg-gray-50 p-2 rounded">
+                                                    <span className="flex-1">{bs.service_title || bs.specialization_name}</span>
+                                                    <span className="text-gray-600 ml-2">{formatCurrency(bs.price_at_booking)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p>{selectedBooking.service_title}</p>
+                                    )}
                                 </div>
                                 <div>
                                     <p className="text-gray-500 font-semibold">Provider</p>
