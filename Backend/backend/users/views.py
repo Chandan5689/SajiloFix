@@ -89,7 +89,7 @@ class UpdateUserProfileView(generics.UpdateAPIView):
     authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     
     @method_decorator(csrf_exempt)
     def dispatch(self, *args, **kwargs):
