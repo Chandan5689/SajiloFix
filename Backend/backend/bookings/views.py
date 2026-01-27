@@ -30,6 +30,7 @@ from .serializers import (
 	ProviderListSerializer,
 	ProviderDetailSerializer
 )
+from .emails import send_booking_notification_to_provider, send_booking_acceptance_to_customer
 
 User = get_user_model()
 NPT = ZoneInfo("Asia/Kathmandu")
@@ -137,6 +138,21 @@ class AcceptBookingView(APIView):
 		booking.status = 'confirmed'
 		booking.accepted_at = booking.accepted_at or timezone.now()
 		booking.save()
+		
+		# Reload booking with booking_services to ensure they're available for email
+		booking.refresh_from_db()
+		
+		# Send email notification to customer (asynchronously to avoid blocking)
+		try:
+			send_booking_acceptance_to_customer(booking)
+			print(f"✅ Email sent to customer: {booking.customer.email}")
+		except Exception as e:
+			# Log error but don't fail the acceptance
+			import logging
+			logger = logging.getLogger(__name__)
+			logger.error(f"❌ Failed to send booking acceptance email: {str(e)}")
+			print(f"❌ Email error: {str(e)}")
+		
 		return Response(BookingSerializer(booking).data)
 
 
@@ -439,7 +455,62 @@ class ServicePublicListView(generics.ListAPIView):
 			except Exception:
 				pass
 		if q:
-			qs = qs.filter(Q(title__icontains=q) | Q(description__icontains=q))
+			# Smart search with comprehensive matching
+			search_terms = q.lower().strip().split()
+			
+			# Define service keywords mapping
+			service_keywords = {
+				'electric': ['electric', 'electrician', 'electrical', 'wiring', 'electricity'],
+				'plumb': ['plumb', 'plumber', 'plumbing', 'pipe', 'drain', 'water'],
+				'carpen': ['carpenter', 'carpentry', 'wood', 'furniture', 'cabinet'],
+				'paint': ['paint', 'painter', 'painting', 'color', 'wall'],
+				'clean': ['clean', 'cleaner', 'cleaning', 'housekeeping', 'maid'],
+				'repair': ['repair', 'fix', 'maintenance', 'service'],
+				'ac': ['ac', 'air', 'conditioning', 'hvac', 'cooling'],
+				'garden': ['garden', 'gardener', 'gardening', 'lawn', 'landscaping'],
+				'appliance': ['appliance', 'fridge', 'refrigerator', 'washing', 'machine'],
+			}
+			
+			# Collect all search variants
+			all_variants = set()
+			for term in search_terms:
+				all_variants.add(term)
+				
+				# Add suffix variants
+				if term.endswith('ian'):
+					all_variants.add(term[:-3])  # electrician -> electric
+					all_variants.add(term[:-3] + 'al')  # electrician -> electrical
+				elif term.endswith('er'):
+					all_variants.add(term[:-2])  # plumber -> plumb
+					all_variants.add(term[:-2] + 'ing')  # plumber -> plumbing
+				elif term.endswith('ing'):
+					all_variants.add(term[:-3])  # plumbing -> plumb
+					all_variants.add(term[:-3] + 'er')  # plumbing -> plumber
+				elif term.endswith('al'):
+					all_variants.add(term[:-2])  # electrical -> electric
+					all_variants.add(term[:-2] + 'ian')  # electrical -> electrician
+				
+				# Check for keyword matches
+				for key, related_terms in service_keywords.items():
+					if key in term or term in key:
+						all_variants.update(related_terms)
+						break
+			
+			# Build comprehensive Q objects
+			q_objects = Q()
+			for variant in all_variants:
+				q_objects |= (
+					Q(title__icontains=variant) |
+					Q(description__icontains=variant) |
+					Q(specialization__name__icontains=variant) |
+					Q(provider__first_name__icontains=variant) |
+					Q(provider__last_name__icontains=variant) |
+					Q(provider__bio__icontains=variant) |
+					Q(provider__city__icontains=variant) |
+					Q(provider__district__icontains=variant)
+				)
+			
+			qs = qs.filter(q_objects).distinct()
 		return qs.order_by('-created_at')
 
 
@@ -476,7 +547,22 @@ class CreateBookingView(generics.CreateAPIView):
 			now_npt = timezone.now().astimezone(NPT)
 			if requested_dt <= now_npt:
 				raise ValidationError({'preferred_time': f'Selected time is in the past. Current Nepal time: {now_npt.strftime("%Y-%m-%d %H:%M:%S")}'})
-		serializer.save(customer=self.request.user, provider=primary_service.provider)
+		booking = serializer.save(customer=self.request.user, provider=primary_service.provider)
+		
+		# Reload booking with booking_services to ensure they're available for email
+		booking.refresh_from_db()
+		
+		# Send email notification to provider (asynchronously to avoid blocking)
+		try:
+			send_booking_notification_to_provider(booking)
+			print(f"✅ Email sent to provider: {booking.provider.email}")
+		except Exception as e:
+			# Log error but don't fail the booking creation
+			import logging
+			logger = logging.getLogger(__name__)
+			logger.error(f"❌ Failed to send booking notification email: {str(e)}")
+			print(f"❌ Email error: {str(e)}")
+
 
 
 class UploadBookingImagesView(APIView):
@@ -905,18 +991,77 @@ class ProviderListView(generics.ListAPIView):
 			)
 		
 		if city:
-			qs = qs.filter(city__iexact=city)
+			qs = qs.filter(
+				Q(city__iexact=city) |  # Exact match (case-insensitive)
+				Q(city__icontains=city)  # Partial match
+			)
 		
 		if district:
-			qs = qs.filter(district__iexact=district)
+			qs = qs.filter(
+				Q(district__iexact=district) |  # Exact match (case-insensitive)
+				Q(district__icontains=district)  # Partial match
+			)
 		
 		if search:
-			qs = qs.filter(
-				Q(first_name__icontains=search) |
-				Q(last_name__icontains=search) |
-				Q(bio__icontains=search) |
-				Q(user_specializations__specialization__name__icontains=search)
-			)
+			# Smart search with comprehensive matching
+			search_terms = search.lower().strip().split()
+			
+			# Define service keywords mapping for intelligent matching
+			service_keywords = {
+				'electric': ['electric', 'electrician', 'electrical', 'wiring', 'electricity'],
+				'plumb': ['plumb', 'plumber', 'plumbing', 'pipe', 'drain', 'water'],
+				'carpen': ['carpenter', 'carpentry', 'wood', 'furniture', 'cabinet'],
+				'paint': ['paint', 'painter', 'painting', 'color', 'wall'],
+				'clean': ['clean', 'cleaner', 'cleaning', 'housekeeping', 'maid'],
+				'repair': ['repair', 'fix', 'maintenance', 'service'],
+				'ac': ['ac', 'air', 'conditioning', 'hvac', 'cooling'],
+				'garden': ['garden', 'gardener', 'gardening', 'lawn', 'landscaping'],
+				'appliance': ['appliance', 'fridge', 'refrigerator', 'washing', 'machine'],
+			}
+			
+			# Collect all search variants
+			all_variants = set()
+			for term in search_terms:
+				all_variants.add(term)
+				
+				# Add suffix variants
+				if term.endswith('ian'):
+					all_variants.add(term[:-3])  # electrician -> electric
+					all_variants.add(term[:-3] + 'al')  # electrician -> electrical
+				elif term.endswith('er'):
+					all_variants.add(term[:-2])  # plumber -> plumb
+					all_variants.add(term[:-2] + 'ing')  # plumber -> plumbing
+				elif term.endswith('ing'):
+					all_variants.add(term[:-3])  # plumbing -> plumb
+					all_variants.add(term[:-3] + 'er')  # plumbing -> plumber
+				elif term.endswith('al'):
+					all_variants.add(term[:-2])  # electrical -> electric
+					all_variants.add(term[:-2] + 'ian')  # electrical -> electrician
+				
+				# Check for keyword matches and add related terms
+				for key, related_terms in service_keywords.items():
+					if key in term or term in key:
+						all_variants.update(related_terms)
+						break
+			
+			# Build comprehensive Q objects
+			q_objects = Q()
+			for variant in all_variants:
+				q_objects |= (
+					Q(first_name__icontains=variant) |
+					Q(last_name__icontains=variant) |
+					Q(bio__icontains=variant) |
+					Q(city__icontains=variant) |
+					Q(district__icontains=variant) |
+					Q(user_specializations__specialization__name__icontains=variant) |
+					Q(user_specializations__specialization__speciality__name__icontains=variant) |
+					Q(user_specialities__speciality__name__icontains=variant) |
+					Q(services__title__icontains=variant) |
+					Q(services__description__icontains=variant) |
+					Q(services__specialization__name__icontains=variant)
+				)
+			
+			qs = qs.filter(q_objects)
 		
 		# Sort by rating (highest first)
 		qs = qs.distinct()
