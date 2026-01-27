@@ -31,7 +31,7 @@ const AdminSidebar = () => {
   // Handle logout
   const handleLogout = async () => {
     await signOut();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const menuItems = [

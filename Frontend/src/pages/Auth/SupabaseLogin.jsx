@@ -16,6 +16,7 @@ function SupabaseLogin() {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [typeMismatch, setTypeMismatch] = useState(null); // Store mismatch info
 
     // React Hook Form with Yup validation
     const {
@@ -72,10 +73,14 @@ function SupabaseLogin() {
                             return;
                         }
                     } else {
-                        await signOut();
+                        // Don't sign out - show mismatch dialog instead
                         const roleLabel = actualUserType === 'find' ? 'Customer' : actualUserType === 'offer' ? 'Provider' : 'Admin';
-                        const correctTab = actualUserType === 'find' ? 'the Customer tab' : actualUserType === 'offer' ? 'the Provider tab' : 'the Admin tab';
-                        setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
+                        setTypeMismatch({
+                            actualType: actualUserType,
+                            roleLabel: roleLabel,
+                            registrationComplete: response.data.registration_completed,
+                            session: result.session
+                        });
                         setValue('password', '');
                         setLoading(false);
                         return;
@@ -91,29 +96,28 @@ function SupabaseLogin() {
                 // Check registration status and redirect accordingly
                 if (userType === 'admin' && isAdmin) {
                     setLoading(false);
-                    navigate('/admin');
+                    navigate('/admin', { replace: true });
                     return;
                 }
 
-                // If non-admin selected wrong tab - deny
-                if (userType !== 'admin' && actualUserType !== userType) {
-                    await signOut();
-                    const roleLabel = actualUserType === 'find' ? 'Customer' : 'Provider';
-                    const correctTab = actualUserType === 'find' ? 'the Customer tab' : 'the Provider tab';
-                    setError(`⚠️ Account Type Mismatch!\n\nYou are registered as a ${roleLabel}.\nPlease click ${correctTab} above and try again.`);
-                    setValue('password', '');
+                // Check registration completion status
+                const isRegistrationComplete = response.data.registration_completed;
+
+                if (isRegistrationComplete) {
+                    // Registration complete - redirect to dashboard
                     setLoading(false);
                     if (actualUserType === 'offer') {
-                        navigate('/provider/dashboard');
+                        navigate('/provider/dashboard', { replace: true });
                     } else {
-                        navigate('/dashboard');
+                        navigate('/dashboard', { replace: true });
                     }
                 } else {
+                    // Registration incomplete - redirect to complete registration
                     setLoading(false);
                     if (actualUserType === 'offer') {
-                        navigate('/complete-provider-profile');
+                        navigate('/complete-provider-profile', { replace: true });
                     } else {
-                        navigate('/register');
+                        navigate('/register', { replace: true });
                     }
                 }
             } else {
@@ -138,16 +142,55 @@ function SupabaseLogin() {
     const handleTabChange = (newUserType) => {
         setUserType(newUserType);
         setError('');
+        setTypeMismatch(null); // Clear mismatch state
         setValue('password', ''); // Clear password field
     };
 
-    const handleGoogleLogin = async () => {
-
+    const handleContinueAsActualRole = async () => {
+        if (!typeMismatch) return;
+        
+        setLoading(true);
         try {
+            // Navigate to the correct dashboard based on actual user type
+            if (typeMismatch.registrationComplete) {
+                if (typeMismatch.actualType === 'offer') {
+                    navigate('/provider/dashboard', { replace: true });
+                } else {
+                    navigate('/dashboard', { replace: true });
+                }
+            } else {
+                if (typeMismatch.actualType === 'offer') {
+                    navigate('/complete-provider-profile', { replace: true });
+                } else {
+                    navigate('/register', { replace: true });
+                }
+            }
+        } catch (err) {
+            console.error('Navigation error:', err);
+            setError('Failed to redirect. Please try again.');
+        } finally {
+            setLoading(false);
+            setTypeMismatch(null);
+        }
+    };
+
+    const handleCancelMismatch = async () => {
+        // Sign out and clear the mismatch state
+        await signOut();
+        setTypeMismatch(null);
+        setError('');
+        setValue('password', '');
+    };
+
+    const handleGoogleLogin = async () => {
+        try {
+            // Store the selected user type in localStorage before OAuth redirect
+            localStorage.setItem('pendingLoginUserType', userType);
             await signInWithOAuth('google');
         } catch (err) {
             console.error('Google login error:', err);
             setError('Google login failed. Please try again.');
+            localStorage.removeItem('pendingLoginUserType');
         }
     };
 
@@ -311,6 +354,54 @@ function SupabaseLogin() {
                     </p>
                 </div>
             </div>
+
+            {/* Account Type Mismatch Modal */}
+            {typeMismatch && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 sm:p-8">
+                        <div className="text-center mb-6">
+                            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-yellow-100 mb-4">
+                                <svg className="h-8 w-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                                Account Type Mismatch
+                            </h3>
+                            <p className="text-gray-600">
+                                You are registered as a <span className="font-bold text-gray-900">{typeMismatch.roleLabel}</span>
+                            </p>
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                            <p className="text-sm text-blue-800">
+                                <strong>What would you like to do?</strong>
+                            </p>
+                            <ul className="mt-2 text-sm text-blue-700 space-y-1 list-disc list-inside">
+                                <li>Continue as {typeMismatch.roleLabel}</li>
+                                <li>Or cancel and try a different account</li>
+                            </ul>
+                        </div>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={handleContinueAsActualRole}
+                                disabled={loading}
+                                className="w-full py-3 px-4 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+                            >
+                                {loading ? 'Loading...' : `Continue as ${typeMismatch.roleLabel}`}
+                            </button>
+                            <button
+                                onClick={handleCancelMismatch}
+                                disabled={loading}
+                                className="w-full py-3 px-4 bg-white border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 disabled:bg-gray-100 transition-colors"
+                            >
+                                Cancel & Try Different Account
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

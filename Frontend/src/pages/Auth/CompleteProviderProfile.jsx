@@ -306,7 +306,7 @@ function CompleteProviderProfile() {
             }
 
             await refreshProfile();
-            navigate('/provider/dashboard');
+            navigate('/provider/dashboard', { replace: true });
         } catch (err) {
             console.error('Error completing profile:', err);
             setError(err.response?.data?.error || err.message || 'Failed to complete profile');

@@ -79,7 +79,7 @@ function App() {
                             <main>
                                 <Routes>
                                     {/* Public Routes */}
-                                  
+                                    
                                     <Route path='/' element={<HomePage />} />
                                     <Route path='/about' element={<About />} />
                                     <Route path='/contact' element={<Contact />} />

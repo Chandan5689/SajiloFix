@@ -21,7 +21,7 @@ function AuthCallback() {
             // If no session, redirect to login
             if (!session || !user) {
                 console.log('No session found, redirecting to login');
-                navigate('/login');
+                navigate('/login', { replace: true });
                 return;
             }
 
@@ -30,44 +30,71 @@ function AuthCallback() {
                 
                 if (!token) {
                     console.log('No token available, redirecting to login');
-                    navigate('/login');
+                    navigate('/login', { replace: true });
                     return;
                 }
 
+                // Check if this is a Google OAuth login with pending user type
+                const pendingUserType = localStorage.getItem('pendingLoginUserType');
+                
                 // Check registration status in backend
                 const response = await api.get('/auth/registration-status/', {
                     headers: { Authorization: `Bearer ${token}` },
                 });
 
-                const { registration_completed, user_type } = response.data;
+                const { registration_completed, user_type, is_admin } = response.data;
+
+                // Clear pending user type after checking
+                if (pendingUserType) {
+                    localStorage.removeItem('pendingLoginUserType');
+                    
+                    // For Google OAuth, validate the user type matches
+                    if (pendingUserType === 'admin' && !is_admin) {
+                        setError('Access Denied! You do not have admin privileges.');
+                        setTimeout(() => navigate('/login', { replace: true }), 3000);
+                        return;
+                    }
+                    
+                    if (pendingUserType !== 'admin' && user_type && user_type !== pendingUserType) {
+                        const roleLabel = user_type === 'find' ? 'Customer' : user_type === 'offer' ? 'Provider' : 'Admin';
+                        setError(`Account Type Mismatch! You are registered as a ${roleLabel}.`);
+                        setTimeout(() => navigate('/login', { replace: true }), 3000);
+                        return;
+                    }
+                }
 
                 if (registration_completed) {
                     // Redirect based on user type
                     if (user_type === 'offer') {
-                        navigate('/provider/dashboard');
+                        navigate('/provider/dashboard', { replace: true });
+                    } else if (is_admin) {
+                        navigate('/admin', { replace: true });
                     } else {
-                        navigate('/dashboard');
+                        navigate('/dashboard', { replace: true });
                     }
                 } else if (user_type) {
                     // Has user_type but incomplete registration
                     if (user_type === 'offer') {
-                        navigate('/complete-provider-profile');
+                        navigate('/complete-provider-profile', { replace: true });
                     } else {
-                        navigate('/register');
+                        navigate('/register', { replace: true });
                     }
                 } else {
                     // New user, needs to complete registration
-                    navigate('/register');
+                    navigate('/register', { replace: true });
                 }
             } catch (err) {
                 console.error('Auth callback error:', err);
                 
+                // Clear pending user type on error
+                localStorage.removeItem('pendingLoginUserType');
+                
                 if (err.response?.status === 404) {
                     // User doesn't exist in backend yet, redirect to registration
-                    navigate('/register');
+                    navigate('/register', { replace: true });
                 } else {
                     setError('Authentication failed. Please try again.');
-                    setTimeout(() => navigate('/login'), 3000);
+                    setTimeout(() => navigate('/login', { replace: true }), 3000);
                 }
             } finally {
                 setProcessing(false);

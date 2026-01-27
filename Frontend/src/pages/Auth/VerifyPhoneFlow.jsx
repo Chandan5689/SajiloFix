@@ -17,7 +17,7 @@ function VerifyPhoneFlow() {
             if (!user) {
                 console.log('⚠️ User not loaded yet, redirecting to sign in...');
                 // If user is not authenticated, redirect to login
-                navigate('/login');
+                navigate('/login', { replace: true });
                 return;
             }
             
@@ -30,9 +30,9 @@ function VerifyPhoneFlow() {
                 if (response.data.phone_verified) {
                     // Phone already verified, redirect based on user type
                     if (response.data.user_type === 'offer') {
-                        navigate('/provider/dashboard');
+                        navigate('/provider/dashboard', { replace: true });
                     } else {
-                        navigate('/');
+                        navigate('/', { replace: true });
                     }
                 }
             } catch (err) {
@@ -47,9 +47,9 @@ function VerifyPhoneFlow() {
 
     const handlePhoneVerified = () => {
         if (userType === 'offer') {
-            navigate('/complete-provider-profile');
+            navigate('/complete-provider-profile', { replace: true });
         } else {
-            navigate('/');
+            navigate('/', { replace: true });
         }
     };
 
