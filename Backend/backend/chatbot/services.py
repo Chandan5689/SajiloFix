@@ -54,17 +54,17 @@
 
 
 
-
-
 import google.genai as genai
 from google.genai import types
 import os
+from decouple import config
+from rest_framework import serializers
+
 
 class GeminiChatService:
     def __init__(self):
         # Get API key from environment
-        # api_key = os.getenv('GEMINI_API_KEY')
-        api_key = 'AIzaSyC5_izCYT3gq4Im0w1IMUTk5qUH30_OuqI' 
+        api_key = config('GEMINI_API_KEY', default=None) 
     
         if not api_key:
             # Do not raise here; allow application to run without Gemini configured.
@@ -148,4 +148,3 @@ Communication style:
             }
         
         
-from rest_framework import serializers
