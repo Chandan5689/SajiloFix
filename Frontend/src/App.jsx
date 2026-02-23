@@ -18,6 +18,7 @@ import Service from './pages/Services/Service'
 import BookingPage from './pages/Services/BookingPage'
 import UserDashboard from './pages/Dashboard/User/UserDashboard'
 import MyBookings from './pages/Dashboard/User/MyBookings'
+
 import UserMyProfile from './pages/Dashboard/User/UserMyProfile'
 import UserPayments from './pages/Dashboard/User/UserPayments'
 import MyReviews from './pages/Dashboard/User/MyReviews'
@@ -49,6 +50,8 @@ import RequireAdminRole from './components/RequireAdminRole';
 import EsewaSuccess from './pages/Payment/EsewaSuccess';
 import EsewaFailure from './pages/Payment/EsewaFailure';
 import PaymentHistory from './pages/Payment/PaymentHistory';
+import KhaltiCallback from './pages/Payment/KhaltiCallback';
+
 function ProtectedRoute({ children }) {
     const { isAuthenticated, loading } = useSupabaseAuth();
 
@@ -97,6 +100,14 @@ function App() {
                                     <Route path='/auth/callback' element={<AuthCallback />} />
 
                                     {/* Payment Callback Routes (Protected) */}
+                                    <Route
+                                        path="/payment/khalti/callback"
+                                        element={
+                                            <ProtectedRoute>
+                                                <KhaltiCallback />
+                                            </ProtectedRoute>
+                                        }
+                                    />
                                     <Route
                                         path="/payment/esewa/success"
                                         element={
@@ -167,6 +178,7 @@ function App() {
                                             </RequireCompleteRegistration>
                                         </ProtectedRoute>
                                     } />
+                                    
                                     <Route path='/profile' element={
                                         <ProtectedRoute>
                                             <RequireCompleteRegistration>

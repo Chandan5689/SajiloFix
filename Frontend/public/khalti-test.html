@@ -3,14 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Khalti Payment Test</title>
+    <title>Khalti ePayment API Test</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             max-width: 700px;
             margin: 50px auto;
             padding: 20px;
+            background: #f5f5f5;
         }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #5C2D91; margin-bottom: 10px; }
         .test-section {
             border: 2px solid #5C2D91;
             padding: 20px;
@@ -25,79 +33,183 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
+            width: 100%;
         }
         button:hover {
             background: #7C3DAF;
         }
         .info {
-            background: #f0f0f0;
+            background: #f3e8ff;
             padding: 15px;
             margin: 15px 0;
-            border-radius: 4px;
+            border-radius: 6px;
+            border-left: 4px solid #5C2D91;
         }
         .success {
             background: #d4edda;
             border: 1px solid #c3e6cb;
             color: #155724;
-            padding: 10px;
-            border-radius: 4px;
-            margin: 10px 0;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
         }
         .error {
             background: #f8d7da;
             border: 1px solid #f5c6cb;
             color: #721c24;
-            padding: 10px;
-            border-radius: 4px;
-            margin: 10px 0;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
         }
+        .warning {
+            background: #fff3cd;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 6px;
+            border-left: 4px solid #ffc107;
+        }
+        code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .api-info {
+            background: #e8f4fd;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .api-info h4 { color: #0066cc; margin-top: 0; }
     </style>
 </head>
 <body>
-    <h1>🔥 Khalti Payment Gateway Test</h1>
-    
-    <div class="info">
-        <strong>Test Instructions:</strong>
-        <p>This is a direct Khalti Checkout SDK test. Click the button below to test Khalti payment integration.</p>
-        <p><strong>Khalti Test Credentials:</strong></p>
-        <ul>
-            <li>Mobile Number: <strong>9800000000</strong>, <strong>9800000001</strong>, or <strong>9800000002</strong></li>
-            <li>MPIN: <strong>1111</strong></li>
-            <li>OTP: <strong>987654</strong></li>
-        </ul>
-        <p><strong>Test Public Key:</strong> test_public_key_dc74e0fd8d294f9b6775f21a3c2f6cef</p>
-    </div>
+    <div class="container">
+        <h1>🟣 Khalti ePayment API Test</h1>
+        <p>Test the new Khalti ePayment API (redirect-based flow)</p>
 
-    <div class="test-section">
-        <h3>Khalti Checkout Test</h3>
-        <button onclick="testKhaltiPayment()">Pay NPR 100 with Khalti</button>
-        <div id="result"></div>
-    </div>
+        <div class="warning">
+            <strong>⚠️ New API Notice</strong>
+            <p>Khalti has migrated to the <strong>ePayment API</strong>. The old Checkout SDK is deprecated.</p>
+            <p>The new flow uses server-to-server initiation and redirect-based payment.</p>
+        </div>
+        
+        <div class="info">
+            <strong>🧪 Khalti Sandbox Test Credentials:</strong>
+            <ul>
+                <li>Mobile: <code>9800000000</code> - <code>9800000005</code></li>
+                <li>MPIN: <code>1111</code></li>
+                <li>OTP: <code>987654</code></li>
+            </ul>
+        </div>
 
-    <!-- Load Khalti SDK -->
-    <script src="https://khalti.s3.ap-south-1.amazonaws.com/KPG/dist/2020.12.17.0.0.0/khalti-checkout.iffe.js"></script>
+        <div class="api-info">
+            <h4>📡 ePayment API Endpoints (Sandbox)</h4>
+            <ul>
+                <li><strong>Initiate:</strong> <code>POST https://a.khalti.com/api/v2/epayment/initiate/</code></li>
+                <li><strong>Lookup:</strong> <code>POST https://a.khalti.com/api/v2/epayment/lookup/</code></li>
+            </ul>
+            <p><strong>Auth Header:</strong> <code>Authorization: key {secret_key}</code></p>
+        </div>
+
+        <div class="test-section">
+            <h3>Test Payment Flow</h3>
+            <p>This test will simulate the ePayment API flow:</p>
+            <ol>
+                <li>Call backend to initiate payment</li>
+                <li>Redirect to Khalti payment page</li>
+                <li>After payment, Khalti redirects back</li>
+                <li>Backend verifies payment via lookup API</li>
+            </ol>
+            <button onclick="testKhaltiPayment()">Test Khalti Payment (NPR 100)</button>
+            <div id="result" style="margin-top: 15px;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Direct API Test (Manual)</h3>
+            <p>Test the initiate endpoint directly:</p>
+            <button onclick="testInitiateAPI()">Test Initiate API</button>
+            <div id="api-result" style="margin-top: 15px;"></div>
+        </div>
+    </div>
 
     <script>
-        function testKhaltiPayment() {
+        const API_BASE = 'http://127.0.0.1:8000/api';
+        
+        async function testKhaltiPayment() {
             const resultDiv = document.getElementById('result');
-            resultDiv.innerHTML = '<p>Opening Khalti checkout...</p>';
+            resultDiv.innerHTML = '<p>⏳ Initiating payment...</p>';
 
-            const config = {
-                // Test public key
-                publicKey: "test_public_key_dc74e0fd8d294f9b6775f21a3c2f6cef",
+            try {
+                // You would need to be authenticated for this
+                // This is just a demonstration
+                resultDiv.innerHTML = `
+                    <div class="warning">
+                        <p>To test the full flow:</p>
+                        <ol>
+                            <li>Login to your SajiloFix app</li>
+                            <li>Go to a completed booking</li>
+                            <li>Click "Pay with Khalti"</li>
+                            <li>Complete payment on Khalti's page</li>
+                            <li>You'll be redirected back to verify</li>
+                        </ol>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testInitiateAPI() {
+            const resultDiv = document.getElementById('api-result');
+            resultDiv.innerHTML = '<p>⏳ Testing API connection...</p>';
+
+            try {
+                // Test the public key endpoint (no auth required)
+                const response = await fetch(`${API_BASE}/payments/khalti/public-key/`);
+                const data = await response.json();
                 
-                // Product details
-                productIdentity: "test-product-123",
-                productName: "SajiloFix Test Service",
-                productUrl: window.location.href,
-                
-                // Amount in paisa (100 NPR = 10000 paisa)
-                amount: 10000, // 100 NPR
-                
-                // Event handlers
-                eventHandler: {
-                    onSuccess(payload) {
-                        console.log('Khalti Success:', payload);
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <strong>✅ Khalti API is configured!</strong>
+                            <p>Public Key: <code>${data.public_key}</code></p>
+                            <p>Test Mode: ${data.is_test_mode ? '✅ Yes' : '❌ No'}</p>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ ${data.message}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <strong>❌ API Connection Failed</strong>
+                        <p>${error.message}</p>
+                        <p>Make sure your Django server is running on port 8000.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Check for callback parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const pidx = urlParams.get('pidx');
+        const status = urlParams.get('status');
+        
+        if (pidx) {
+            document.getElementById('result').innerHTML = `
+                <div class="${status === 'Completed' ? 'success' : 'error'}">
+                    <strong>Khalti Callback Received!</strong>
+                    <p><strong>pidx:</strong> ${pidx}</p>
+                    <p><strong>Status:</strong> ${status || 'Unknown'}</p>
+                    <p><strong>Transaction ID:</strong> ${urlParams.get('transaction_id') || 'N/A'}</p>
+                    <p><strong>Amount:</strong> ${urlParams.get('amount') || 'N/A'} paisa</p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
                         resultDiv.innerHTML = `
                             <div class="success">
                                 <h4>✅ Payment Successful!</h4>

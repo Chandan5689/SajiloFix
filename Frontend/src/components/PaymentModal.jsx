@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal } from './Modal';
 import KhaltiPayment from './KhaltiPayment';
 import EsewaPayment from './EsewaPayment';
+import paymentsService from '../services/paymentsService';
 
 /**
  * PaymentModal Component
@@ -19,6 +20,8 @@ const PaymentModal = ({ isOpen, onClose, booking, onPaymentSuccess, onPaymentErr
   const [selectedMethod, setSelectedMethod] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [cashLoading, setCashLoading] = useState(false);
+  const [cashError, setCashError] = useState(null);
 
   if (!booking) return null;
 
@@ -36,8 +39,8 @@ const PaymentModal = ({ isOpen, onClose, booking, onPaymentSuccess, onPaymentErr
     // Close modal and redirect after delay
     setTimeout(() => {
       onClose();
-      // Optionally redirect to booking details or payment history
-      window.location.href = `/dashboard/bookings/${booking.id}`;
+      // Redirect to my bookings page
+      window.location.href = '/my-bookings';
     }, 2000);
   };
 
@@ -206,14 +209,58 @@ const PaymentModal = ({ isOpen, onClose, booking, onPaymentSuccess, onPaymentErr
 
                   {selectedMethod === 'cash' && (
                     <div className="text-center py-4">
-                      <p className="text-gray-600 mb-4">
-                        You've selected cash payment. Please pay the provider directly after service completion.
-                      </p>
+                      <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="font-semibold text-amber-800">Cash Payment</span>
+                        </div>
+                        <p className="text-sm text-amber-700">
+                          Pay <span className="font-bold">NPR {amount.toLocaleString()}</span> directly to the provider after service completion.
+                          The provider will confirm receipt of payment.
+                        </p>
+                      </div>
+                      {cashError && (
+                        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                          {cashError}
+                        </div>
+                      )}
                       <button
-                        onClick={onClose}
-                        className="btn btn-secondary px-6 py-2 rounded-lg"
+                        onClick={async () => {
+                          try {
+                            setCashLoading(true);
+                            setCashError(null);
+                            await paymentsService.initiatePayment({
+                              booking_id: booking.id,
+                              payment_method: 'cash',
+                            });
+                            setShowSuccess(true);
+                            setSuccessMessage('Cash payment registered! Please pay the provider after service completion.');
+                            onPaymentSuccess && onPaymentSuccess({ payment_method: 'cash' });
+                            setTimeout(() => {
+                              onClose();
+                              window.location.href = '/my-bookings';
+                            }, 2000);
+                          } catch (err) {
+                            console.error('Cash payment initiation failed:', err);
+                            setCashError(err?.message || 'Failed to register cash payment. Please try again.');
+                          } finally {
+                            setCashLoading(false);
+                          }
+                        }}
+                        disabled={cashLoading}
+                        className="px-8 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Confirm
+                        {cashLoading ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Processing...
+                          </span>
+                        ) : 'Confirm Cash Payment'}
                       </button>
                     </div>
                   )}

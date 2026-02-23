@@ -66,11 +66,10 @@ const paymentsService = {
   // ==================== PAYMENT VERIFICATION ====================
 
   /**
-   * Verify Khalti payment after widget completion
+   * Verify Khalti payment after redirect from Khalti (ePayment API)
    * @param {Object} verificationData
-   * @param {string} verificationData.token - Khalti token
-   * @param {number} verificationData.amount - Amount in paisa
-   * @param {string} verificationData.transaction_uid - Transaction UUID
+   * @param {string} verificationData.pidx - Khalti payment ID from redirect
+   * @param {string} verificationData.transaction_uid - Our transaction UUID (optional)
    * @returns {Promise} Verification response
    */
   verifyKhaltiPayment: async (verificationData) => {
@@ -94,6 +93,24 @@ const paymentsService = {
     try {
       const params = new URLSearchParams(queryParams).toString();
       const response = await api.get(`/payments/esewa/verify/?${params}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // ==================== CASH PAYMENT ====================
+
+  /**
+   * Provider confirms cash payment received for a booking
+   * @param {number} bookingId - Booking ID
+   * @returns {Promise} Confirmation response
+   */
+  confirmCashPayment: async (bookingId) => {
+    try {
+      const response = await api.post('/payments/cash/confirm/', {
+        booking_id: bookingId,
+      });
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;

@@ -4,17 +4,23 @@ import paymentsService from '../services/paymentsService';
 /**
  * KhaltiPayment Component
  * 
- * Handles Khalti payment integration using Khalti Checkout SDK
+ * Handles Khalti payment integration using the new ePayment API (redirect flow)
+ * 
+ * Flow:
+ * 1. User clicks "Pay with Khalti"
+ * 2. Backend initiates payment with Khalti ePayment API
+ * 3. User is redirected to Khalti's payment page
+ * 4. After payment, Khalti redirects back to our callback URL
+ * 5. Callback page verifies payment with backend
  * 
  * Props:
  * - bookingId: Booking ID to pay for
- * - amount: Amount in NPR (will be converted to paisa)
- * - productName: Service name
- * - onSuccess: Callback when payment succeeds
- * - onError: Callback when payment fails
- * - onClose: Callback when payment is closed/cancelled
+ * - amount: Amount in NPR (for display only, backend fetches actual amount)
+ * - productName: Service name (optional, for display)
+ * - onSuccess: Callback when payment redirect is initiated
+ * - onError: Callback when payment initiation fails
  */
-const KhaltiPayment = ({ bookingId, amount, productName, onSuccess, onError, onClose }) => {
+const KhaltiPayment = ({ bookingId, amount, productName, onSuccess, onError }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [khaltiConfig, setKhaltiConfig] = useState(null);
   const [error, setError] = useState(null);
@@ -45,98 +51,49 @@ const KhaltiPayment = ({ bookingId, amount, productName, onSuccess, onError, onC
     setError(null);
 
     try {
-      // Step 1: Initiate payment on our backend
-      console.log('Step 1: Initiating Khalti payment on backend...');
+      // Build callback URL for Khalti to redirect after payment
       const currentUrl = window.location.origin;
+      const callbackUrl = `${currentUrl}/payment/khalti/callback`;
+      
+      // Step 1: Initiate payment on our backend
+      console.log('Initiating Khalti payment on backend...');
       const initiateData = {
         booking_id: bookingId,
         payment_method: 'khalti',
-        return_url: `${currentUrl}/payment/success`,
+        return_url: callbackUrl,
         failure_url: `${currentUrl}/payment/failure`,
       };
 
       console.log('Initiate data:', initiateData);
-      const initResponse = await paymentsService.initiatePayment(initiateData);
-      console.log('Initiate response:', initResponse);
+      const response = await paymentsService.initiatePayment(initiateData);
+      console.log('Khalti initiate response:', response);
 
-      if (!initResponse.success) {
-        throw new Error(initResponse.message || 'Failed to initiate payment');
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to initiate payment');
       }
 
-      // Step 2: Load Khalti Checkout SDK
-      console.log('Step 2: Loading Khalti SDK...');
-      if (!window.KhaltiCheckout) {
-        await loadKhaltiSDK();
-        console.log('Khalti SDK loaded successfully');
-      } else {
-        console.log('Khalti SDK already loaded');
+      // Step 2: Redirect to Khalti payment page
+      const paymentUrl = response.payment_url;
+      
+      if (!paymentUrl) {
+        throw new Error('No payment URL received from Khalti');
       }
 
-      // Step 3: Configure Khalti Checkout
-      console.log('Step 3: Configuring Khalti checkout...');
+      console.log('Redirecting to Khalti payment page:', paymentUrl);
       
-      // Log the public key to verify format
-      console.log('Public key from backend:', initResponse.khalti_public_key);
-      console.log('Public key type:', typeof initResponse.khalti_public_key);
-      console.log('Public key length:', initResponse.khalti_public_key?.length);
+      // Store transaction info for verification after redirect
+      sessionStorage.setItem('khalti_pidx', response.pidx);
+      sessionStorage.setItem('khalti_transaction_uid', response.transaction.transaction_uid);
+      sessionStorage.setItem('khalti_booking_id', bookingId.toString());
       
-      const config = {
-        publicKey: initResponse.khalti_public_key,
-        productIdentity: initResponse.product_identity || `booking_${bookingId}`,
-        productName: productName || initResponse.product_name,
-        productUrl: initResponse.product_url || window.location.href,
-        amount: initResponse.amount, // Already in paisa from backend
-        
-        // Event handlers
-        eventHandler: {
-          onSuccess: async (payload) => {
-            console.log('Step 4: Khalti payment success callback:', payload);
-            
-            try {
-              // Verify payment on our backend
-              const verifyData = {
-                token: payload.token,
-                amount: payload.amount, // Amount in paisa
-                transaction_uid: initResponse.transaction.transaction_uid,
-              };
-
-              console.log('Verifying payment with backend:', verifyData);
-              const verifyResponse = await paymentsService.verifyKhaltiPayment(verifyData);
-              console.log('Verification response:', verifyResponse);
-
-              if (verifyResponse.success) {
-                console.log('Payment verified successfully!');
-                onSuccess && onSuccess(verifyResponse);
-              } else {
-                console.error('Payment verification failed:', verifyResponse.message);
-                onError && onError(new Error(verifyResponse.message || 'Payment verification failed'));
-              }
-            } catch (err) {
-              console.error('Payment verification error:', err);
-              onError && onError(err);
-            }
-          },
-          
-          onError: (error) => {
-            console.error('Khalti payment error callback:', error);
-            onError && onError(error);
-          },
-          
-          onClose: () => {
-            console.log('Khalti payment widget closed by user');
-            setIsLoading(false);
-            onClose && onClose();
-          },
-        },
-      };
-
-      console.log('Khalti config:', config);
-
-      // Step 5: Open Khalti checkout
-      console.log('Step 5: Opening Khalti checkout widget...');
-      const checkout = new window.KhaltiCheckout(config);
-      checkout.show({ amount: initResponse.amount });
-      console.log('Khalti checkout widget opened');
+      // Notify parent before redirect
+      onSuccess && onSuccess({ 
+        transaction: response.transaction,
+        redirecting: true 
+      });
+      
+      // Redirect to Khalti
+      window.location.href = paymentUrl;
 
     } catch (err) {
       console.error('Error initiating Khalti payment:', err);
@@ -147,27 +104,8 @@ const KhaltiPayment = ({ bookingId, amount, productName, onSuccess, onError, onC
       });
       setError(err.response?.data?.message || err.message || 'Failed to initiate payment');
       onError && onError(err);
-    } finally {
       setIsLoading(false);
     }
-  };
-
-  const loadKhaltiSDK = () => {
-    return new Promise((resolve, reject) => {
-      // Check if script already exists
-      if (document.getElementById('khalti-sdk')) {
-        resolve();
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.id = 'khalti-sdk';
-      script.src = 'https://khalti.s3.ap-south-1.amazonaws.com/KPG/dist/2020.12.17.0.0.0/khalti-checkout.iffe.js';
-      script.async = true;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error('Failed to load Khalti SDK'));
-      document.body.appendChild(script);
-    });
   };
 
   return (
@@ -175,7 +113,7 @@ const KhaltiPayment = ({ bookingId, amount, productName, onSuccess, onError, onC
       <button
         onClick={initiateKhaltiPayment}
         disabled={isLoading || !khaltiConfig}
-        className="btn btn-primary w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+        className="btn btn-primary w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-white font-medium"
       >
         {isLoading ? (
           <>
@@ -183,13 +121,13 @@ const KhaltiPayment = ({ bookingId, amount, productName, onSuccess, onError, onC
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
             </svg>
-            <span>Processing...</span>
+            <span>Redirecting to Khalti...</span>
           </>
         ) : (
           <>
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 22C6.486 22 2 17.514 2 12S6.486 2 12 2s10 4.486 10 10-4.486 10-10 10z"/>
-              <path d="M16 11h-3V8h-2v3H8v2h3v3h2v-3h3z"/>
+            {/* Khalti Logo */}
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
             </svg>
             <span>Pay with Khalti</span>
           </>
@@ -203,8 +141,14 @@ const KhaltiPayment = ({ bookingId, amount, productName, onSuccess, onError, onC
       )}
 
       {khaltiConfig?.is_test_mode && (
-        <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-          ⚠️ Test Mode: Use Khalti test credentials
+        <div className="mt-2 text-xs text-purple-600 bg-purple-50 p-2 rounded">
+          <strong>🧪 Test Mode</strong>
+          <p className="mt-1">Use these test credentials on Khalti:</p>
+          <ul className="list-disc list-inside mt-1 space-y-0.5">
+            <li>Mobile: <code className="bg-purple-100 px-1 rounded">9800000000</code> - <code className="bg-purple-100 px-1 rounded">9800000005</code></li>
+            <li>MPIN: <code className="bg-purple-100 px-1 rounded">1111</code></li>
+            <li>OTP: <code className="bg-purple-100 px-1 rounded">987654</code></li>
+          </ul>
         </div>
       )}
     </div>

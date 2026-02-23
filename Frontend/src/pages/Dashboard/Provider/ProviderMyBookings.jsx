@@ -11,8 +11,11 @@ import {
     MdCheckCircle,
     MdCancel,
     MdPlayArrow,
+    MdPayment,
 } from 'react-icons/md';
 import bookingsService from '../../../services/bookingsService';
+import paymentsService from '../../../services/paymentsService';
+import { useToast } from '../../../components/Toast';
 
 // Status color mapping
 const statusColorMap = {
@@ -48,8 +51,42 @@ export default function ProviderMyBookings() {
     const [completeError, setCompleteError] = useState(null);
     const [completeLoading, setCompleteLoading] = useState(false);
     const [detailsLoadingId, setDetailsLoadingId] = useState(null);
+    const [cashConfirmingId, setCashConfirmingId] = useState(null);
+    const [showCashConfirmModal, setShowCashConfirmModal] = useState(false);
+    const [cashConfirmBookingId, setCashConfirmBookingId] = useState(null);
+    const { addToast } = useToast();
 
     const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled", "declined"];
+
+    // Handle cash payment confirmation by provider
+    const handleCashConfirmClick = (bookingId) => {
+        setCashConfirmBookingId(bookingId);
+        setShowCashConfirmModal(true);
+    };
+
+    const handleConfirmCashPayment = async () => {
+        const bookingId = cashConfirmBookingId;
+        if (!bookingId) return;
+        setShowCashConfirmModal(false);
+        try {
+            setCashConfirmingId(bookingId);
+            await paymentsService.confirmCashPayment(bookingId);
+            addToast('Cash payment confirmed successfully!', 'success');
+            // Refresh bookings to reflect updated payment status
+            fetchBookings();
+            // Update selected booking if viewing detail modal
+            if (selectedBooking && selectedBooking.id === bookingId) {
+                const updated = await bookingsService.getBookingDetail(bookingId);
+                setSelectedBooking(updated);
+            }
+        } catch (err) {
+            console.error('Error confirming cash payment:', err);
+            addToast(err?.message || 'Failed to confirm cash payment. Please try again.', 'error');
+        } finally {
+            setCashConfirmingId(null);
+            setCashConfirmBookingId(null);
+        }
+    };
 
     // Fetch provider bookings on mount
     useEffect(() => {
@@ -170,7 +207,7 @@ export default function ProviderMyBookings() {
             }
         } catch (err) {
             console.error("Error accepting booking:", err);
-            alert("Failed to accept booking: " + (err.error || err.message));
+            addToast("Failed to accept booking: " + (err.error || err.message), "error");
         } finally {
             setActionInProgress(null);
         }
@@ -194,7 +231,7 @@ export default function ProviderMyBookings() {
             setDeclineReason("");
         } catch (err) {
             console.error("Error declining booking:", err);
-            alert("Failed to decline booking: " + (err.error || err.message));
+            addToast("Failed to decline booking: " + (err.error || err.message), "error");
         } finally {
             setActionInProgress(null);
         }
@@ -211,7 +248,7 @@ export default function ProviderMyBookings() {
             }
         } catch (err) {
             console.error("Error starting booking:", err);
-            alert("Failed to start work: " + (err.error || err.message));
+            addToast("Failed to start work: " + (err.error || err.message), "error");
         } finally {
             setActionInProgress(null);
         }
@@ -485,7 +522,7 @@ export default function ProviderMyBookings() {
                                             setSelectedBooking(fullBooking);
                                         } catch (err) {
                                             console.error("Error loading booking details:", err);
-                                            alert("Failed to load booking details");
+                                            addToast("Failed to load booking details", "error");
                                         } finally {
                                             setDetailsLoadingId(null);
                                         }
@@ -552,6 +589,22 @@ export default function ProviderMyBookings() {
                                     >
                                         <MdPhone /> Call Customer
                                     </a>
+                                )}
+
+                                {/* Confirm Cash Payment - show for completed/provider_completed bookings with pending cash payment */}
+                                {["provider_completed", "completed", "awaiting_customer"].includes(booking.status) &&
+                                    booking.payment?.payment_method === 'cash' &&
+                                    booking.payment?.status === 'pending' && (
+                                    <ActionButton
+                                        label="Confirm Cash Received"
+                                        loadingLabel="Confirming..."
+                                        isLoading={cashConfirmingId === booking.id}
+                                        onClick={() => handleCashConfirmClick(booking.id)}
+                                        disabled={cashConfirmingId === booking.id}
+                                        icon={MdPayment}
+                                        variant="primary"
+                                        size="md"
+                                    />
                                 )}
                             </div>
                         </div>
@@ -859,6 +912,26 @@ export default function ProviderMyBookings() {
                                     <p className="text-gray-500 font-semibold">Total Price</p>
                                     <p className="font-semibold text-green-600">{getBookingPrice(selectedBooking)}</p>
                                 </div>
+                                {/* Payment Status */}
+                                {selectedBooking.payment && (
+                                    <div>
+                                        <p className="text-gray-500 font-semibold">Payment</p>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                                selectedBooking.payment.status === 'completed'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : selectedBooking.payment.status === 'pending'
+                                                    ? 'bg-amber-100 text-amber-700'
+                                                    : 'bg-gray-100 text-gray-700'
+                                            }`}>
+                                                {selectedBooking.payment.status === 'completed' ? '✓ Paid' : '⏳ Pending'}
+                                            </span>
+                                            <span className="text-xs text-gray-500 capitalize">
+                                                via {selectedBooking.payment.payment_method}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
                                 {/* Only show phone after booking is accepted */}
                                 {["confirmed", "scheduled", "in_progress", "completed", "provider_completed", "awaiting_customer"].includes(selectedBooking.status) && (
                                     <div>
@@ -1080,11 +1153,60 @@ export default function ProviderMyBookings() {
                                     Complete Job
                                 </button>
                             )}
+                            {/* Confirm Cash Payment in modal */}
+                            {["provider_completed", "completed", "awaiting_customer"].includes(selectedBooking.status) &&
+                                selectedBooking.payment?.payment_method === 'cash' &&
+                                selectedBooking.payment?.status === 'pending' && (
+                                <button
+                                    className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-md text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                                    onClick={() => handleCashConfirmClick(selectedBooking.id)}
+                                    disabled={cashConfirmingId === selectedBooking.id}
+                                >
+                                    {cashConfirmingId === selectedBooking.id ? (
+                                        <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg> Confirming...</>
+                                    ) : (
+                                        <><MdPayment /> Confirm Cash Received</>
+                                    )}
+                                </button>
+                            )}
                             <button
                                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50"
                                 onClick={() => setSelectedBooking(null)}
                             >
                                 Close
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* Cash Payment Confirmation Modal */}
+            {showCashConfirmModal && (
+                <Modal isOpen={showCashConfirmModal} onClose={() => setShowCashConfirmModal(false)} title="Confirm Cash Payment">
+                    <div className="p-6">
+                        <div className="flex items-center justify-center mb-4">
+                            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
+                                <MdPayment className="w-8 h-8 text-amber-600" />
+                            </div>
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900 text-center mb-2">
+                            Confirm Cash Payment Received
+                        </h3>
+                        <p className="text-gray-600 text-center text-sm mb-6">
+                            Are you sure you have received the cash payment from the customer for this booking? This action cannot be undone.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowCashConfirmModal(false)}
+                                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConfirmCashPayment}
+                                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <MdCheckCircle className="w-4 h-4" /> Yes, Payment Received
                             </button>
                         </div>
                     </div>

@@ -51,7 +51,8 @@ export default function DashboardPage() {
         const list = bookingsResp?.results ?? bookingsResp ?? [];
         setRecentBookings(Array.isArray(list) ? list.slice(0, 3) : []);
         
-        const pendingList = paymentsResp?.results ?? paymentsResp ?? [];
+        // API returns { pending_payments: [...] } not { results: [...] }
+        const pendingList = paymentsResp?.pending_payments ?? paymentsResp?.results ?? paymentsResp ?? [];
         setPendingPayments(Array.isArray(pendingList) ? pendingList : []);
       } catch (err) {
         console.error("Error fetching booking stats:", err);
@@ -226,20 +227,34 @@ export default function DashboardPage() {
               {pendingPayments.slice(0, 3).map((booking) => (
                 <li
                   key={booking.id}
-                  className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100"
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                    booking.payment?.payment_method === 'cash' && booking.payment?.status === 'pending'
+                      ? 'bg-amber-50 border-amber-100'
+                      : 'bg-red-50 border-red-100'
+                  }`}
                 >
                   <div>
                     <p className="font-semibold text-gray-900">{booking.service_title || booking.service?.title}</p>
                     <p className="text-sm text-gray-600">{formatDate(booking.scheduled_date || booking.preferred_date)}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-red-600">NPR {booking.final_price || booking.quoted_price}</p>
-                    <Link
-                      to="/user/my-bookings"
-                      className="text-xs text-green-600 hover:text-green-700 font-semibold"
-                    >
-                      Pay Now →
-                    </Link>
+                    <p className={`font-semibold ${
+                      booking.payment?.payment_method === 'cash' && booking.payment?.status === 'pending'
+                        ? 'text-amber-600'
+                        : 'text-red-600'
+                    }`}>NPR {booking.final_price || booking.quoted_price}</p>
+                    {booking.payment?.payment_method === 'cash' && booking.payment?.status === 'pending' ? (
+                      <span className="text-xs text-amber-600 font-semibold">
+                        Cash — Awaiting Confirmation
+                      </span>
+                    ) : (
+                      <Link
+                        to="/user/my-bookings"
+                        className="text-xs text-green-600 hover:text-green-700 font-semibold"
+                      >
+                        Pay Now →
+                      </Link>
+                    )}
                   </div>
                 </li>
               ))}
