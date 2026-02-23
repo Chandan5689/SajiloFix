@@ -101,7 +101,7 @@ const ProviderBookingCard = ({ booking }) => {
                 {/* Amount */}
                 <div>
                     <p className="text-sm font-medium text-gray-500">Amount</p>
-                    <p className="text-lg font-bold text-green-600">${amount}</p>
+                    <p className="text-lg font-bold text-green-600">Rs. {amount}</p>
                 </div>
             </div>
 

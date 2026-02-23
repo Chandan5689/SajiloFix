@@ -8,6 +8,7 @@ import { LiaPiggyBankSolid } from "react-icons/lia";
 import { FiPlusCircle } from "react-icons/fi";
 import { MdHeadsetMic } from "react-icons/md";
 import bookingsService from "../../../services/bookingsService";
+import paymentsService from "../../../services/paymentsService";
 import { useUserProfile } from "../../../context/UserProfileContext";
 
 export default function DashboardPage() {
@@ -22,6 +23,7 @@ export default function DashboardPage() {
     totalSpent: 0,
   });
   const [recentBookings, setRecentBookings] = useState([]);
+  const [pendingPayments, setPendingPayments] = useState([]);
 
   // Fetch booking stats on mount
   useEffect(() => {
@@ -30,9 +32,13 @@ export default function DashboardPage() {
         setLoading(true);
         setError(null);
 
-        const [statsResp, bookingsResp] = await Promise.all([
+        const [statsResp, bookingsResp, paymentsResp] = await Promise.all([
           bookingsService.getUserDashboardStats(),
           bookingsService.getMyBookings({ page: 1, page_size: 5 }),
+          paymentsService.getPendingPayments().catch(err => {
+            console.warn('Failed to load pending payments:', err);
+            return { results: [] };
+          }),
         ]);
 
         setStats({
@@ -44,6 +50,9 @@ export default function DashboardPage() {
 
         const list = bookingsResp?.results ?? bookingsResp ?? [];
         setRecentBookings(Array.isArray(list) ? list.slice(0, 3) : []);
+        
+        const pendingList = paymentsResp?.results ?? paymentsResp ?? [];
+        setPendingPayments(Array.isArray(pendingList) ? pendingList : []);
       } catch (err) {
         console.error("Error fetching booking stats:", err);
         setError(err.error || "Failed to load booking stats");
@@ -143,10 +152,10 @@ export default function DashboardPage() {
             icon: <AiOutlineDollarCircle className="h-6 w-6" />
           },
           {
-            title: "Total Spent",
-            value: formatCurrency(stats.totalSpent),
-            bgColor: "bg-purple-50",
-            iconColor: "text-purple-400",
+            title: "Pending Payments",
+            value: pendingPayments.length,
+            bgColor: "bg-red-50",
+            iconColor: "text-red-600",
             icon: <LiaPiggyBankSolid className="h-6 w-6" />
           },
         ].map(({ title, value, bgColor, iconColor, icon }) => (
@@ -199,26 +208,51 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Booking Summary */}
+        {/* Pending Payments */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">Booking Summary</h2>
-          <ul className="space-y-3">
-            {[
-              { label: "Total Bookings", value: stats.totalBookings, color: "text-blue-600" },
-              { label: "Active Jobs", value: stats.activeJobs, color: "text-yellow-600" },
-              { label: "Completed", value: stats.completedJobs, color: "text-green-600" },
-              { label: "Total Spent", value: formatCurrency(stats.totalSpent), color: "text-purple-600" },
-            ].map(({ label, value, color }) => (
-              <li key={label} className="flex justify-between py-3 border border-gray-300 rounded-lg px-4">
-                <div>
-                  <p className="font-semibold text-gray-700">{label}</p>
-                </div>
-                <div className="flex flex-col items-end">
-                  <p className={`font-semibold ${color}`}>{value}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Pending Payments</h2>
+            {pendingPayments.length > 0 && (
+              <Link 
+                to="/user/my-bookings" 
+                className="text-sm text-green-600 hover:text-green-700 font-semibold"
+              >
+                View All
+              </Link>
+            )}
+          </div>
+          {pendingPayments.length > 0 ? (
+            <ul className="space-y-3">
+              {pendingPayments.slice(0, 3).map((booking) => (
+                <li
+                  key={booking.id}
+                  className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100"
+                >
+                  <div>
+                    <p className="font-semibold text-gray-900">{booking.service_title || booking.service?.title}</p>
+                    <p className="text-sm text-gray-600">{formatDate(booking.scheduled_date || booking.preferred_date)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-red-600">NPR {booking.final_price || booking.quoted_price}</p>
+                    <Link
+                      to="/user/my-bookings"
+                      className="text-xs text-green-600 hover:text-green-700 font-semibold"
+                    >
+                      Pay Now →
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-center py-6">
+              <div className="bg-green-50 rounded-lg p-4">
+                <AiOutlineDollarCircle className="h-12 w-12 text-green-600 mx-auto mb-2" />
+                <p className="text-green-700 font-semibold">All caught up!</p>
+                <p className="text-sm text-gray-600 mt-1">No pending payments</p>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

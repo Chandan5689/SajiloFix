@@ -29,8 +29,8 @@ class Service(models.Model):
     Service Model - Represents services offered by service providers
     
     Example: A plumber might offer services like:
-    - "Emergency Plumbing Repair" - $150
-    - "Kitchen Sink Installation" - $200
+    - "Emergency Plumbing Repair" - Rs. 150
+    - "Kitchen Sink Installation" - Rs. 200
     
     This allows providers to list multiple services with different prices.
     """

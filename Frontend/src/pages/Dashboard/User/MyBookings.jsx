@@ -6,6 +6,7 @@ import DashboardLayout from "../../../layouts/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import BookingImageUpload from "../../../components/BookingImageUpload";
 import ActionButton from "../../../components/ActionButton";
+import PaymentModal from "../../../components/PaymentModal";
 import { useToast } from "../../../components/Toast";
 import { useUserProfile } from "../../../context/UserProfileContext";
 import {
@@ -13,6 +14,7 @@ import {
     MdLocationOn,
     MdPhone,
 } from "react-icons/md";
+import { AiOutlineDollarCircle } from "react-icons/ai";
 import bookingsService from "../../../services/bookingsService";
 import { reviewFormSchema, decisionFormSchema } from "../../../validations/userSchemas";
 
@@ -48,6 +50,8 @@ export default function MyBookingsPage() {
     const [decisionLoading, setDecisionLoading] = useState(false);
     const [hasReviewed, setHasReviewed] = useState(false);
     const [reviewSuccess, setReviewSuccess] = useState(null);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentBooking, setPaymentBooking] = useState(null);
     const [loadingDetailId, setLoadingDetailId] = useState(null);
     const [showReviewModal, setShowReviewModal] = useState(false);
     const [loadingReviewModal, setLoadingReviewModal] = useState(false);
@@ -507,31 +511,72 @@ export default function MyBookingsPage() {
                                     </button>
 
                                     {booking.status === "completed" && (
-                                        <ActionButton
-                                            label="★ Rate Service"
-                                            loadingLabel="Loading..."
-                                            isLoading={loadingReviewModal && loadingDetailId === booking.id}
-                                            onClick={async () => {
-                                                try {
-                                                    setLoadingReviewModal(true);
-                                                    setLoadingDetailId(booking.id);
-                                                    const fullBooking = await bookingsService.getBookingDetail(booking.id);
-                                                    setSelectedBooking(fullBooking);
-                                                    setShowReviewModal(true);
-                                                    resetReview();
-                                                    setReviewSuccess(null);
-                                                    setHasReviewed(fullBooking.review ? true : false);
-                                                } catch (err) {
-                                                    console.error("Error fetching booking details:", err);
-                                                    addToast("Failed to load booking details", "error");
-                                                } finally {
-                                                    setLoadingReviewModal(false);
-                                                    setLoadingDetailId(null);
-                                                }
-                                            }}
-                                            variant="primary"
-                                            size="md"
-                                        />
+                                        <>
+                                            {(!booking.payment || booking.payment?.status !== 'completed') && (
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            setLoadingDetailId(booking.id);
+                                                            const fullBooking = await bookingsService.getBookingDetail(booking.id);
+                                                            setPaymentBooking(fullBooking);
+                                                            setShowPaymentModal(true);
+                                                        } catch (err) {
+                                                            console.error("Error fetching booking details:", err);
+                                                            addToast("Failed to load booking details", "error");
+                                                        } finally {
+                                                            setLoadingDetailId(null);
+                                                        }
+                                                    }}
+                                                    disabled={loadingDetailId === booking.id}
+                                                    className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-semibold hover:bg-green-700 transition flex items-center gap-2"
+                                                >
+                                                    {loadingDetailId === booking.id ? (
+                                                        <>
+                                                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                                                            Loading...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <AiOutlineDollarCircle className="h-4 w-4" />
+                                                            Pay NPR {booking.final_price || booking.quoted_price}
+                                                        </>
+                                                    )}
+                                                </button>
+                                            )}
+                                            {booking.payment?.status === 'completed' && (
+                                                <div className="flex items-center gap-2 text-green-600 bg-green-50 px-3 py-2 rounded-md">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                    </svg>
+                                                    <span className="font-semibold text-sm">Paid</span>
+                                                </div>
+                                            )}
+                                            <ActionButton
+                                                label="★ Rate Service"
+                                                loadingLabel="Loading..."
+                                                isLoading={loadingReviewModal && loadingDetailId === booking.id}
+                                                onClick={async () => {
+                                                    try {
+                                                        setLoadingReviewModal(true);
+                                                        setLoadingDetailId(booking.id);
+                                                        const fullBooking = await bookingsService.getBookingDetail(booking.id);
+                                                        setSelectedBooking(fullBooking);
+                                                        setShowReviewModal(true);
+                                                        resetReview();
+                                                        setReviewSuccess(null);
+                                                        setHasReviewed(fullBooking.review ? true : false);
+                                                    } catch (err) {
+                                                        console.error("Error fetching booking details:", err);
+                                                        addToast("Failed to load booking details", "error");
+                                                    } finally {
+                                                        setLoadingReviewModal(false);
+                                                        setLoadingDetailId(null);
+                                                    }
+                                                }}
+                                                variant="primary"
+                                                size="md"
+                                            />
+                                        </>
                                     )}
 
                                     {booking.status === "in_progress" && (
@@ -925,6 +970,46 @@ export default function MyBookingsPage() {
                                         </button>
                                     </div>
                                 )}
+                                {/* Payment Section */}
+                                {selectedBooking.status === 'completed' && (!selectedBooking.payment || selectedBooking.payment?.status !== 'completed') && (
+                                    <div className="col-span-2 bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                                        <p className="text-gray-700 font-semibold mb-2 flex items-center gap-2">
+                                            <AiOutlineDollarCircle className="h-5 w-5 text-blue-600" />
+                                            Payment Required
+                                        </p>
+                                        <p className="text-sm text-gray-600 mb-3">
+                                            Complete your payment to finish this booking
+                                        </p>
+                                        <button
+                                            onClick={() => {
+                                                setPaymentBooking(selectedBooking);
+                                                setShowPaymentModal(true);
+                                            }}
+                                            className="w-full px-4 py-3 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 transition flex items-center justify-center gap-2"
+                                        >
+                                            <AiOutlineDollarCircle className="h-5 w-5" />
+                                            Pay NPR {selectedBooking.final_price || selectedBooking.quoted_price} Now
+                                        </button>
+                                    </div>
+                                )}
+                                {selectedBooking.payment?.status === 'completed' && (
+                                    <div className="col-span-2 bg-green-50 p-4 rounded-lg border-2 border-green-200">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                </svg>
+                                                <span className="text-green-700 font-semibold">Payment Completed</span>
+                                            </div>
+                                            <span className="text-sm text-gray-600 capitalize">
+                                                {selectedBooking.payment.payment_method}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-green-700 mt-2">
+                                            Amount: NPR {selectedBooking.payment.amount}
+                                        </p>
+                                    </div>
+                                )}
                                 {/* Rate Service Button in Details Modal */}
                                 {selectedBooking.status === 'completed' && (
                                     <div className="col-span-2">
@@ -968,6 +1053,27 @@ export default function MyBookingsPage() {
                         </div>
                     </div>
                     </Modal>
+                )}
+
+                {/* Payment Modal */}
+                {showPaymentModal && paymentBooking && (
+                    <PaymentModal
+                        isOpen={showPaymentModal}
+                        onClose={() => {
+                            setShowPaymentModal(false);
+                            setPaymentBooking(null);
+                        }}
+                        booking={paymentBooking}
+                        onPaymentSuccess={(response) => {
+                            addToast('Payment successful! Your booking is fully complete.', 'success');
+                            setShowPaymentModal(false);
+                            setPaymentBooking(null);
+                            fetchBookings();
+                        }}
+                        onPaymentError={(error) => {
+                            addToast(error.message || 'Payment failed. Please try again.', 'error');
+                        }}
+                    />
                 )}
         </DashboardLayout>
     );

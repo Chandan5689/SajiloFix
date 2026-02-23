@@ -15,6 +15,7 @@
     "@supabase/supabase-js": "^2.90.1",
     "@tailwindcss/vite": "^4.1.17",
     "axios": "^1.13.2",
+    "khalti-checkout-web": "^2.2.0",
     "leaflet": "^1.9.4",
     "leaflet-geosearch": "^4.2.2",
     "lucide-react": "^0.554.0",

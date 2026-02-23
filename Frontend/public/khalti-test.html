@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Khalti Payment Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 700px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-section {
+            border: 2px solid #5C2D91;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        button {
+            background: #5C2D91;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #7C3DAF;
+        }
+        .info {
+            background: #f0f0f0;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔥 Khalti Payment Gateway Test</h1>
+    
+    <div class="info">
+        <strong>Test Instructions:</strong>
+        <p>This is a direct Khalti Checkout SDK test. Click the button below to test Khalti payment integration.</p>
+        <p><strong>Khalti Test Credentials:</strong></p>
+        <ul>
+            <li>Mobile Number: <strong>9800000000</strong>, <strong>9800000001</strong>, or <strong>9800000002</strong></li>
+            <li>MPIN: <strong>1111</strong></li>
+            <li>OTP: <strong>987654</strong></li>
+        </ul>
+        <p><strong>Test Public Key:</strong> test_public_key_dc74e0fd8d294f9b6775f21a3c2f6cef</p>
+    </div>
+
+    <div class="test-section">
+        <h3>Khalti Checkout Test</h3>
+        <button onclick="testKhaltiPayment()">Pay NPR 100 with Khalti</button>
+        <div id="result"></div>
+    </div>
+
+    <!-- Load Khalti SDK -->
+    <script src="https://khalti.s3.ap-south-1.amazonaws.com/KPG/dist/2020.12.17.0.0.0/khalti-checkout.iffe.js"></script>
+
+    <script>
+        function testKhaltiPayment() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>Opening Khalti checkout...</p>';
+
+            const config = {
+                // Test public key
+                publicKey: "test_public_key_dc74e0fd8d294f9b6775f21a3c2f6cef",
+                
+                // Product details
+                productIdentity: "test-product-123",
+                productName: "SajiloFix Test Service",
+                productUrl: window.location.href,
+                
+                // Amount in paisa (100 NPR = 10000 paisa)
+                amount: 10000, // 100 NPR
+                
+                // Event handlers
+                eventHandler: {
+                    onSuccess(payload) {
+                        console.log('Khalti Success:', payload);
+                        resultDiv.innerHTML = `
+                            <div class="success">
+                                <h4>✅ Payment Successful!</h4>
+                                <p><strong>Token:</strong> ${payload.token}</p>
+                                <p><strong>Amount:</strong> NPR ${payload.amount / 100}</p>
+                                <p><strong>Mobile:</strong> ${payload.mobile}</p>
+                                <p><strong>Product Identity:</strong> ${payload.product_identity}</p>
+                                <p><strong>Transaction ID (idx):</strong> ${payload.idx}</p>
+                            </div>
+                        `;
+                        
+                        // In production, you would verify this payment on your backend
+                        console.log('Next step: Verify payment on backend with token:', payload.token);
+                    },
+                    onError(error) {
+                        console.error('Khalti Error:', error);
+                        resultDiv.innerHTML = `
+                            <div class="error">
+                                <h4>❌ Payment Failed</h4>
+                                <p>${JSON.stringify(error)}</p>
+                            </div>
+                        `;
+                    },
+                    onClose() {
+                        console.log('Khalti widget closed');
+                        if (!resultDiv.querySelector('.success, .error')) {
+                            resultDiv.innerHTML = '<p>Payment cancelled by user</p>';
+                        }
+                    }
+                }
+            };
+
+            try {
+                const checkout = new KhaltiCheckout(config);
+                checkout.show({ amount: 10000 });
+            } catch (error) {
+                console.error('Error opening Khalti:', error);
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Error</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+
+    <div class="info" style="margin-top: 30px; background: #d1ecf1; border: 1px solid #bee5eb;">
+        <strong>📝 Notes:</strong>
+        <ul>
+            <li><strong>Test Mode:</strong> Using Khalti test environment</li>
+            <li><strong>Real Money:</strong> No real money is charged in test mode</li>
+            <li><strong>Verification:</strong> After successful payment, the token must be verified on your backend</li>
+            <li><strong>Backend Endpoint:</strong> POST /api/payments/khalti/verify/</li>
+        </ul>
+        
+        <p><strong>Expected Flow:</strong></p>
+        <ol>
+            <li>Click "Pay with Khalti"</li>
+            <li>Khalti popup opens</li>
+            <li>Enter test mobile number: 9800000000</li>
+            <li>Enter MPIN: 1111</li>
+            <li>Enter OTP: 987654</li>
+            <li>Payment succeeds, token returned</li>
+            <li>Backend verifies token with Khalti API</li>
+            <li>Payment marked as completed</li>
+        </ol>
+    </div>
+
+    <div class="info" style="margin-top: 20px; background: #fff3cd; border: 1px solid #ffc107;">
+        <strong>⚠️ Troubleshooting:</strong>
+        <ul>
+            <li><strong>Khalti widget doesn't open:</strong> Check browser console for errors, ensure Khalti SDK loaded</li>
+            <li><strong>Payment fails:</strong> Verify you're using correct test credentials</li>
+            <li><strong>Token verification fails:</strong> Check backend Khalti secret key configuration</li>
+            <li><strong>CORS errors:</strong> Ensure backend allows frontend domain</li>
+        </ul>
+    </div>
+</body>
+</html>

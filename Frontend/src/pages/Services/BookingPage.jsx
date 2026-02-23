@@ -1,7 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { useForm } from 'react-hook-form';
-import { yupResolver } from '@hookform/resolvers/yup';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import RatingBadge from "../../components/RatingBadge";
@@ -9,12 +8,6 @@ import BookingConflictWarning from "../../components/BookingConflictWarning";
 import { useUserProfile } from "../../context/UserProfileContext";
 import api from "../../api/axios";
 import bookingsService from "../../services/bookingsService";
-import { 
-  bookingStep1Schema, 
-  bookingStep2Schema, 
-  bookingStep3Schema, 
-  bookingStep4Schema 
-} from "../../validations/userSchemas";
 
 const getNepalNowParts = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -88,22 +81,13 @@ export default function BookingPage() {
   const [prefilledFromProfile, setPrefilledFromProfile] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdBooking, setCreatedBooking] = useState(null);
+  const [autoCloseTimer, setAutoCloseTimer] = useState(10); // 10 seconds countdown
   const [conflictData, setConflictData] = useState(null);
   const [checkingConflict, setCheckingConflict] = useState(false);
   const [nepalNow, setNepalNow] = useState(getNepalNowParts());
   const minDate = nepalNow.date;
 
-  // React Hook Form setup with dynamic schema based on current step
-  const getSchemaForStep = (step) => {
-    switch(step) {
-      case 1: return bookingStep1Schema;
-      case 2: return bookingStep2Schema;
-      case 3: return bookingStep3Schema;
-      case 4: return bookingStep4Schema;
-      default: return bookingStep1Schema;
-    }
-  };
-
+  // React Hook Form setup - validation handled manually in onStepSubmit
   const {
     register,
     handleSubmit,
@@ -113,7 +97,6 @@ export default function BookingPage() {
     reset,
     clearErrors,
   } = useForm({
-    resolver: yupResolver(getSchemaForStep(currentStep)),
     defaultValues: {
       selectedServiceIds: [],
       preferredDate: '',
@@ -131,7 +114,7 @@ export default function BookingPage() {
       isEmergency: false,
       selectedFiles: [],
     },
-    mode: 'onBlur',
+    mode: 'onChange',
   });
 
   const watchedFields = watch();
@@ -469,99 +452,34 @@ export default function BookingPage() {
     };
   }, [watchedFields.address]);
 
-  const validateStep = (step) => {
-    // Clear previous error
-    setError(null);
-    if (step === 1) {
-      if (!watchedFields.selectedServiceIds?.length) {
-        setError("Please select at least one service");
-        return false;
-      }
-      if (!watchedFields.preferredDate || !watchedFields.preferredTime) {
-        setError("Please select preferred date and time");
-        return false;
-      }
-      if (watchedFields.preferredDate < minDate) {
-        setError("Please select today or a future date (Nepal time)");
-        return false;
-      }
-      const dayCheck = isProviderAvailableOnDay(watchedFields.preferredDate);
-      if (!dayCheck.available) {
-        setError(dayCheck.message);
-        return false;
-      }
-      return true;
-    }
-
-    if (step === 2) {
-      if (!watchedFields.fullName?.trim()) {
-        setError("Please enter full name");
-        return false;
-      }
-      const phoneRegex = /^(97|98)\d{8}$/;
-      if (!phoneRegex.test(watchedFields.phone)) {
-        setError("Enter a valid Nepal mobile number (e.g., 9812345678)");
-        return false;
-      }
-      if (!watchedFields.email?.trim()) {
-        setError("Please enter email");
-        return false;
-      }
-      if (!watchedFields.address || watchedFields.address.trim().length < 5) {
-        setError("Please enter a valid service address");
-        return false;
-      }
-      if (!watchedFields.serviceCity?.trim()) {
-        setError("Please enter service city");
-        return false;
-      }
-      if (selectedServices.some((s) => s.service_radius) && (serviceLat == null || serviceLng == null)) {
-        setError("Please locate the service address on the map to continue");
-        return false;
-      }
-      const radiusExceeded = selectedServices.some((s) => s.service_radius && distanceKm != null && distanceKm > s.service_radius);
-      if (radiusExceeded) {
-        setError("Selected location is outside the provider's service radius for one or more services");
-        return false;
-      }
-      return true;
-    }
-
-    if (step === 3) {
-      if (!watchedFields.description?.trim()) {
-        setError("Please describe the service you need");
-        return false;
-      }
-      return true;
-    }
-
-    return true;
-  };
+  // Validation is now handled in onStepSubmit function
 
   const onStepSubmit = async (data) => {
     // Additional custom validations that Yup can't handle
+    setError(null);
+
     if (currentStep === 1) {
+      // Validate service selection
       if (!data.selectedServiceIds || data.selectedServiceIds.length === 0) {
         setError('Please select at least one service');
         return;
       }
-    }
-
-    if (currentStep === 2) {
+      // Validate date and time
       if (!data.preferredDate || !data.preferredTime) {
         setError('Please select preferred date and time');
         return;
       }
+      // Check if date is in the past
+      if (data.preferredDate < minDate) {
+        setError('Please select today or a future date (Nepal time)');
+        return;
+      }
+      // Check if time is in the past for today
       if (isPastNepalDateTime(data.preferredDate, data.preferredTime, nepalNow)) {
-        setError(`Selected time is in the past for Nepal time (${nepalNow.time}). Please pick a future slot.`);
+        setError(`Selected time is in the past for Nepal time (current: ${nepalNow.time}). Please pick a future slot.`);
         return;
       }
-      const selectedDate = new Date(data.preferredDate);
-      const day = selectedDate.getDay();
-      if (Number.isNaN(day) || selectedDate < new Date(minDate)) {
-        setError('Please pick a valid future date');
-        return;
-      }
+      // Check provider availability on selected day
       const dayCheck = isProviderAvailableOnDay(data.preferredDate);
       if (!dayCheck.available) {
         setError(dayCheck.message);
@@ -569,8 +487,34 @@ export default function BookingPage() {
       }
     }
 
+    if (currentStep === 2) {
+      // Validate contact information
+      if (!data.fullName?.trim()) {
+        setError('Please enter your full name');
+        return;
+      }
+      const phoneRegex = /^(97|98)\d{8}$/;
+      if (!phoneRegex.test(data.phone)) {
+        setError('Enter a valid Nepal mobile number (e.g., 9812345678)');
+        return;
+      }
+      if (!data.email?.trim()) {
+        setError('Please enter your email');
+        return;
+      }
+    }
+
     if (currentStep === 3) {
-      // Map location validation
+      // Validate service address
+      if (!data.address || data.address.trim().length < 5) {
+        setError('Please enter a valid service address (minimum 5 characters)');
+        return;
+      }
+      if (!data.serviceCity?.trim()) {
+        setError('Please enter service city');
+        return;
+      }
+      // Map location validation for services with radius requirement
       if (selectedServices.some((s) => s.service_radius) && (serviceLat == null || serviceLng == null)) {
         setError('Please locate the service address on the map to continue');
         return;
@@ -582,15 +526,35 @@ export default function BookingPage() {
       }
     }
 
-    setError(null);
-
-    // Move to next step or submit
-    if (currentStep < 4) {
-      setCurrentStep((prev) => prev + 1);
-    } else {
-      // Final submission
+    if (currentStep === 4) {
+      // Final validation before submission
+      if (!selectedServices.length) {
+        setError('Please select at least one service');
+        return;
+      }
+      if (!data.description || !data.description.trim()) {
+        setError('Please describe the service you need');
+        return;
+      }
+      if (!data.preferredDate || !data.preferredTime) {
+        setError('Please select preferred date and time');
+        return;
+      }
+      if (!data.address || data.address.trim().length < 5) {
+        setError('Please enter a valid service address');
+        return;
+      }
+      if (!data.fullName || !data.phone || !data.email) {
+        setError('Please complete all contact information');
+        return;
+      }
+      // Submit booking
       await submitBooking(data);
+      return;
     }
+
+    // Move to next step
+    setCurrentStep((prev) => prev + 1);
   };
 
   const handleStepSubmit = handleSubmit(onStepSubmit);
@@ -612,6 +576,26 @@ export default function BookingPage() {
     watchedFields.specialInstructions,
     watchedFields.isEmergency
   ]);
+
+  // Auto-close success modal after 10 seconds
+  useEffect(() => {
+    if (!showSuccessModal) return;
+    
+    setAutoCloseTimer(10);
+    const countdown = setInterval(() => {
+      setAutoCloseTimer((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdown);
+          setShowSuccessModal(false);
+          navigate("/my-bookings");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(countdown);
+  }, [showSuccessModal, navigate]);
 
   // Compute distance when coords available
   useEffect(() => {
@@ -1257,7 +1241,6 @@ export default function BookingPage() {
                   <input
                     id="preferredDate"
                     type="date"
-                    required
                     min={minDate}
                     {...register('preferredDate')}
                     className={`w-full border ${errors.preferredDate ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
@@ -1288,7 +1271,6 @@ export default function BookingPage() {
                  
                     <select
                       id="preferredTime"
-                      required
                       disabled={!dayAvailability.available || loadingAvailability}
                       {...register('preferredTime')}
                       className={`w-full border ${errors.preferredTime ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
@@ -1358,7 +1340,6 @@ export default function BookingPage() {
                     <input
                       id="fullName"
                       type="text"
-                      required
                       {...register('fullName')}
                       className={`w-full border ${errors.fullName ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                     />
@@ -1374,7 +1355,6 @@ export default function BookingPage() {
                       <input
                         id="phone"
                         type="tel"
-                        required
                         {...register('phone', {
                           onChange: (e) => {
                             const value = e.target.value.replace(/\D/g, '');
@@ -1397,7 +1377,6 @@ export default function BookingPage() {
                     <input
                       id="email"
                       type="email"
-                      required
                       {...register('email')}
                       className={`w-full border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                     />
@@ -1409,7 +1388,6 @@ export default function BookingPage() {
                     <input
                       id="address"
                       type="text"
-                      required
                       placeholder="Where should the service be performed"
                       {...register('address')}
                       className={`w-full border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400`}
@@ -1444,7 +1422,6 @@ export default function BookingPage() {
                     <input
                       id="serviceCity"
                       type="text"
-                      required
                       {...register('serviceCity')}
                       className={`w-full border ${errors.serviceCity ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                     />
@@ -1661,7 +1638,6 @@ export default function BookingPage() {
                   className={`w-full border rounded-md px-4 py-2 focus:outline-none focus:ring-2 placeholder-gray-400 resize-none ${
                     errors.description ? 'border-red-500 focus:ring-red-500' : (watchedFields.description?.trim() ? 'border-gray-300 focus:ring-green-500' : 'border-red-300 focus:ring-red-500')
                   }`}
-                  required
                 />
                 <div className="flex justify-between items-center mt-1">
                   <p className={`text-xs ${watchedFields.description?.trim() ? 'text-green-600' : 'text-red-500'}`}>
@@ -1964,9 +1940,20 @@ export default function BookingPage() {
       {/* Success Modal */}
       {showSuccessModal && createdBooking && (
         <div className="fixed inset-0 bg-gray-200 bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn relative">
+            {/* Auto-close countdown */}
+            <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+              <div className="bg-blue-600 text-white text-xs px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Auto-closing in {autoCloseTimer}s</span>
+              </div>
+            </div>
+
             {/* Success Icon */}
-            <div className="flex justify-center mb-4">
+            <div className="flex justify-center mb-4 mt-2">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
                 <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -2002,7 +1989,8 @@ export default function BookingPage() {
                   <ul className="text-xs text-blue-800 space-y-1">
                     <li>• The provider will review your request</li>
                     <li>• You'll receive a response within 24 hours</li>
-                    <li>• You can track the status in "My Bookings"</li>
+                    <li>• Once work is completed, you can pay via Khalti/eSewa</li>
+                    <li>• Track everything in "My Bookings"</li>
                     {watchedFields.isEmergency && <li className="font-semibold">• ⚡ Emergency request - faster response expected</li>}
                   </ul>
                 </div>
@@ -2012,7 +2000,10 @@ export default function BookingPage() {
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
               <button
-                onClick={() => navigate("/my-bookings")}
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  navigate("/my-bookings");
+                }}
                 className="flex-1 bg-green-600 text-white rounded-md px-4 py-3 font-semibold hover:bg-green-700 transition duration-200"
               >
                 View My Bookings
@@ -2021,7 +2012,6 @@ export default function BookingPage() {
                 onClick={() => {
                   setShowSuccessModal(false);
                   setCreatedBooking(null);
-                  // Reset form or navigate to services
                   navigate("/services");
                 }}
                 className="flex-1 border border-gray-300 text-gray-700 rounded-md px-4 py-3 font-semibold hover:bg-gray-50 transition duration-200"
@@ -2038,6 +2028,7 @@ export default function BookingPage() {
               }}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
               aria-label="Close"
+              title="Close (stops auto-close)"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

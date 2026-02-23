@@ -177,7 +177,7 @@ const Earnings = () => {
             {
                 icon: <DollarSign className="w-5 h-5" />,
                 label: "Total Earnings",
-                value: `$${totalEarnings.toLocaleString()}`,
+                value: `NRs ${totalEarnings.toLocaleString()}`,
                 change: "+2% from last period",
                 changePositive: true,
                 bgColor: "bg-green-50",
@@ -195,7 +195,7 @@ const Earnings = () => {
             {
                 icon: <Clock className="w-5 h-5" />,
                 label: "Pending Payments",
-                value: `$${pendingAmount}`,
+                value: `NRs. ${pendingAmount}`,
                 change: `${pendingCount} payment${pendingCount !== 1 ? 's' : ''} pending`,
                 changePositive: false,
                 bgColor: "bg-yellow-50",
@@ -204,7 +204,7 @@ const Earnings = () => {
             {
                 icon: <TrendingUp className="w-5 h-5" />,
                 label: "Avg. Job Value",
-                value: `$${Math.round(avgJobValue)}`,
+                value: `NRs${Math.round(avgJobValue)}`,
                 change: "+5% increase",
                 changePositive: true,
                 bgColor: "bg-purple-50",
@@ -324,7 +324,7 @@ const Earnings = () => {
                                                 {earning.service}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                                                ${earning.amount}
+                                                NRs. {earning.amount}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                                 {earning.paymentMethod}
@@ -379,7 +379,7 @@ const Earnings = () => {
                                             </div>
                                             <div>
                                                 <p className="text-gray-500">Amount</p>
-                                                <p className="text-gray-900 font-semibold">${earning.amount}</p>
+                                                <p className="text-gray-900 font-semibold">NRs. {earning.amount}</p>
                                             </div>
                                         </div>
 

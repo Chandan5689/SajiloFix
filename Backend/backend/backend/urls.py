@@ -24,6 +24,7 @@ urlpatterns = [
     path('api/auth/', include('users.urls')),
     path('api/chatbot/', include('chatbot.urls')),
     path('api/bookings/', include('bookings.urls')),
+    path('api/payments/', include('payments.urls')),
     path('api/admin/', include('admin_panel.urls')),  # Changed from 'admin.urls'
 ]
 
