@@ -79,6 +79,7 @@ class BookingSerializer(serializers.ModelSerializer):
     customer_email = serializers.EmailField(source='customer.email', read_only=True)
     images = BookingImageSerializer(many=True, read_only=True)
     booking_services = BookingServiceSerializer(many=True, read_only=True)
+    payment = serializers.SerializerMethodField()
     services = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -96,12 +97,12 @@ class BookingSerializer(serializers.ModelSerializer):
             'customer_phone', 'customer_name', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
             'cancellation_reason', 'provider_notes', 'images', 'customer_email', 'provider_name',
-            'customer_name', 'booking_services', 'services'
+            'customer_name', 'booking_services', 'services', 'payment'
         ]
         read_only_fields = [
             'id', 'customer', 'provider', 'service_title', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
-            'images', 'customer_email', 'provider_name', 'customer_name', 'booking_services'
+            'images', 'customer_email', 'provider_name', 'customer_name', 'booking_services', 'payment'
         ]
 
     def get_provider_name(self, obj):
@@ -109,6 +110,22 @@ class BookingSerializer(serializers.ModelSerializer):
 
     def get_customer_name(self, obj):
         return obj.customer.get_full_name() or obj.customer.email
+
+    def get_payment(self, obj):
+        """Get payment info for this booking"""
+        try:
+            if hasattr(obj, 'payment'):
+                return {
+                    'id': obj.payment.id,
+                    'status': obj.payment.status,
+                    'payment_method': obj.payment.payment_method,
+                    'amount': str(obj.payment.amount),
+                    'paid_at': obj.payment.paid_at.isoformat() if obj.payment.paid_at else None,
+                    'transaction_id': obj.payment.transaction_id,
+                }
+        except Payment.DoesNotExist:
+            pass
+        return None
 
     def get_service_title(self, obj):
         if obj.service and obj.service.title:
@@ -175,6 +192,7 @@ class BookingListSerializer(serializers.ModelSerializer):
     service_title = serializers.SerializerMethodField()
     provider_name = serializers.SerializerMethodField()
     customer_name = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -185,7 +203,7 @@ class BookingListSerializer(serializers.ModelSerializer):
             'service_address', 'service_city', 'service_district',
             'description', 'special_instructions',
             'customer_phone',
-            'created_at'
+            'created_at', 'payment'
         ]
         read_only_fields = fields
 
@@ -206,6 +224,23 @@ class BookingListSerializer(serializers.ModelSerializer):
         if first_snapshot:
             return BookingServiceSerializer(first_snapshot).data.get('service_title')
         return None
+
+    def get_payment(self, obj):
+        """Get payment status for this booking"""
+        try:
+            if hasattr(obj, 'payment'):
+                return PaymentStatusSerializer(obj.payment).data
+        except Payment.DoesNotExist:
+            pass
+        return None
+
+
+class PaymentStatusSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for payment status in booking lists"""
+    class Meta:
+        model = Payment
+        fields = ['id', 'status', 'payment_method', 'amount', 'paid_at']
+        read_only_fields = fields
 
 
 class PaymentSerializer(serializers.ModelSerializer):

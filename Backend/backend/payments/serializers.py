@@ -72,11 +72,10 @@ class InitiatePaymentSerializer(serializers.Serializer):
 
 
 class VerifyKhaltiPaymentSerializer(serializers.Serializer):
-    """Serializer for verifying Khalti payment"""
+    """Serializer for verifying Khalti payment (ePayment API)"""
     
-    token = serializers.CharField(required=True, help_text="Khalti token from payment response")
-    amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
-    transaction_uid = serializers.UUIDField(required=True, help_text="Our transaction UID")
+    pidx = serializers.CharField(required=True, help_text="Khalti payment ID from redirect")
+    transaction_uid = serializers.UUIDField(required=False, help_text="Our transaction UID (optional)")
 
 
 class PaymentHistorySerializer(serializers.ModelSerializer):

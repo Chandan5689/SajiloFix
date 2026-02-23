@@ -9,6 +9,7 @@ from .views import (
     InitiateEsewaPaymentView,
     VerifyEsewaPaymentView,
     EsewaPaymentInfoView,
+    ConfirmCashPaymentView,
 )
 
 urlpatterns = [
@@ -18,6 +19,9 @@ urlpatterns = [
     # Khalti-specific endpoints
     path('khalti/verify/', VerifyKhaltiPaymentView.as_view(), name='khalti-verify'),
     path('khalti/public-key/', KhaltiPublicKeyView.as_view(), name='khalti-public-key'),
+    
+    # Cash payment endpoints
+    path('cash/confirm/', ConfirmCashPaymentView.as_view(), name='cash-confirm'),
     
     # eSewa-specific endpoints
     path('esewa/initiate/', InitiateEsewaPaymentView.as_view(), name='esewa-initiate'),
