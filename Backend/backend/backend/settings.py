@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'users',
     'chatbot',
     'bookings',
+    'payments',
     'storages', 
     'admin_panel.apps.AdminPanelConfig',  # ← Changed
 ]
@@ -195,8 +196,12 @@ AUTH_USER_MODEL = 'users.User'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Your Vite dev server
     "http://127.0.0.1:5173",
+    "http://localhost:5174",  # Alternative port
+    "http://127.0.0.1:5174",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://192.168.1.68:5173",  # Network access
+    "http://192.168.1.68:5174",  # Network access (alt port)
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -243,3 +248,16 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='SajiloFix <noreply@sajilofix.com>')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# Khalti Payment Gateway Configuration
+KHALTI_PUBLIC_KEY = config('KHALTI_PUBLIC_KEY', default='')
+KHALTI_SECRET_KEY = config('KHALTI_SECRET_KEY', default='')
+KHALTI_TEST_MODE = config('KHALTI_TEST_MODE', default=True, cast=bool)
+
+# eSewa Payment Gateway Configuration
+ESEWA_MERCHANT_CODE = config('ESEWA_MERCHANT_CODE', default='EPAYTEST')
+ESEWA_SECRET_KEY = config('ESEWA_SECRET_KEY', default='')
+ESEWA_TEST_MODE = config('ESEWA_TEST_MODE', default=True, cast=bool)
+ESEWA_CLIENT_ID = config('CLIENT_ID', default='')
+ESEWA_CLIENT_SECRET = config('CLIENT_SECRET', default='')
+
