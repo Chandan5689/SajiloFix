@@ -46,6 +46,9 @@ import AdminBookings from './pages/Admin/AdminBookings';
 import AdminAnalytics from './pages/Admin/AdminAnalytics';
 import AdminSettings from './pages/Admin/AdminSettings';
 import RequireAdminRole from './components/RequireAdminRole';
+import EsewaSuccess from './pages/Payment/EsewaSuccess';
+import EsewaFailure from './pages/Payment/EsewaFailure';
+import PaymentHistory from './pages/Payment/PaymentHistory';
 function ProtectedRoute({ children }) {
     const { isAuthenticated, loading } = useSupabaseAuth();
 
@@ -92,6 +95,24 @@ function App() {
                                     <Route path='/login' element={<SupabaseLogin />} />
                                     <Route path='/register' element={<SupabaseRegister />} />
                                     <Route path='/auth/callback' element={<AuthCallback />} />
+
+                                    {/* Payment Callback Routes (Protected) */}
+                                    <Route
+                                        path="/payment/esewa/success"
+                                        element={
+                                            <ProtectedRoute>
+                                                <EsewaSuccess />
+                                            </ProtectedRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/payment/esewa/failure"
+                                        element={
+                                            <ProtectedRoute>
+                                                <EsewaFailure />
+                                            </ProtectedRoute>
+                                        }
+                                    />
 
                                     {/* Protected Auth Flow Routes */}
                                     <Route
@@ -167,6 +188,15 @@ function App() {
                                             <RequireCompleteRegistration>
                                                 <RequireUserRole>
                                                     <UserPayments />
+                                                </RequireUserRole>
+                                            </RequireCompleteRegistration>
+                                        </ProtectedRoute>
+                                    } />
+                                    <Route path='/user/payment-history' element={
+                                        <ProtectedRoute>
+                                            <RequireCompleteRegistration>
+                                                <RequireUserRole>
+                                                    <PaymentHistory />
                                                 </RequireUserRole>
                                             </RequireCompleteRegistration>
                                         </ProtectedRoute>

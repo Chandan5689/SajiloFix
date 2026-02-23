@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eSewa Payment Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        form {
+            border: 2px solid #60d669;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        input {
+            margin: 5px 0;
+            padding: 8px;
+            width: 100%;
+        }
+        button {
+            background: #60d669;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .info {
+            background: #f0f0f0;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>eSewa Payment Gateway Test</h1>
+    
+    <div class="info">
+        <strong>Test Instructions:</strong>
+        <p>This is a direct eSewa payment test form. If this doesn't work, it means eSewa's test environment is down or your merchant code is not configured.</p>
+        <p><strong>For eSewa Test Mode:</strong></p>
+        <ul>
+            <li>Merchant Code: EPAYTEST (default test merchant)</li>
+            <li>You may need to create a test merchant account on eSewa</li>
+            <li>Test Environment URL: https://uat.esewa.com.np/epay/main</li>
+        </ul>
+    </div>
+
+    <form action="https://uat.esewa.com.np/epay/main" method="POST">
+        <h3>Payment Details</h3>
+        
+        <label>Amount (NPR):</label>
+        <input type="text" name="amt" value="100" required>
+        
+        <label>Service Charge:</label>
+        <input type="text" name="psc" value="0" required>
+        
+        <label>Delivery Charge:</label>
+        <input type="text" name="pdc" value="0" required>
+        
+        <label>Tax Amount:</label>
+        <input type="text" name="txAmt" value="0" required>
+        
+        <label>Total Amount:</label>
+        <input type="text" name="tAmt" value="100" required>
+        
+        <label>Product ID (Unique):</label>
+        <input type="text" name="pid" value="TEST-12345" required>
+        
+        <label>Merchant Code:</label>
+        <input type="text" name="scd" value="EPAYTEST" required>
+        
+        <label>Success URL:</label>
+        <input type="text" name="su" value="http://localhost:5173/payment/esewa/success" required>
+        
+        <label>Failure URL:</label>
+        <input type="text" name="fu" value="http://localhost:5173/payment/esewa/failure" required>
+        
+        <button type="submit">Pay with eSewa (Test)</button>
+    </form>
+
+    <div class="info" style="margin-top: 20px; background: #fff3cd; border: 1px solid #ffc107;">
+        <strong>⚠️ Troubleshooting:</strong>
+        <p>If you get a blank page after clicking "Pay with eSewa":</p>
+        <ol>
+            <li><strong>eSewa UAT is down</strong> - Their test server is known to be unstable</li>
+            <li><strong>Invalid Merchant Code</strong> - EPAYTEST might not be working, you may need to register for test merchant credentials</li>
+            <li><strong>Localhost URLs not accepted</strong> - Try using a tunneling service like ngrok to get a public URL</li>
+            <li><strong>Contact eSewa Support</strong> - Get proper test credentials and test merchant code</li>
+        </ol>
+        <p><strong>Recommendation:</strong> For development, test the full flow with Khalti first (which has better test environment support), and test eSewa in production or with proper test credentials.</p>
+    </div>
+</body>
+</html>

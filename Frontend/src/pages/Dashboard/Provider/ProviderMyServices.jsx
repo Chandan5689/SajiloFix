@@ -353,11 +353,7 @@ export default function ProviderMyServices() {
     };
 
     const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-NP', {
-            style: 'currency',
-            currency: 'NPR',
-            minimumFractionDigits: 0,
-        }).format(amount);
+        return `Rs. ${Number(amount).toLocaleString('en-US')}`;
     };
 
     if (loading) {
