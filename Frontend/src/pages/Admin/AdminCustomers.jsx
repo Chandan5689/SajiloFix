@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
-import { MdCheckCircle, MdCancel, MdVerified, MdSearch, MdRefresh, MdPerson, MdEmail, MdPhone } from 'react-icons/md';
+import { MdCheckCircle, MdCancel, MdVerified, MdSearch, MdRefresh, MdPerson, MdEmail, MdPhone, MdChevronLeft, MdChevronRight, MdLocationOn, MdCalendarToday, MdBookmark } from 'react-icons/md';
 
 export default function AdminCustomers() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [actionLoading, setActionLoading] = useState(null);
@@ -30,15 +32,14 @@ export default function AdminCustomers() {
       if (filterStatus !== 'all') params.append('is_active', filterStatus === 'active');
       params.append('page', page);
 
-      console.log('Fetching customers from:', `/admin/users/?${params}`);
       const response = await api.get(`/admin/users/?${params}`);
-      console.log('Customers response:', response.data);
       
       if (response.data?.success && Array.isArray(response.data?.data)) {
         setCustomers(response.data.data);
+        setTotalPages(response.data.total_pages || 1);
+        setTotalCount(response.data.count || response.data.data.length);
         setError(null);
       } else {
-        console.log('Response format issue:', response.data);
         setCustomers([]);
         setError('No customer data available');
       }
@@ -292,10 +293,55 @@ export default function AdminCustomers() {
         </div>
       )}
 
+      {/* Pagination */}
+      {!loading && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6 bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">
+            Page {page} of {totalPages} ({totalCount} total)
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <MdChevronLeft size={18} /> Previous
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              let pageNum;
+              if (totalPages <= 5) pageNum = i + 1;
+              else if (page <= 3) pageNum = i + 1;
+              else if (page >= totalPages - 2) pageNum = totalPages - 4 + i;
+              else pageNum = page - 2 + i;
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setPage(pageNum)}
+                  className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    page === pageNum
+                      ? 'bg-green-600 text-white shadow-sm'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Next <MdChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       {isModalOpen && selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent bg-opacity-40 px-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={closeModal}
               className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 text-xl"
@@ -317,64 +363,149 @@ export default function AdminCustomers() {
                   </button>
                 </div>
               </div>
+            ) : modalMode === 'view' ? (
+              <div className="space-y-5">
+                {/* Profile Header */}
+                <div className="flex items-center gap-4 pb-4 border-b border-gray-100">
+                  {selectedUser.profile_picture ? (
+                    <img src={selectedUser.profile_picture} alt="Profile" className="w-16 h-16 rounded-full object-cover border-2 border-green-200" />
+                  ) : (
+                    <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center text-white font-bold text-xl">
+                      {selectedUser.first_name?.charAt(0)?.toUpperCase() || selectedUser.email.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-900">
+                      {selectedUser.first_name} {selectedUser.last_name}
+                    </h4>
+                    <p className="text-sm text-gray-500">{selectedUser.user_type_display || 'Customer'}</p>
+                  </div>
+                </div>
+
+                {/* Status Badges */}
+                <div className="flex flex-wrap gap-2">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${selectedUser.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {selectedUser.is_active ? <MdCheckCircle size={14} /> : <MdCancel size={14} />}
+                    {selectedUser.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${selectedUser.is_verified ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <MdVerified size={14} />
+                    {selectedUser.is_verified ? 'Verified' : 'Not Verified'}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${selectedUser.phone_verified ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <MdPhone size={14} />
+                    {selectedUser.phone_verified ? 'Phone Verified' : 'Phone Not Verified'}
+                  </span>
+                  {selectedUser.registration_completed && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700">
+                      <MdCheckCircle size={14} /> Registration Complete
+                    </span>
+                  )}
+                </div>
+
+                {/* Contact Info */}
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  <h5 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Contact Information</h5>
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <MdEmail className="text-gray-400" size={16} />
+                      <span className="text-gray-600 break-all">{selectedUser.email}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <MdPhone className="text-gray-400" size={16} />
+                      <span className="text-gray-600">{selectedUser.phone_number || 'Not provided'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Location Info */}
+                {(selectedUser.address || selectedUser.city || selectedUser.district || selectedUser.location) && (
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <h5 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Location</h5>
+                    <div className="space-y-2">
+                      {selectedUser.location && (
+                        <div className="flex items-start gap-2 text-sm">
+                          <MdLocationOn className="text-gray-400 mt-0.5" size={16} />
+                          <span className="text-gray-600">{selectedUser.location}</span>
+                        </div>
+                      )}
+                      {(selectedUser.address || selectedUser.city || selectedUser.district) && (
+                        <div className="flex items-start gap-2 text-sm">
+                          <MdLocationOn className="text-gray-400 mt-0.5" size={16} />
+                          <span className="text-gray-600">
+                            {[selectedUser.address, selectedUser.city, selectedUser.district].filter(Boolean).join(', ')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Activity Stats */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center gap-1 text-green-600 mb-1">
+                      <MdBookmark size={18} />
+                    </div>
+                    <p className="text-2xl font-bold text-green-700">{selectedUser.total_bookings || 0}</p>
+                    <p className="text-xs text-green-600">Total Bookings</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center gap-1 text-blue-600 mb-1">
+                      <MdCalendarToday size={18} />
+                    </div>
+                    <p className="text-sm font-bold text-blue-700">
+                      {new Date(selectedUser.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                    </p>
+                    <p className="text-xs text-blue-600">Member Since</p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-4">
+                  <button onClick={closeModal} className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">Close</button>
+                  <button onClick={() => setModalMode('edit')} className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">Edit</button>
+                </div>
+              </div>
             ) : (
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">First Name</label>
-                  {modalMode === 'view' ? (
-                    <p className="text-gray-800">{selectedUser.first_name || '—'}</p>
-                  ) : (
-                    <input
-                      value={formData.first_name}
-                      onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                    />
-                  )}
+                  <input
+                    value={formData.first_name}
+                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Last Name</label>
-                  {modalMode === 'view' ? (
-                    <p className="text-gray-800">{selectedUser.last_name || '—'}</p>
-                  ) : (
-                    <input
-                      value={formData.last_name}
-                      onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                    />
-                  )}
+                  <input
+                    value={formData.last_name}
+                    onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
-                  {modalMode === 'view' ? (
-                    <p className="text-gray-800 break-all">{selectedUser.email}</p>
-                  ) : (
-                    <input
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                    />
-                  )}
+                  <input
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Phone</label>
-                  {modalMode === 'view' ? (
-                    <p className="text-gray-800">{selectedUser.phone_number || '—'}</p>
-                  ) : (
-                    <input
-                      value={formData.phone_number}
-                      onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                    />
-                  )}
+                  <input
+                    value={formData.phone_number}
+                    onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                  />
                 </div>
 
                 <div className="flex justify-end gap-3 mt-6">
-                  <button onClick={closeModal} className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700">Close</button>
-                  {modalMode === 'edit' && (
-                    <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">
-                      {saving ? 'Saving...' : 'Save Changes'}
-                    </button>
-                  )}
+                  <button onClick={closeModal} className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700">Cancel</button>
+                  <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
                 </div>
               </div>
             )}

@@ -64,13 +64,6 @@ const PaymentHistory = () => {
         </div>
       );
     }
-    if (method === 'esewa' || method?.toLowerCase().includes('esewa')) {
-      return (
-        <div className="w-8 h-8 bg-green-100 rounded flex items-center justify-center">
-          <span className="text-xs font-semibold text-green-600">E</span>
-        </div>
-      );
-    }
     return (
       <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
         <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">

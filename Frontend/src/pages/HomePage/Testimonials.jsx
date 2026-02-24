@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { FaArrowLeft, FaArrowRight } from "react-icons/fa";
+import api from '../../api/axios';
 
-const testimonials = [
+const fallbackTestimonials = [
     {
         id: 1,
         name: "Emily Rodriguez",
@@ -35,9 +36,38 @@ const testimonials = [
         rating: 5,
     },
 ];
+
 function Testimonials() {
     const [current, setCurrent] = useState(0);
-    //Auto slide every 3 seconds
+    const [testimonials, setTestimonials] = useState(fallbackTestimonials);
+
+    // Fetch real reviews from API
+    useEffect(() => {
+        const fetchTestimonials = async () => {
+            try {
+                const response = await api.get('/bookings/testimonials/');
+                if (response.data?.success && response.data.data?.length > 0) {
+                    const apiReviews = response.data.data;
+                    // If fewer than 4 real reviews, pad with fallback testimonials
+                    if (apiReviews.length >= 4) {
+                        setTestimonials(apiReviews);
+                    } else {
+                        const usedIds = new Set(apiReviews.map(r => r.id));
+                        const padding = fallbackTestimonials
+                            .filter(f => !usedIds.has(f.id))
+                            .slice(0, 4 - apiReviews.length);
+                        setTestimonials([...apiReviews, ...padding]);
+                    }
+                    setCurrent(0);
+                }
+            } catch {
+                // Keep fallback testimonials on error
+            }
+        };
+        fetchTestimonials();
+    }, []);
+
+    // Auto slide every 3 seconds
     useEffect(() => {
         const interval = setInterval(() => {
             nextSlide();
@@ -72,11 +102,24 @@ function Testimonials() {
                                 </div>
                                 <p className="text-gray-700 text-lg italic mb-6">"{t.text}"</p>
                                 <div className="flex justify-center items-center gap-3">
-                                    <img
-                                        src={t.image}
-                                        alt={t.name}
-                                        className="w-12 h-12 rounded-full object-cover"
-                                    />
+                                    {t.image ? (
+                                        <img
+                                            src={t.image}
+                                            alt={t.name}
+                                            className="w-12 h-12 rounded-full object-cover"
+                                            onError={(e) => {
+                                                e.target.onerror = null;
+                                                e.target.src = '';
+                                                e.target.style.display = 'none';
+                                                e.target.nextSibling && (e.target.nextSibling.style.display = 'flex');
+                                            }}
+                                        />
+                                    ) : null}
+                                    {!t.image && (
+                                        <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-lg">
+                                            {t.name?.charAt(0)?.toUpperCase() || '?'}
+                                        </div>
+                                    )}
                                     <div className="text-left">
                                         <p className="font-semibold text-gray-900">{t.name}</p>
                                         <p className="text-gray-500 text-sm">{t.role}</p>

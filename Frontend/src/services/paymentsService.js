@@ -16,26 +16,13 @@ const paymentsService = {
     }
   },
 
-  /**
-   * Get eSewa configuration (no auth required)
-   * @returns {Promise} eSewa configuration
-   */
-  getEsewaConfig: async () => {
-    try {
-      const response = await api.get('/payments/esewa/info/');
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-
   // ==================== PAYMENT INITIATION ====================
 
   /**
    * Initiate payment for a booking
    * @param {Object} paymentData - Payment initiation data
    * @param {number} paymentData.booking_id - Booking ID
-   * @param {string} paymentData.payment_method - 'khalti' | 'esewa' | 'cash'
+   * @param {string} paymentData.payment_method - 'khalti' | 'cash'
    * @param {string} paymentData.return_url - Success return URL
    * @param {string} paymentData.failure_url - Failure return URL
    * @returns {Promise} Payment initiation response
@@ -43,20 +30,6 @@ const paymentsService = {
   initiatePayment: async (paymentData) => {
     try {
       const response = await api.post('/payments/initiate/', paymentData);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-
-  /**
-   * Initiate eSewa payment specifically (alternative endpoint)
-   * @param {Object} paymentData
-   * @returns {Promise} eSewa payment data with form parameters
-   */
-  initiateEsewaPayment: async (paymentData) => {
-    try {
-      const response = await api.post('/payments/esewa/initiate/', paymentData);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -75,24 +48,6 @@ const paymentsService = {
   verifyKhaltiPayment: async (verificationData) => {
     try {
       const response = await api.post('/payments/khalti/verify/', verificationData);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-
-  /**
-   * Verify eSewa payment after redirect callback
-   * @param {Object} queryParams - Query parameters from eSewa
-   * @param {string} queryParams.oid - Transaction UUID
-   * @param {string} queryParams.amt - Amount
-   * @param {string} queryParams.refId - eSewa reference ID
-   * @returns {Promise} Verification response
-   */
-  verifyEsewaPayment: async (queryParams) => {
-    try {
-      const params = new URLSearchParams(queryParams).toString();
-      const response = await api.get(`/payments/esewa/verify/?${params}`);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -159,6 +114,49 @@ const paymentsService = {
   getTransactionDetail: async (transactionUid) => {
     try {
       const response = await api.get(`/payments/transactions/${transactionUid}/`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // ==================== PROVIDER EARNINGS ====================
+
+  /**
+   * Get provider earnings history (paginated, filterable)
+   * @param {Object} filters - Optional filters
+   * @param {string} filters.period - 'this_week' | 'this_month' | 'last_month' | 'this_year'
+   * @param {string} filters.status - 'pending' | 'completed' | 'failed'
+   * @param {string} filters.payment_method - 'khalti' | 'cash'
+   * @param {number} filters.page - Page number
+   * @param {number} filters.page_size - Items per page
+   * @returns {Promise} Paginated earnings list
+   */
+  getProviderEarningsHistory: async (filters = {}) => {
+    try {
+      const params = {};
+      if (filters.period) params.period = filters.period;
+      if (filters.status) params.status = filters.status;
+      if (filters.payment_method) params.payment_method = filters.payment_method;
+      params.page = filters.page ?? 1;
+      params.page_size = filters.page_size ?? 50;
+      const response = await api.get('/payments/provider/earnings/history/', { params });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
+   * Get provider earnings stats with period filter
+   * @param {string} period - 'this_week' | 'this_month' | 'last_month' | 'this_year'
+   * @returns {Promise} Earnings stats object
+   */
+  getProviderEarningsStats: async (period) => {
+    try {
+      const params = {};
+      if (period) params.period = period;
+      const response = await api.get('/payments/provider/earnings/stats/', { params });
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;

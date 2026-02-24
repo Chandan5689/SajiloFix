@@ -40,7 +40,7 @@ const isPastNepalDateTime = (dateStr, timeStr, nepalNow) => {
     const [h, m, s = '0'] = t.split(':').map((n) => parseInt(n, 10) || 0);
     return h * 3600 + m * 60 + s;
   };
-  return toSeconds(timeStr) <= toSeconds(nepalNow.time);
+  return toSeconds(timeStr) < toSeconds(nepalNow.time);
 };
 
 export default function BookingPage() {
@@ -51,7 +51,9 @@ export default function BookingPage() {
   // State variables - MUST BE BEFORE any conditional returns
   const [provider, setProvider] = useState(null);
   const [loading, setLoading] = useState(true); // initial page load for provider details
-  const [error, setError] = useState(null);
+  const [loadingError, setLoadingError] = useState(null); // fatal errors (provider not found, etc.)
+  const [error, setError] = useState(null); // form validation errors (shown inline)
+  const [timeSlotWarning, setTimeSlotWarning] = useState(null); // inline warning below time slot
   const [currentStep, setCurrentStep] = useState(1);
   // Form fields now managed by React Hook Form (selectedServiceIds, preferredDate, preferredTime, 
   // fullName, phone, email, address, serviceCity, serviceDistrict, description, specialInstructions, 
@@ -86,6 +88,13 @@ export default function BookingPage() {
   const [checkingConflict, setCheckingConflict] = useState(false);
   const [nepalNow, setNepalNow] = useState(getNepalNowParts());
   const minDate = nepalNow.date;
+  const MAX_ADVANCE_DAYS = 5;
+  // Calculate maxDate: 5 days from today in Nepal time
+  const maxDate = (() => {
+    const d = new Date(nepalNow.date);
+    d.setDate(d.getDate() + MAX_ADVANCE_DAYS);
+    return d.toISOString().split('T')[0];
+  })();
 
   // React Hook Form setup - validation handled manually in onStepSubmit
   const {
@@ -133,6 +142,12 @@ export default function BookingPage() {
       : [...currentIds, idStr];
     setValue('selectedServiceIds', updated, { shouldValidate: true });
     clearErrors('selectedServiceIds');
+
+    // Reset emergency checkbox if no selected service supports emergency
+    const updatedServices = (provider?.services || []).filter(s => updated.includes(String(s.id)));
+    if (!updatedServices.some(s => s.emergency_service)) {
+      setValue('isEmergency', false);
+    }
   };
 
   // Fetch provider details + availability (once per provider)
@@ -141,7 +156,7 @@ export default function BookingPage() {
     const fetchProvider = async () => {
       try {
         setLoading(true);
-        setError(null);
+        setLoadingError(null);
         const [providerRes, availabilityRes] = await Promise.all([
           api.get(`/bookings/providers/${id}/`),
           api.get(`/bookings/providers/${id}/availability/`)
@@ -161,9 +176,9 @@ export default function BookingPage() {
         console.error('Error fetching provider data:', err);
         const status = err?.response?.status;
         if (status === 404) {
-          setError('Provider not found');
+          setLoadingError('Provider not found');
         } else {
-          setError(err.message || 'Failed to load provider details');
+          setLoadingError(err.message || 'Failed to load provider details');
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -174,11 +189,11 @@ export default function BookingPage() {
     return () => { isMounted = false; };
   }, [id]);
 
-  // Refresh Nepal current date/time every minute for accurate gating
+  // Refresh Nepal current date/time every 15 seconds for accurate slot gating
   useEffect(() => {
     const tick = () => setNepalNow(getNepalNowParts());
     tick();
-    const intervalId = setInterval(tick, 60000);
+    const intervalId = setInterval(tick, 15000);
     return () => clearInterval(intervalId);
   }, []);
 
@@ -242,6 +257,11 @@ export default function BookingPage() {
     return () => { isMounted = false; };
   }, [id, watchedFields.preferredDate]);
 
+  // Clear inline time slot warning when user changes date, time, or emergency toggle
+  useEffect(() => {
+    setTimeSlotWarning(null);
+  }, [watchedFields.preferredDate, watchedFields.preferredTime, watchedFields.isEmergency]);
+
   // Check for booking conflicts when date or time changes
   useEffect(() => {
     let isMounted = true;
@@ -279,15 +299,88 @@ export default function BookingPage() {
   }, [provider, watchedFields.preferredDate, watchedFields.preferredTime, watchedFields.selectedServiceIds]);
 
   // Generate hourly time slots (8 AM to 5 PM) with 24h value for backend
+  // Parse a duration string like "30 minutes", "1 hour", "1 hour 30 minutes" into total minutes
+  const parseDurationToMinutes = (durationStr) => {
+    if (!durationStr || durationStr === 'No buffer') return 0;
+    let total = 0;
+    const hourMatch = durationStr.match(/(\d+)\s*hour/i);
+    const minMatch = durationStr.match(/(\d+)\s*minute/i);
+    if (hourMatch) total += parseInt(hourMatch[1], 10) * 60;
+    if (minMatch) total += parseInt(minMatch[1], 10);
+    return total || 60; // fallback to 60 min
+  };
+
+  // Generate time slots dynamically from provider's schedule for the selected day
   const generateTimeSlots = () => {
+    const selectedDate = watchedFields.preferredDate;
+    if (!selectedDate || !providerAvailability) {
+      // Fallback: hourly slots 8 AM–5 PM if no provider data yet
+      const fallback = [];
+      for (let hour = 8; hour <= 17; hour++) {
+        const ampm = hour < 12 ? 'AM' : 'PM';
+        const dh = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+        fallback.push({
+          label: `${String(dh).padStart(2, '0')}:00 ${ampm}`,
+          value: `${String(hour).padStart(2, '0')}:00:00`
+        });
+      }
+      return fallback;
+    }
+
+    const dayName = getDayName(selectedDate);
+    const daySchedule = providerAvailability.weekly_schedule?.find(d => d.day === dayName);
+
+    if (!daySchedule || !daySchedule.enabled) return [];
+
+    // Parse provider's working hours
+    const startTime24 = convertTo24Hour(daySchedule.start_time);
+    const endTime24 = convertTo24Hour(daySchedule.end_time);
+    const breakStart24 = convertTo24Hour(daySchedule.break_start);
+    const breakEnd24 = convertTo24Hour(daySchedule.break_end);
+
+    if (!startTime24 || !endTime24) return [];
+
+    // Get interval from provider's session duration + buffer time
+    const settings = providerAvailability.settings || {};
+    const sessionMin = parseDurationToMinutes(settings.sessionDuration || settings.session_duration);
+    const bufferMin = parseDurationToMinutes(settings.bufferTime || settings.buffer_time);
+    const intervalMin = Math.max(sessionMin, 30); // at least 30-min slots
+    const stepMin = intervalMin + bufferMin;
+
+    // Convert "HH:MM:SS" to total minutes from midnight
+    const toMinutes = (t) => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    const startMin = toMinutes(startTime24);
+    const endMin = toMinutes(endTime24);
+    const breakStartMin = breakStart24 ? toMinutes(breakStart24) : null;
+    const breakEndMin = breakEnd24 ? toMinutes(breakEnd24) : null;
+
     const slots = [];
-    for (let hour = 8; hour <= 17; hour++) {
-      const ampm = hour < 12 ? 'AM' : 'PM';
-      const displayHour = hour > 12 ? hour - 12 : hour;
-      const label = `${String(displayHour).padStart(2, '0')}:00 ${ampm}`;
-      const value = `${String(hour).padStart(2, '0')}:00:00`; // HH:MM:SS
+    for (let min = startMin; min + intervalMin <= endMin; min += stepMin) {
+      // Skip if slot overlaps with break
+      if (breakStartMin !== null && breakEndMin !== null) {
+        const slotEnd = min + intervalMin;
+        if (min < breakEndMin && slotEnd > breakStartMin) {
+          // Jump to after break
+          if (min < breakEndMin) {
+            min = breakEndMin - stepMin; // loop will add stepMin
+            continue;
+          }
+        }
+      }
+
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      const ampm = h < 12 ? 'AM' : 'PM';
+      const dh = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+      const label = `${String(dh).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
       slots.push({ label, value });
     }
+
     return slots;
   };
 
@@ -304,7 +397,8 @@ export default function BookingPage() {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=np&q=${encodeURIComponent(query)}`;
     const res = await fetch(url, {
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'User-Agent': 'SajiloFix/1.0'
       }
     });
     if (!res.ok) throw new Error('Failed to geocode');
@@ -326,7 +420,8 @@ export default function BookingPage() {
       const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
       const res = await fetch(url, {
         headers: {
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'User-Agent': 'SajiloFix/1.0'
         }
       });
       if (!res.ok) throw new Error('Failed to reverse geocode');
@@ -342,7 +437,7 @@ export default function BookingPage() {
   const fetchAddressSuggestions = async (query) => {
     if (!query || query.trim().length < 3) return [];
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=np&q=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'SajiloFix/1.0' } });
     if (!res.ok) throw new Error('Failed to fetch suggestions');
     const data = await res.json();
     return Array.isArray(data)
@@ -457,6 +552,7 @@ export default function BookingPage() {
   const onStepSubmit = async (data) => {
     // Additional custom validations that Yup can't handle
     setError(null);
+    setTimeSlotWarning(null);
 
     if (currentStep === 1) {
       // Validate service selection
@@ -474,10 +570,38 @@ export default function BookingPage() {
         setError('Please select today or a future date (Nepal time)');
         return;
       }
+      // Check if date exceeds max advance booking window (5 days)
+      if (data.preferredDate > maxDate) {
+        setError(`Bookings can only be made up to ${MAX_ADVANCE_DAYS} days in advance. Please select a closer date.`);
+        return;
+      }
       // Check if time is in the past for today
       if (isPastNepalDateTime(data.preferredDate, data.preferredTime, nepalNow)) {
-        setError(`Selected time is in the past for Nepal time (current: ${nepalNow.time}). Please pick a future slot.`);
+        setTimeSlotWarning({
+          type: 'error',
+          message: `Selected time is in the past (Nepal time: ${nepalNow.time}). Please pick a future time slot.`
+        });
         return;
+      }
+      // Minimum advance booking check: 1 hour normally, 30 min for emergency services
+      if (data.preferredDate && data.preferredTime && nepalNow?.date && nepalNow?.time) {
+        const nowSec = ((t) => { const [h, m, s = 0] = t.split(':').map(Number); return h * 3600 + m * 60 + s; })(nepalNow.time);
+        const selSec = ((t) => { const [h, m, s = 0] = t.split(':').map(Number); return h * 3600 + m * 60 + s; })(data.preferredTime);
+        // Only check if booking is for today
+        if (data.preferredDate === nepalNow.date) {
+          const isEmergencyChecked = !!data.isEmergency;
+          const minAdvanceSec = isEmergencyChecked ? 30 * 60 : 60 * 60; // 30 min or 1 hour
+          const minLabel = isEmergencyChecked ? '30 minutes' : '1 hour';
+          if ((selSec - nowSec) < minAdvanceSec) {
+            const remainingMins = Math.ceil((minAdvanceSec - (selSec - nowSec)) / 60);
+            setTimeSlotWarning({
+              type: 'warning',
+              message: `Bookings require at least ${minLabel} advance notice${isEmergency ? ' (emergency service)' : ''}. The selected time is too soon — please pick a slot that is at least ${minLabel} from now.`,
+              detail: `Current Nepal time: ${nepalNow.time.slice(0, 5)} • You need ~${remainingMins} more minute${remainingMins !== 1 ? 's' : ''} of buffer.`
+            });
+            return;
+          }
+        }
       }
       // Check provider availability on selected day
       const dayCheck = isProviderAvailableOnDay(data.preferredDate);
@@ -794,6 +918,17 @@ export default function BookingPage() {
       return false;
     }
 
+    // Disable slots that are within minimum advance booking window (today only)
+    if (watchedFields.preferredDate && watchedFields.preferredDate === nepalNow?.date && nepalNow?.time) {
+      const nowSec = ((t) => { const [h, m, s = 0] = t.split(':').map(Number); return h * 3600 + m * 60 + s; })(nepalNow.time);
+      const slotSec = ((t) => { const [h, m, s = 0] = t.split(':').map(Number); return h * 3600 + m * 60 + s; })(slotValue);
+      const isEmergencyChecked = !!watchedFields.isEmergency;
+      const minAdvanceSec = isEmergencyChecked ? 30 * 60 : 60 * 60;
+      if ((slotSec - nowSec) < minAdvanceSec) {
+        return false;
+      }
+    }
+
     if (!watchedFields.preferredDate || !providerAvailability) return true; // Default to available
     
     // Get day of week for selected date
@@ -821,8 +956,10 @@ export default function BookingPage() {
       return false;
     }
 
-    // Check if slot is already booked
-    const isBooked = bookedSlots.some(slot => slot.time === slotValue);
+    // Check if slot falls within any existing booking's duration range (+ buffer)
+    const isBooked = bookedSlots.some(slot =>
+      slotValue >= slot.time && slotValue < slot.end_time_with_buffer
+    );
     if (isBooked) return false;
     
     return true;
@@ -838,11 +975,11 @@ export default function BookingPage() {
     );
   }
 
-  if (error || !provider) {
+  if (loadingError || !provider) {
     return (
       <div className="flex items-center justify-center bg-gray-50 p-10 min-h-screen">
         <div className="text-center text-gray-700">
-          <h2 className="text-2xl font-semibold mb-4">{error || "Provider Not Found"}</h2>
+          <h2 className="text-2xl font-semibold mb-4">{loadingError || "Provider Not Found"}</h2>
           <button
             onClick={() => navigate(-1)}
             className="inline-block mt-3 px-4 py-2 bg-blue-600 text-white rounded"
@@ -867,12 +1004,24 @@ export default function BookingPage() {
     setError(null);
   };
 
+  // Check if a time slot falls within the minimum advance booking window
+  const isSlotTooSoon = (slotValue) => {
+    if (!watchedFields.preferredDate || watchedFields.preferredDate !== nepalNow?.date || !nepalNow?.time) return false;
+    if (isPastNepalDateTime(watchedFields.preferredDate, slotValue, nepalNow)) return false; // already past, not "too soon"
+    const nowSec = ((t) => { const [h, m, s = 0] = t.split(':').map(Number); return h * 3600 + m * 60 + s; })(nepalNow.time);
+    const slotSec = ((t) => { const [h, m, s = 0] = t.split(':').map(Number); return h * 3600 + m * 60 + s; })(slotValue);
+    const isEmergencyChecked = !!watchedFields.isEmergency;
+    const minAdvanceSec = isEmergencyChecked ? 30 * 60 : 60 * 60;
+    return (slotSec - nowSec) > 0 && (slotSec - nowSec) < minAdvanceSec;
+  };
+
   const allTimeSlots = generateTimeSlots();
   const dayAvailability = isProviderAvailableOnDay(watchedFields.preferredDate);
   const timeSlots = allTimeSlots.map(slot => ({
     ...slot,
     available: isSlotAvailable(slot.value),
-    booked: bookedSlots.some(s => s.time === slot.value)
+    booked: bookedSlots.some(s => slot.value >= s.time && slot.value < s.end_time_with_buffer),
+    tooSoon: isSlotTooSoon(slot.value)
   }));
   const availableSlotsCount = timeSlots.filter((s) => s.available).length;
 
@@ -967,7 +1116,13 @@ export default function BookingPage() {
       setShowSuccessModal(true);
     } catch (err) {
       console.error("Booking submit failed", err);
-      setError(err?.error || err?.message || "Failed to submit booking");
+      // Handle Django REST framework error format {field: ["message"]}
+      if (err && typeof err === 'object' && !err.message && !err.error) {
+        const messages = Object.values(err).flat();
+        setError(messages.join(' ') || 'Failed to submit booking');
+      } else {
+        setError(err?.error || err?.message || "Failed to submit booking");
+      }
     } finally {
       setSubmitLoading(false);
     }
@@ -1207,30 +1362,25 @@ export default function BookingPage() {
                 </div>
               </div>
 
-              {/* Emergency Service Checkbox */}
-              <div className="bg-orange-50 border border-orange-200 rounded-md p-4">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    {...register('isEmergency')}
-                    className="mt-1 w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                  />
-                  <div className="flex-1">
-                    <span className="font-semibold text-orange-900">🚨 Emergency Service Required</span>
-                    <p className="text-xs text-gray-700 mt-1">
-                      Check this if you need immediate or same-day service. 
-                      {provider?.emergency_availability
-                        ? 'This provider accepts emergency bookings.'
-                        : 'Note: This provider may not accept emergency requests.'}
-                    </p>
-                    {watchedFields.isEmergency && !provider?.emergency_availability && (
-                      <p className="text-xs text-orange-700 font-medium mt-2">
-                        ⚠️ Provider emergency availability not confirmed. They may decline or charge extra.
+              {/* Emergency Service Checkbox — only shown when at least one selected service supports emergency */}
+              {selectedServices.some(s => s.emergency_service) && (
+                <div className="bg-orange-50 border border-orange-200 rounded-md p-4">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      {...register('isEmergency')}
+                      className="mt-1 w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                    />
+                    <div className="flex-1">
+                      <span className="font-semibold text-orange-900">🚨 Emergency Service Required</span>
+                      <p className="text-xs text-gray-700 mt-1">
+                        Check this if you need immediate or same-day service.
+                        This provider accepts emergency bookings for the selected service(s).
                       </p>
-                    )}
-                  </div>
-                </label>
-              </div>
+                    </div>
+                  </label>
+                </div>
+              )}
 
               {/* Date & Time */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1242,9 +1392,13 @@ export default function BookingPage() {
                     id="preferredDate"
                     type="date"
                     min={minDate}
+                    max={maxDate}
                     {...register('preferredDate')}
                     className={`w-full border ${errors.preferredDate ? 'border-red-500' : 'border-gray-300'} rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500`}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    You can book up to {MAX_ADVANCE_DAYS} days ahead (until {maxDate})
+                  </p>
                   {watchedFields.preferredDate && !dayAvailability.available && (
                     <p className="text-xs text-red-600 mt-1 font-medium">
                       ✗ {dayAvailability.message}
@@ -1290,7 +1444,7 @@ export default function BookingPage() {
                             fontWeight: slot.booked ? 'bold' : 'normal'
                           }}
                         >
-                          {slot.label} {!slot.available && slot.booked ? '(Booked)' : !slot.available ? '(Unavailable)' : ''}
+                          {slot.label} {!slot.available && slot.tooSoon ? '(Too soon)' : !slot.available && slot.booked ? '(Booked)' : !slot.available ? '(Unavailable)' : ''}
                         </option>
                       ))}
                     </select>
@@ -1299,8 +1453,48 @@ export default function BookingPage() {
                         No available time slots for this date. Provider may be fully booked or not working this day.
                       </p>
                     )}
+                    {providerAvailability?.settings && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Session: {providerAvailability.settings.sessionDuration || providerAvailability.settings.session_duration || '1 hour'}
+                        {(providerAvailability.settings.bufferTime || providerAvailability.settings.buffer_time) && (providerAvailability.settings.bufferTime || providerAvailability.settings.buffer_time) !== 'No buffer'
+                          ? ` • Buffer: ${providerAvailability.settings.bufferTime || providerAvailability.settings.buffer_time}`
+                          : ''}
+                      </p>
+                    )}
                 </div>
               </div>
+
+              {/* Proactive info: minimum advance notice for same-day bookings */}
+              {watchedFields.preferredDate === nepalNow?.date && timeSlots.some(s => s.tooSoon) && (
+                <div className="flex items-start gap-2 text-xs bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-blue-700">
+                  <span className="mt-0.5">ℹ️</span>
+                  <span>
+                    Same-day bookings require at least <strong>{watchedFields.isEmergency ? '30 minutes' : '1 hour'}</strong> advance notice.
+                    {watchedFields.isEmergency 
+                      ? 'Emergency booking selected — reduced advance window applies.' 
+                      : 'Slots marked "(Too soon)" are within this window and cannot be selected.'}
+                  </span>
+                </div>
+              )}
+
+              {/* Inline time slot warning (advance booking, past time, etc.) */}
+              {timeSlotWarning && (
+                <div className={`flex items-start gap-3 rounded-lg px-4 py-3 border ${
+                  timeSlotWarning.type === 'error' 
+                    ? 'bg-red-50 border-red-300 text-red-800' 
+                    : 'bg-amber-50 border-amber-300 text-amber-800'
+                }`}>
+                  <span className="text-xl mt-0.5">
+                    {timeSlotWarning.type === 'error' ? '🚫' : '⏰'}
+                  </span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm">{timeSlotWarning.message}</p>
+                    {timeSlotWarning.detail && (
+                      <p className="text-xs mt-1 opacity-80">{timeSlotWarning.detail}</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Booking Conflict Detection Warning */}
               {watchedFields.preferredDate && watchedFields.preferredTime && availableSlotsCount > 0 && (
@@ -1989,7 +2183,7 @@ export default function BookingPage() {
                   <ul className="text-xs text-blue-800 space-y-1">
                     <li>• The provider will review your request</li>
                     <li>• You'll receive a response within 24 hours</li>
-                    <li>• Once work is completed, you can pay via Khalti/eSewa</li>
+                    <li>• Once work is completed, you can pay via Khalti or Cash</li>
                     <li>• Track everything in "My Bookings"</li>
                     {watchedFields.isEmergency && <li className="font-semibold">• ⚡ Emergency request - faster response expected</li>}
                   </ul>

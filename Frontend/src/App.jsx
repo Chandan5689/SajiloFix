@@ -47,8 +47,6 @@ import AdminBookings from './pages/Admin/AdminBookings';
 import AdminAnalytics from './pages/Admin/AdminAnalytics';
 import AdminSettings from './pages/Admin/AdminSettings';
 import RequireAdminRole from './components/RequireAdminRole';
-import EsewaSuccess from './pages/Payment/EsewaSuccess';
-import EsewaFailure from './pages/Payment/EsewaFailure';
 import PaymentHistory from './pages/Payment/PaymentHistory';
 import KhaltiCallback from './pages/Payment/KhaltiCallback';
 
@@ -105,22 +103,6 @@ function App() {
                                         element={
                                             <ProtectedRoute>
                                                 <KhaltiCallback />
-                                            </ProtectedRoute>
-                                        }
-                                    />
-                                    <Route
-                                        path="/payment/esewa/success"
-                                        element={
-                                            <ProtectedRoute>
-                                                <EsewaSuccess />
-                                            </ProtectedRoute>
-                                        }
-                                    />
-                                    <Route
-                                        path="/payment/esewa/failure"
-                                        element={
-                                            <ProtectedRoute>
-                                                <EsewaFailure />
                                             </ProtectedRoute>
                                         }
                                     />

@@ -171,7 +171,7 @@ const KhaltiCallback = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-linear-to-br from-purple-50 via-white to-purple-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
         {/* Khalti branding header */}
         <div className="text-center mb-6">
@@ -230,7 +230,7 @@ const KhaltiCallback = () => {
               <p className="text-gray-600 mb-6">{message}</p>
 
               {transactionData && (
-                <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-5 mb-6 text-left border border-green-100">
+                <div className="bg-linear-to-r from-green-50 to-emerald-50 rounded-xl p-5 mb-6 text-left border border-green-100">
                   <div className="text-sm space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600">Amount Paid</span>
@@ -285,7 +285,7 @@ const KhaltiCallback = () => {
               {errorDetails && (
                 <div className="bg-amber-50 rounded-xl p-4 mb-6 text-left border border-amber-200">
                   <div className="flex items-start gap-3">
-                    <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                     <p className="text-sm text-amber-800">{errorDetails}</p>

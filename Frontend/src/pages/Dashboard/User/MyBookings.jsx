@@ -6,6 +6,7 @@ import DashboardLayout from "../../../layouts/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import BookingImageUpload from "../../../components/BookingImageUpload";
 import ActionButton from "../../../components/ActionButton";
+import CountdownTimer from "../../../components/CountdownTimer";
 import PaymentModal from "../../../components/PaymentModal";
 import { useToast } from "../../../components/Toast";
 import { useUserProfile } from "../../../context/UserProfileContext";
@@ -27,6 +28,7 @@ const statusColorMap = {
     completed: "bg-green-100 text-green-700",
     cancelled: "bg-red-100 text-red-700",
     declined: "bg-red-100 text-red-700",
+    expired: "bg-gray-200 text-gray-600",
 };
 
 export default function MyBookingsPage() {
@@ -58,8 +60,8 @@ export default function MyBookingsPage() {
     const { addToast } = useToast();
     const { userProfile: userData } = useUserProfile();
 
-    const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled"];
-    const decisionEligibleStatuses = ["provider_completed", "awaiting_confirmation", "awaiting_customer", "completed"];
+    const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled", "expired"];
+    const decisionEligibleStatuses = ["completed"];
 
     // React Hook Form - Review Form
     const {
@@ -315,25 +317,24 @@ export default function MyBookingsPage() {
         if (!selectedBooking) return;
         try {
             setDecisionLoading(true);
-            // Upload customer photos as 'approval_photos' type (separate from provider 'after' images)
+            // Upload customer photos as evidence for the dispute
             if (decisionFiles.length > 0) {
-                await bookingsService.uploadBookingImages(selectedBooking.id, 'approval_photos', decisionFiles, formData.decisionNote);
+                await bookingsService.uploadBookingImages(selectedBooking.id, 'after', decisionFiles, formData.decisionNote);
             }
-            // Refresh booking status before approving (in case it auto-transitioned)
-            const refreshed = await bookingsService.getBookingDetail(selectedBooking.id);
-            setSelectedBooking(refreshed);
-            const updated = formData.decisionType === 'approve'
-                ? await bookingsService.approveCompletion(refreshed.id, formData.decisionNote)
-                : await bookingsService.disputeBooking(refreshed.id, formData.decisionNote, formData.decisionNote);
+            // Submit dispute
+            const updated = await bookingsService.disputeBooking(
+                selectedBooking.id,
+                formData.decisionNote,
+                formData.decisionNote
+            );
             setBookings(bookings.map((b) => (b.id === updated.id ? updated : b)));
             setSelectedBooking(updated);
-            addToast(formData.decisionType === 'approve' ? 'Booking approved successfully' : 'Dispute submitted', 'success');
+            addToast('Dispute submitted successfully', 'success');
             setShowDecisionModal(false);
             resetDecisionState();
         } catch (err) {
             console.error('Decision submit failed', err);
-            const errorMsg = err?.error || err?.message || 'Failed to submit';
-            // Log booking status for debugging
+            const errorMsg = err?.error || err?.message || 'Failed to submit dispute';
             if (selectedBooking) {
                 console.error(`Booking ID: ${selectedBooking.id}, Status: ${selectedBooking.status}`);
             }
@@ -482,6 +483,22 @@ export default function MyBookingsPage() {
                                 </div>
 
                                 <p className="text-gray-700 text-sm mb-5">{booking.description}</p>
+
+                                {/* Countdown for pending bookings */}
+                                {booking.status === "pending" && booking.confirmation_deadline && (
+                                    <div className="mb-3">
+                                        <CountdownTimer
+                                            deadline={booking.confirmation_deadline}
+                                            label="Provider must respond"
+                                            compact={true}
+                                        />
+                                    </div>
+                                )}
+                                {booking.status === "expired" && (
+                                    <div className="mb-3 flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                                        <span>⏰</span> Provider did not respond in time
+                                    </div>
+                                )}
 
                                 <div className="flex space-x-3">
                                     <button
@@ -957,6 +974,24 @@ export default function MyBookingsPage() {
                                     <p className="text-gray-500 font-semibold">Status</p>
                                     <p>{getStatusDisplay(selectedBooking.status)}</p>
                                 </div>
+
+                                {/* Countdown in detail modal for customer */}
+                                {selectedBooking.status === "pending" && selectedBooking.confirmation_deadline && (
+                                    <div className="col-span-2">
+                                        <CountdownTimer
+                                            deadline={selectedBooking.confirmation_deadline}
+                                            label="Provider must respond within"
+                                        />
+                                    </div>
+                                )}
+                                {selectedBooking.status === "expired" && (
+                                    <div className="col-span-2">
+                                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm text-gray-600 bg-gray-100 border-gray-300">
+                                            <span className="text-base">⏰</span>
+                                            <span className="font-medium">This booking expired because the provider did not respond in time. Please try another provider.</span>
+                                        </div>
+                                    </div>
+                                )}
                                 <div>
                                     <p className="text-gray-500 font-semibold">Price</p>
                                     <p>{getBookingPrice(selectedBooking)}</p>
@@ -1043,7 +1078,7 @@ export default function MyBookingsPage() {
                                 {selectedBooking.payment?.payment_method === 'cash' && selectedBooking.payment?.status === 'pending' && (
                                     <div className="col-span-2 bg-amber-50 p-4 rounded-lg border-2 border-amber-200">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                            <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
                                                 <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                 </svg>

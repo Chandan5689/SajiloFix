@@ -1,5 +1,9 @@
 import React from 'react'
 import { FaAward, FaHandshake, FaUsers } from 'react-icons/fa'
+import Team from "../../assets/team.jpg"
+import Juli from "../../assets/juli12.jpg"
+import Ramil from "../../assets/ramil.jpg"
+import Chandan from "../../assets/team-member-chandan.jpg"
 
 function About() {
     return (
@@ -25,34 +29,47 @@ function About() {
                             We're committed to building trust in the service industry by thoroughly vetting our professionals and ensuring every job meets our high standards.
                         </p>
                     </div>
-                    <div>
-                        <img
-                            src="https://readdy.ai/api/search-image?query=professional%20home%20service%20team%20diverse%20group%20of%20workers%20with%20tools%20smiling%20confident%20modern%20clean%20background%20high%20quality%20photography&width=600&height=400&seq=about1&orientation=landscape"
-                             alt="Our Team"
-                            className="w-full h-auto rounded-2xl shadow-lg object-cover"
-                        />
+                    <div className="relative">
+                        <div className="aspect-3/2 w-full overflow-hidden rounded-2xl shadow-lg">
+                            <img
+                                src={Team}
+                                alt="Our Team"
+                                className="w-full h-full object-cover"
+                            />
+                        </div>
                     </div>
                 </div>
-                {/* <div className="bg-white rounded-2xl p-12 shadow-lg mb-20">
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center">
-                        <div>
-                            <div className="text-4xl font-bold text-blue-600 mb-2">10,000+</div>
-                            <div className="text-gray-600">Happy Customers</div>
+                {/* Meet Our Team */}
+                <div className="text-center mb-12">
+                    <h2 className="text-3xl font-bold text-gray-900 mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                        Meet Our Team
+                    </h2>
+                    <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-10">
+                        The passionate people behind SajiloFix who work to make your experience seamless.
+                    </p>
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-20">
+                    {[
+                        { img: Juli, name: 'Aneel Chhetri', role: 'Frontend Developer & UI/UX' },
+                        { img: Ramil, name: 'Ramil Lamichhane', role: 'Frontend & Database' },
+                        { img: Chandan, name: 'Chandan Tiwari', role: 'Full Stack Developer' },
+                    ].map((member) => (
+                        <div key={member.name} className="bg-white rounded-2xl shadow-lg overflow-hidden group hover:shadow-xl transition-shadow duration-300">
+                            <div className="aspect-square overflow-hidden">
+                                <img
+                                    src={member.img}
+                                    alt={member.name}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                />
+                            </div>
+                            <div className="p-6 text-center">
+                                <h3 className="text-xl font-bold text-gray-900 mb-1">{member.name}</h3>
+                                <p className="text-green-600 font-medium">{member.role}</p>
+                            </div>
                         </div>
-                        <div>
-                            <div className="text-4xl font-bold text-blue-600 mb-2">500+</div>
-                            <div className="text-gray-600">Verified Professionals</div>
-                        </div>
-                        <div>
-                            <div className="text-4xl font-bold text-blue-600 mb-2">50+</div>
-                            <div className="text-gray-600">Service Categories</div>
-                        </div>
-                        <div>
-                            <div className="text-4xl font-bold text-blue-600 mb-2">4.9★</div>
-                            <div className="text-gray-600">Average Rating</div>
-                        </div>
-                    </div>
-                </div> */}
+                    ))}
+                </div>
+
                 <div className="text-center mb-12">
                     <h2 className="text-3xl font-bold text-gray-900 mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>
                         Our Values

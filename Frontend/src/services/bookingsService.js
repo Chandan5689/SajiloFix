@@ -226,20 +226,13 @@ const bookingsService = {
   },
 
   /**
-   * Customer approves completed booking (triggers payment release or auto-release)
-   * @param {number} bookingId
-   * @param {string} note - Optional approval note
-   * @returns {Promise} Updated booking
+   * @deprecated The approve-completion endpoint has been removed.
+   * Bookings are now completed directly by the provider.
+   * Customer can only dispute a completed booking.
    */
   approveCompletion: async (bookingId, note = '') => {
-    try {
-      const response = await api.post(`/bookings/bookings/${bookingId}/approve-completion/`, {
-        note,
-      });
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
+    console.warn('approveCompletion is deprecated. Bookings complete directly now.');
+    throw new Error('Approve completion has been removed. Bookings are completed directly by the provider.');
   },
 
   /**

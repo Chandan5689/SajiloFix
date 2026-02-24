@@ -43,7 +43,7 @@ const defaultSchedule = [
 
 const defaultSettings = {
     emergencyAvailability: true,
-    advanceBooking: '30 days',
+    advanceBooking: '5 days',
     bufferTime: '15 minutes',
     sessionDuration: '30 minutes',
 };
@@ -91,7 +91,7 @@ const availabilitySchema = Yup.object({
     schedule: Yup.array().of(daySchema).length(7, 'All 7 days required'),
     settings: Yup.object({
         emergencyAvailability: Yup.boolean().required(),
-        advanceBooking: Yup.string().oneOf(['7 days', '14 days', '30 days', '60 days', '90 days']).required(),
+        advanceBooking: Yup.string().oneOf(['5 days']).required(),
         bufferTime: Yup.string().oneOf(['No buffer', '15 minutes', '30 minutes', '45 minutes', '1 hour']).required(),
         sessionDuration: Yup.string().oneOf(['30 minutes', '45 minutes', '1 hour', '1 hour 30 minutes', '2 hours']).required(),
     }),
@@ -411,15 +411,11 @@ const Availability = () => {
                                     <label className=" text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-2">
                                         <Calendar size={18} className="text-blue-500" /> Maximum Advance Booking
                                     </label>
-                                    <select
-                                        {...register('settings.advanceBooking')}
-                                        className="block w-full max-w-md rounded-lg border-gray-300 py-2.5 px-3 text-gray-900 shadow-sm border focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                                    >
-                                        {['7 days', '14 days', '30 days', '60 days', '90 days'].map(days => (
-                                            <option key={days} value={days}>{days}</option>
-                                        ))}
-                                    </select>
-                                    <p className="mt-1.5 text-xs text-gray-500">How far into the future customers can book an appointment.</p>
+                                    <div className="block w-full max-w-md rounded-lg border border-gray-300 py-2.5 px-3 text-gray-900 shadow-sm bg-gray-50 sm:text-sm">
+                                        5 days
+                                        <input type="hidden" {...register('settings.advanceBooking')} value="5 days" />
+                                    </div>
+                                    <p className="mt-1.5 text-xs text-gray-500">Customers can book up to 5 days in advance. This ensures service quality and timely responses.</p>
                                 </div>
 
                                 {/* Emergency Availability Toggle */}

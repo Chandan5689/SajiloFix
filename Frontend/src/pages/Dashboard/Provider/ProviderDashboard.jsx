@@ -117,6 +117,7 @@ export default function ProviderDashboard() {
       confirmed: "bg-green-100 text-green-700",
       scheduled: "bg-blue-100 text-blue-700",
       in_progress: "bg-purple-100 text-purple-700",
+      expired: "bg-gray-200 text-gray-600",
     };
     return colorMap[status] || "bg-gray-100 text-gray-700";
   };

@@ -5,7 +5,6 @@ import {
 } from "react-icons/ai";
 import { MdOutlinePending } from "react-icons/md";
 import { BsCreditCard2Back, BsBank,} from "react-icons/bs";
-import { HiOutlineWrenchScrewdriver } from "react-icons/hi2";
 // import { SiKhalti, SiEsewa } from "react-icons/si";
 import { Modal } from "../../../components/Modal";
 import DashboardLayout from "../../../layouts/DashboardLayout";
@@ -24,6 +23,7 @@ export default function UserPayments() {
     const [paymentHistory, setPaymentHistory] = useState([]);
     const [pendingPayments, setPendingPayments] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [detailLoading, setDetailLoading] = useState(false);
     const [error, setError] = useState(null);
 
     // Fetch payment data from API
@@ -42,7 +42,8 @@ export default function UserPayments() {
             ]);
             
             setPaymentHistory(historyResponse.results || historyResponse || []);
-            setPendingPayments(pendingResponse.results || pendingResponse || []);
+            const pendingList = pendingResponse?.pending_payments ?? pendingResponse?.results ?? pendingResponse ?? [];
+            setPendingPayments(Array.isArray(pendingList) ? pendingList : []);
         } catch (err) {
             console.error('Failed to load payments:', err);
             setError(err.message || 'Failed to load payment data');
@@ -107,23 +108,27 @@ export default function UserPayments() {
             icon: <BsCreditCard2Back className="h-6 w-6 text-purple-600" />,
             available: true,
         },
+        
         {
-            id: 2,
-            type: "eSewa",
-            details: "Digital wallet payment",
-            icon: <BsCreditCard2Back className="h-6 w-6 text-green-600" />,
+            id: 3,
+            type: "Cash",
+            details: "Pay provider directly after service",
+            icon: <BsBank className="h-6 w-6 text-amber-600" />,
             available: true,
         },
     ];
 
     // Handlers
-    const handleViewPayment = async (transactionId) => {
+    const handleViewPayment = async (transactionUid) => {
         try {
-            const paymentDetail = await paymentsService.getTransactionDetail(transactionId);
+            setDetailLoading(transactionUid);
+            const paymentDetail = await paymentsService.getTransactionDetail(transactionUid);
             setSelectedPayment(paymentDetail);
         } catch (err) {
             console.error('Failed to load payment details:', err);
             addToast('Failed to load payment details', 'error');
+        } finally {
+            setDetailLoading(false);
         }
     };
 
@@ -218,6 +223,7 @@ Thank you for your payment!
                     paymentHistory={paymentHistory}
                     onViewPayment={handleViewPayment}
                     downloadReceipt={downloadReceipt}
+                    detailLoading={detailLoading}
                 />
             ) : (
                 <PaymentMethodsSection
@@ -240,8 +246,9 @@ Thank you for your payment!
 }
 
 // Payment History section component
-function PaymentHistorySection({ paymentHistory, onViewPayment, downloadReceipt }) {
+function PaymentHistorySection({ paymentHistory, onViewPayment, downloadReceipt, detailLoading }) {
     const formatDate = (dateString) => {
+        if (!dateString) return 'N/A';
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     };
@@ -250,15 +257,25 @@ function PaymentHistorySection({ paymentHistory, onViewPayment, downloadReceipt 
         const colors = {
             completed: 'bg-green-100 text-green-700',
             pending: 'bg-yellow-100 text-yellow-700',
+            processing: 'bg-blue-100 text-blue-700',
             failed: 'bg-red-100 text-red-700',
+            cancelled: 'bg-gray-100 text-gray-700',
         };
         return colors[status] || 'bg-gray-100 text-gray-700';
     };
 
-    if (paymentHistory.length === 0) {
+    const getMethodIcon = (method) => {
+        if (method === 'khalti') return '💳';
+        if (method === 'cash') return '💵';
+        
+        return '💳';
+    };
+
+    if (!Array.isArray(paymentHistory) || paymentHistory.length === 0) {
         return (
             <div className="bg-white rounded-lg shadow p-8 text-center">
-                <p className="text-gray-500">No payment history yet</p>
+                <AiOutlineDollarCircle className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-semibold">No payment history yet</p>
                 <p className="text-sm text-gray-400 mt-2">Your completed payments will appear here</p>
             </div>
         );
@@ -269,40 +286,51 @@ function PaymentHistorySection({ paymentHistory, onViewPayment, downloadReceipt 
             {paymentHistory.map((payment) => (
                 <div
                     key={payment.id}
-                    className="flex items-center justify-between bg-white rounded shadow p-4"
+                    className="flex items-center justify-between bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow"
                 >
                     {/* Left side */}
                     <div className="flex items-center space-x-4">
-                        <button className="text-gray-900 bg-gray-300 px-2 py-2 rounded-lg">
-                            <HiOutlineWrenchScrewdriver />
-                        </button>
+                        <div className="text-2xl">
+                            {getMethodIcon(payment.payment_method)}
+                        </div>
                         <div>
-                            <p className="font-semibold">{payment.booking?.service?.title || 'Service'}</p>
+                            <p className="font-semibold text-gray-900">{payment.service_title || 'Service'}</p>
                             <p className="text-gray-600 text-sm">
-                                {payment.booking?.provider?.full_name || 'Provider'}
+                                {payment.provider_name || 'Provider'}
                             </p>
                             <p className="text-gray-400 text-xs">
-                                {formatDate(payment.created_at)} &bull; {payment.payment_method}
+                                {formatDate(payment.completed_at || payment.created_at)} &bull; <span className="capitalize">{payment.payment_method_display || payment.payment_method}</span>
                             </p>
                         </div>
                     </div>
 
                     {/* Right side */}
-                    <div className="flex flex-col gap-2 items-center space-x-4">
+                    <div className="flex flex-col gap-2 items-end">
                         <div className="text-right">
-                            <p className="font-semibold">NPR {payment.amount}</p>
+                            <p className="font-semibold text-gray-900">NPR {payment.amount}</p>
                             <span
-                                className={`inline-block rounded-full px-3 py-1 text-xs font-semibold capitalize ${getStatusColor(payment.status)}`}
+                                className={`inline-block rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${getStatusColor(payment.status)}`}
                             >
-                                {payment.status}
+                                {payment.status_display || payment.status}
                             </span>
                         </div>
 
                         <button
-                            className="flex items-center gap-1 border border-blue-600 text-blue-600 hover:bg-blue-700 hover:text-white rounded-lg px-3 py-1 text-sm font-semibold cursor-pointer transition-all duration-200"
-                            onClick={() => onViewPayment(payment.id)}
+                            className="flex items-center gap-1 border border-blue-600 text-blue-600 hover:bg-blue-700 hover:text-white rounded-lg px-3 py-1 text-sm font-semibold cursor-pointer transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={() => onViewPayment(payment.transaction_uid)}
+                            disabled={detailLoading === payment.transaction_uid}
                         >
-                            View Details
+                            {detailLoading === payment.transaction_uid ? (
+                                <>
+                                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                    </svg>
+                                    Loading...
+                                </>
+                            ) : (
+                                'View Details'
+                            )}
                         </button>
                     </div>
                 </div>
@@ -346,7 +374,7 @@ function PaymentMethodsSection({ paymentMethods }) {
 
             <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800">
-                    <strong>Note:</strong> Payment methods are selected during booking payment. You can choose between Khalti and eSewa when making a payment.
+                    <strong>Note:</strong> Payment methods are selected during booking payment. You can choose between Khalti or Cash when making a payment.
                 </p>
             </div>
         </>
@@ -356,6 +384,7 @@ function PaymentMethodsSection({ paymentMethods }) {
 // Payment details inside modal
 function PaymentDetail({ payment, downloadReceipt }) {
     const formatDate = (dateString) => {
+        if (!dateString) return 'N/A';
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', { 
             year: 'numeric', 
@@ -370,69 +399,89 @@ function PaymentDetail({ payment, downloadReceipt }) {
         const colors = {
             completed: 'bg-green-100 text-green-700',
             pending: 'bg-yellow-100 text-yellow-700',
+            processing: 'bg-blue-100 text-blue-700',
             failed: 'bg-red-100 text-red-700',
+            cancelled: 'bg-gray-100 text-gray-700',
         };
         return colors[status] || 'bg-gray-100 text-gray-700';
     };
 
     return (
         <div className="space-y-4 text-gray-800">
-            <p>
-                <strong>Service:</strong> <br />
-                {payment.booking?.service?.title || 'N/A'}
-            </p>
-            <p>
-                <strong>Provider:</strong> <br />
-                {payment.booking?.provider?.full_name || 'N/A'}
-            </p>
-            <p>
-                <strong>Amount:</strong> <br />
-                <span className="text-blue-600 font-semibold">NPR {payment.amount}</span>
-            </p>
-            <p>
-                <strong>Status:</strong> <br />
-                <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${getStatusColor(payment.status)}`}
-                >
-                    {payment.status}
-                </span>
-            </p>
-            <p>
-                <strong>Payment Method:</strong> <br />
-                <span className="capitalize">{payment.payment_method}</span>
-            </p>
-            <p>
-                <strong>Transaction ID:</strong> <br />
-                {payment.transaction_id || 'N/A'}
-            </p>
-            {payment.gateway_transaction_id && (
-                <p>
-                    <strong>Gateway Transaction ID:</strong> <br />
-                    {payment.gateway_transaction_id}
-                </p>
-            )}
-            <p>
-                <strong>Date:</strong> <br />
-                {formatDate(payment.created_at)}
-            </p>
-
-            <div className="flex justify-end gap-3 mt-6">
-                <button
-                    onClick={() => downloadReceipt({
-                        service: payment.booking?.service?.title || 'Service',
-                        provider: payment.booking?.provider?.full_name || 'Provider',
-                        amount: payment.amount,
-                        status: payment.status,
-                        method: payment.payment_method,
-                        transactionId: payment.transaction_id,
-                        date: formatDate(payment.created_at),
-                    })}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 cursor-pointer transition"
-                >
-                    <AiOutlineDownload size={20} />
-                    Download Receipt
-                </button>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <p className="text-sm text-gray-500">Service</p>
+                    <p className="font-semibold">{payment.booking_service_title || 'N/A'}</p>
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500">Provider</p>
+                    <p className="font-semibold">{payment.provider_name || 'N/A'}</p>
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500">Amount</p>
+                    <p className="text-blue-600 font-bold text-lg">NPR {payment.amount}</p>
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500">Status</p>
+                    <span
+                        className={`inline-block rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${getStatusColor(payment.status)}`}
+                    >
+                        {payment.status}
+                    </span>
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500">Payment Method</p>
+                    <p className="capitalize font-medium">{payment.payment_method_display || payment.payment_method}</p>
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500">Transaction ID</p>
+                    <p className="text-xs font-mono break-all">{payment.transaction_uid || 'N/A'}</p>
+                </div>
+                {payment.gateway_transaction_id && (
+                    <div>
+                        <p className="text-sm text-gray-500">Gateway Ref</p>
+                        <p className="text-xs font-mono break-all">{payment.gateway_transaction_id}</p>
+                    </div>
+                )}
+                <div>
+                    <p className="text-sm text-gray-500">Created</p>
+                    <p className="text-sm">{formatDate(payment.created_at)}</p>
+                </div>
+                {payment.completed_at && (
+                    <div>
+                        <p className="text-sm text-gray-500">Completed</p>
+                        <p className="text-sm">{formatDate(payment.completed_at)}</p>
+                    </div>
+                )}
             </div>
+
+            {payment.customer_name && (
+                <div className="pt-3 border-t">
+                    <p className="text-sm text-gray-500">Customer</p>
+                    <p className="font-medium">{payment.customer_name}</p>
+                    {payment.customer_email && <p className="text-sm text-gray-500">{payment.customer_email}</p>}
+                </div>
+            )}
+
+            {payment.status === 'completed' && (
+                <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+                    <button
+                        onClick={() => downloadReceipt({
+                            service: payment.booking_service_title || 'Service',
+                            provider: payment.provider_name || 'N/A',
+                            amount: payment.amount,
+                            status: payment.status,
+                            method: payment.payment_method,
+                            transactionId: payment.transaction_uid,
+                            date: formatDate(payment.completed_at || payment.created_at),
+                        })}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 cursor-pointer transition"
+                    >
+                        <AiOutlineDownload size={20} />
+                        Download Receipt
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

@@ -7,17 +7,10 @@ export default function PaymentMethodsSection({onEdit, onRemove, onAdd }) {
     const [paymentMethods, setPaymentMethods] = useState([
         {
             id: 1,
-            type: "eSewa",
-            details: "john.doe@esewa.com",
-            default: true,
-            icon: <BsCreditCard2Back className="h-6 w-6 text-red-500" />,
-        },
-        {
-            id: 2,
             type: "Khalti",
             details: "john.khalti@gmail.com",
-            default: false,
-            icon: <BsCreditCard2Back className="h-6 w-6 text-pink-600" />,
+            default: true,
+            icon: <BsCreditCard2Back className="h-6 w-6 text-purple-600" />,
         },
         {
             id: 3,

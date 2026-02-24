@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
 import KhaltiPayment from './KhaltiPayment';
-import EsewaPayment from './EsewaPayment';
 import paymentsService from '../services/paymentsService';
 
 /**
@@ -53,12 +52,6 @@ const PaymentModal = ({ isOpen, onClose, booking, onPaymentSuccess, onPaymentErr
     console.log('Payment cancelled by user');
     // Don't close the modal, just reset selection
     setSelectedMethod(null);
-  };
-
-  const handleEsewaInitiate = (response) => {
-    console.log('eSewa payment initiated, redirecting...');
-    // User will be redirected, so we can close the modal
-    onClose();
   };
 
   return (
@@ -125,30 +118,7 @@ const PaymentModal = ({ isOpen, onClose, booking, onPaymentSuccess, onPaymentErr
                     </div>
                   </button>
 
-                  {/* eSewa Option */}
-                  <button
-                    onClick={() => setSelectedMethod('esewa')}
-                    className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-all group"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200">
-                          <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                          </svg>
-                        </div>
-                        <div className="text-left">
-                          <div className="font-semibold text-gray-900">eSewa</div>
-                          <div className="text-sm text-gray-500">Digital Wallet</div>
-                        </div>
-                      </div>
-                      <svg className="w-5 h-5 text-gray-400 group-hover:text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </button>
-
-                  {/* Cash Option (Optional) */}
+                  {/* Cash Option */}
                   <button
                     onClick={() => setSelectedMethod('cash')}
                     className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all group"
@@ -195,15 +165,6 @@ const PaymentModal = ({ isOpen, onClose, booking, onPaymentSuccess, onPaymentErr
                       onSuccess={handlePaymentSuccess}
                       onError={handlePaymentError}
                       onClose={handlePaymentClose}
-                    />
-                  )}
-
-                  {selectedMethod === 'esewa' && (
-                    <EsewaPayment
-                      bookingId={booking.id}
-                      amount={amount}
-                      onInitiate={handleEsewaInitiate}
-                      onError={handlePaymentError}
                     />
                   )}
 

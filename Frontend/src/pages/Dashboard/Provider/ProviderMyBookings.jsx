@@ -3,6 +3,7 @@ import ProviderDashboardLayout from '../../../layouts/ProviderDashboardLayout';
 import { Modal } from '../../../components/Modal';
 import BookingImageUpload from '../../../components/BookingImageUpload';
 import ActionButton from '../../../components/ActionButton';
+import CountdownTimer from '../../../components/CountdownTimer';
 import {
     MdCalendarToday,
     MdLocationOn,
@@ -26,6 +27,7 @@ const statusColorMap = {
     completed: "bg-green-100 text-green-700",
     cancelled: "bg-red-100 text-red-700",
     declined: "bg-red-100 text-red-700",
+    expired: "bg-gray-200 text-gray-600",
 };
 
 export default function ProviderMyBookings() {
@@ -56,7 +58,7 @@ export default function ProviderMyBookings() {
     const [cashConfirmBookingId, setCashConfirmBookingId] = useState(null);
     const { addToast } = useToast();
 
-    const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled", "declined"];
+    const tabs = ["All", "pending", "confirmed", "scheduled", "in_progress", "completed", "cancelled", "declined", "expired"];
 
     // Handle cash payment confirmation by provider
     const handleCashConfirmClick = (bookingId) => {
@@ -509,6 +511,17 @@ export default function ProviderMyBookings() {
 
                             <p className="text-gray-700 text-sm mb-4 line-clamp-2">{booking.description}</p>
 
+                            {/* Countdown timer for pending bookings */}
+                            {booking.status === "pending" && booking.confirmation_deadline && (
+                                <div className="mb-3">
+                                    <CountdownTimer
+                                        deadline={booking.confirmation_deadline}
+                                        label="Respond before"
+                                        compact={true}
+                                    />
+                                </div>
+                            )}
+
                             {/* Action Buttons */}
                             <div className="flex flex-wrap gap-2">
                                 <ActionButton
@@ -592,7 +605,7 @@ export default function ProviderMyBookings() {
                                 )}
 
                                 {/* Confirm Cash Payment - show for completed/provider_completed bookings with pending cash payment */}
-                                {["provider_completed", "completed", "awaiting_customer"].includes(booking.status) &&
+                                {["provider_completed", "completed"].includes(booking.status) &&
                                     booking.payment?.payment_method === 'cash' &&
                                     booking.payment?.status === 'pending' && (
                                     <ActionButton
@@ -933,7 +946,7 @@ export default function ProviderMyBookings() {
                                     </div>
                                 )}
                                 {/* Only show phone after booking is accepted */}
-                                {["confirmed", "scheduled", "in_progress", "completed", "provider_completed", "awaiting_customer"].includes(selectedBooking.status) && (
+                                {["confirmed", "scheduled", "in_progress", "completed", "provider_completed"].includes(selectedBooking.status) && (
                                     <div>
                                         <p className="text-gray-500 font-semibold">Customer Phone</p>
                                         <p>{selectedBooking.customer_phone || "Not provided"}</p>
@@ -1107,6 +1120,21 @@ export default function ProviderMyBookings() {
                         )}
 
                         {/* Action Buttons in Modal */}
+                        {/* Countdown timer in detail modal */}
+                        {selectedBooking.status === "pending" && selectedBooking.confirmation_deadline && (
+                            <div className="mt-4">
+                                <CountdownTimer
+                                    deadline={selectedBooking.confirmation_deadline}
+                                    label="You must respond before"
+                                />
+                            </div>
+                        )}
+                        {selectedBooking.status === "expired" && (
+                            <div className="mt-4 flex items-center gap-2 px-3 py-2 rounded-lg border text-sm text-gray-600 bg-gray-100 border-gray-300">
+                                <span className="text-base">⏰</span>
+                                <span className="font-medium">This booking expired because you did not respond in time.</span>
+                            </div>
+                        )}
                         <div className="flex gap-3 mt-6">
                             {selectedBooking.status === "pending" && (
                                 <>
@@ -1154,7 +1182,7 @@ export default function ProviderMyBookings() {
                                 </button>
                             )}
                             {/* Confirm Cash Payment in modal */}
-                            {["provider_completed", "completed", "awaiting_customer"].includes(selectedBooking.status) &&
+                            {["provider_completed", "completed"].includes(selectedBooking.status) &&
                                 selectedBooking.payment?.payment_method === 'cash' &&
                                 selectedBooking.payment?.status === 'pending' && (
                                 <button
