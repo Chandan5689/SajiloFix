@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Transaction, KhaltiConfig, EsewaConfig
+from .models import Transaction, KhaltiConfig
 from bookings.models import Booking, Payment
 
 
@@ -9,11 +9,13 @@ class TransactionSerializer(serializers.ModelSerializer):
     payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     booking_service_title = serializers.SerializerMethodField()
+    provider_name = serializers.SerializerMethodField()
     
     class Meta:
         model = Transaction
         fields = [
             'id', 'transaction_uid', 'booking', 'booking_service_title',
+            'provider_name',
             'customer', 'payment_method', 'payment_method_display',
             'amount', 'status', 'status_display',
             'gateway_transaction_id', 'gateway_payment_id',
@@ -25,7 +27,7 @@ class TransactionSerializer(serializers.ModelSerializer):
             'id', 'transaction_uid', 'customer', 'gateway_transaction_id',
             'gateway_payment_id', 'created_at', 'updated_at', 'completed_at',
             'refunded_at', 'payment_method_display', 'status_display',
-            'booking_service_title'
+            'booking_service_title', 'provider_name'
         ]
     
     def get_booking_service_title(self, obj):
@@ -34,13 +36,19 @@ class TransactionSerializer(serializers.ModelSerializer):
             return obj.booking.service.title or obj.booking.service.specialization.name
         return None
 
+    def get_provider_name(self, obj):
+        """Get provider name from booking"""
+        if obj.booking and obj.booking.provider:
+            return obj.booking.provider.get_full_name() or obj.booking.provider.email
+        return None
+
 
 class InitiatePaymentSerializer(serializers.Serializer):
     """Serializer for initiating payment"""
     
     booking_id = serializers.IntegerField(required=True)
     payment_method = serializers.ChoiceField(
-        choices=['khalti', 'esewa', 'cash'],
+        choices=['khalti', 'cash'],
         required=True
     )
     return_url = serializers.URLField(required=False)
@@ -57,8 +65,8 @@ class InitiatePaymentSerializer(serializers.Serializer):
         except Booking.DoesNotExist:
             raise serializers.ValidationError("Booking not found or doesn't belong to you")
         
-        # Check booking status - only completed or provider_completed bookings can be paid
-        if booking.status not in ['completed', 'provider_completed', 'awaiting_customer']:
+        # Check booking status - only completed bookings can be paid
+        if booking.status not in ['completed']:
             raise serializers.ValidationError(
                 f"Cannot pay for booking with status '{booking.status}'. "
                 "Booking must be completed first."
@@ -121,33 +129,34 @@ class KhaltiConfigSerializer(serializers.ModelSerializer):
         }
 
 
-class VerifyEsewaPaymentSerializer(serializers.Serializer):
-    """Serializer for verifying eSewa payment"""
+class ProviderEarningsSerializer(serializers.ModelSerializer):
+    """Serializer for provider earnings history (based on Payment model)"""
     
-    oid = serializers.UUIDField(required=True, help_text="Transaction UID (pid from eSewa)")
-    amt = serializers.DecimalField(max_digits=10, decimal_places=2, required=True, help_text="Amount in NPR")
-    refId = serializers.CharField(required=True, help_text="eSewa reference ID")
-    
-    def validate(self, data):
-        """Ensure all required eSewa parameters are present"""
-        if not all([data.get('oid'), data.get('amt'), data.get('refId')]):
-            raise serializers.ValidationError("Missing required eSewa verification parameters")
-        return data
-
-
-class EsewaConfigSerializer(serializers.ModelSerializer):
-    """Serializer for eSewa configuration (admin only)"""
+    booking_id = serializers.IntegerField(source='booking.id', read_only=True)
+    service_title = serializers.SerializerMethodField()
+    customer_name = serializers.SerializerMethodField()
+    payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
     
     class Meta:
-        model = EsewaConfig
+        model = Payment
         fields = [
-            'id', 'name', 'merchant_code', 'is_active', 
-            'is_test_mode', 'created_at'
+            'id', 'booking_id', 'service_title', 'customer_name',
+            'amount', 'platform_fee', 'platform_fee_percentage',
+            'provider_amount', 'payment_method', 'payment_method_display',
+            'status', 'status_display', 'paid_at', 'created_at',
         ]
-        read_only_fields = ['id', 'created_at']
-        extra_kwargs = {
-            'secret_key': {'write_only': True},  # Never expose secret key
-            'client_id': {'write_only': True},
-            'client_secret': {'write_only': True}
-        }
+        read_only_fields = fields
+    
+    def get_service_title(self, obj):
+        """Get service title from booking"""
+        if obj.booking and obj.booking.service:
+            return obj.booking.service.title or obj.booking.service.specialization.name
+        return "Unknown Service"
+    
+    def get_customer_name(self, obj):
+        """Get customer name from booking"""
+        if obj.booking and obj.booking.customer:
+            return obj.booking.customer.get_full_name() or obj.booking.customer.email
+        return "Unknown Customer"
 

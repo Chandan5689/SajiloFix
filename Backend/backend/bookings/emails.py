@@ -322,3 +322,205 @@ This is an automated message from SajiloFix.
         import traceback
         print(traceback.format_exc())
         return False
+
+
+def send_booking_expiry_notification(booking):
+    """
+    Send email notifications to both customer and provider when a booking
+    auto-expires because the provider did not respond before the deadline.
+    
+    Args:
+        booking: Booking instance (status should already be 'expired')
+    """
+    # --- Email to Customer ---
+    try:
+        customer_email = booking.customer.email
+        if not customer_email:
+            logger.warning(f"Customer {booking.customer.id} has no email for expiry notification")
+        else:
+            services_list = booking.booking_services.select_related('service', 'service__specialization').all()
+            if services_list:
+                service_names = [bs.service.title or bs.service.specialization.name or 'Service' for bs in services_list]
+            else:
+                service_names = [booking.service.title or booking.service.specialization.name or 'Service']
+
+            subject = f'Booking Expired - Provider Did Not Respond (Booking #{booking.id})'
+
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background-color: #dc2626; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                    .content {{ background-color: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; }}
+                    .info-box {{ background-color: white; padding: 15px; margin: 15px 0; border-left: 4px solid #dc2626; border-radius: 4px; }}
+                    .info-label {{ font-weight: bold; color: #374151; margin-bottom: 5px; }}
+                    .info-value {{ color: #1f2937; }}
+                    .footer {{ background-color: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px; }}
+                    .suggestion {{ background-color: #fef3c7; padding: 15px; border-radius: 4px; margin: 20px 0; text-align: center; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1 style="margin: 0;">⏰ Booking Expired</h1>
+                    </div>
+                    <div class="content">
+                        <p>Hello <strong>{booking.customer.get_full_name() or 'Customer'}</strong>,</p>
+                        <p>Unfortunately, your booking request has <strong>expired</strong> because the provider 
+                        (<strong>{booking.provider.get_full_name() or booking.provider.email}</strong>) did not respond 
+                        within the required timeframe.</p>
+                        
+                        <div class="info-box">
+                            <div class="info-label">🛠️ Service{'s' if len(service_names) > 1 else ''} Requested:</div>
+                            <div class="info-value">{'<br>'.join([f'• {name}' for name in service_names])}</div>
+                        </div>
+                        
+                        <div class="info-box">
+                            <div class="info-label">📅 Preferred Date:</div>
+                            <div class="info-value">{booking.preferred_date.strftime('%B %d, %Y')} at {booking.preferred_time.strftime('%I:%M %p')}</div>
+                        </div>
+
+                        <div class="info-box">
+                            <div class="info-label">💰 Quoted Price:</div>
+                            <div class="info-value">Rs. {booking.quoted_price}</div>
+                        </div>
+                        
+                        <div class="suggestion">
+                            <strong>💡 What to do next?</strong><br>
+                            You can search for other available providers and create a new booking from your SajiloFix dashboard.
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>We apologize for the inconvenience. This is an automated message from SajiloFix.</p>
+                        <p>© 2025 SajiloFix. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+
+            plain_message = f"""
+Booking Expired
+
+Hello {booking.customer.get_full_name() or 'Customer'},
+
+Unfortunately, your booking request (#{booking.id}) has expired because the provider ({booking.provider.get_full_name() or booking.provider.email}) did not respond within the required timeframe.
+
+Service{'s' if len(service_names) > 1 else ''}: {', '.join(service_names)}
+Preferred Date: {booking.preferred_date.strftime('%B %d, %Y')} at {booking.preferred_time.strftime('%I:%M %p')}
+Quoted Price: Rs. {booking.quoted_price}
+
+You can search for other available providers and create a new booking from your SajiloFix dashboard.
+
+---
+This is an automated message from SajiloFix.
+© 2025 SajiloFix. All rights reserved.
+            """
+
+            send_mail(
+                subject=subject,
+                message=plain_message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[customer_email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+            logger.info(f"Expiry notification sent to customer {booking.customer.id} for booking {booking.id}")
+            print(f"✅ Expiry email sent to customer {customer_email}")
+
+    except Exception as e:
+        logger.error(f"Failed to send expiry notification to customer: {str(e)}")
+        print(f"❌ Customer expiry email failed: {str(e)}")
+
+    # --- Email to Provider ---
+    try:
+        provider_email = booking.provider.email
+        if not provider_email:
+            logger.warning(f"Provider {booking.provider.id} has no email for expiry notification")
+        else:
+            subject = f'Booking #{booking.id} Expired - You Did Not Respond in Time'
+
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background-color: #f59e0b; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                    .content {{ background-color: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; }}
+                    .info-box {{ background-color: white; padding: 15px; margin: 15px 0; border-left: 4px solid #f59e0b; border-radius: 4px; }}
+                    .info-label {{ font-weight: bold; color: #374151; margin-bottom: 5px; }}
+                    .info-value {{ color: #1f2937; }}
+                    .footer {{ background-color: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px; }}
+                    .warning {{ background-color: #fef3c7; padding: 15px; border-radius: 4px; margin: 20px 0; text-align: center; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1 style="margin: 0;">⚠️ Booking Expired</h1>
+                    </div>
+                    <div class="content">
+                        <p>Hello <strong>{booking.provider.get_full_name() or 'Provider'}</strong>,</p>
+                        <p>Booking <strong>#{booking.id}</strong> from <strong>{booking.customer.get_full_name() or booking.customer.email}</strong> 
+                        has been <strong>automatically expired</strong> because you did not accept or decline it before the response deadline.</p>
+                        
+                        <div class="info-box">
+                            <div class="info-label">📅 Requested Date:</div>
+                            <div class="info-value">{booking.preferred_date.strftime('%B %d, %Y')} at {booking.preferred_time.strftime('%I:%M %p')}</div>
+                        </div>
+
+                        <div class="info-box">
+                            <div class="info-label">💰 Quoted Price:</div>
+                            <div class="info-value">Rs. {booking.quoted_price}</div>
+                        </div>
+                        
+                        <div class="warning">
+                            <strong>⏰ Tip:</strong> Respond to booking requests promptly to avoid losing customers. 
+                            Bookings that are not accepted before their deadline are automatically expired.
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated message from SajiloFix. Please do not reply to this email.</p>
+                        <p>© 2025 SajiloFix. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+
+            plain_message = f"""
+Booking Expired
+
+Hello {booking.provider.get_full_name() or 'Provider'},
+
+Booking #{booking.id} from {booking.customer.get_full_name() or booking.customer.email} has been automatically expired because you did not respond before the deadline.
+
+Requested Date: {booking.preferred_date.strftime('%B %d, %Y')} at {booking.preferred_time.strftime('%I:%M %p')}
+Quoted Price: Rs. {booking.quoted_price}
+
+Please respond to future booking requests promptly.
+
+---
+This is an automated message from SajiloFix.
+© 2025 SajiloFix. All rights reserved.
+            """
+
+            send_mail(
+                subject=subject,
+                message=plain_message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[provider_email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+            logger.info(f"Expiry notification sent to provider {booking.provider.id} for booking {booking.id}")
+            print(f"✅ Expiry email sent to provider {provider_email}")
+
+    except Exception as e:
+        logger.error(f"Failed to send expiry notification to provider: {str(e)}")
+        print(f"❌ Provider expiry email failed: {str(e)}")

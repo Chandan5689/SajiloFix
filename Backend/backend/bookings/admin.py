@@ -80,10 +80,6 @@ class BookingAdmin(admin.ModelAdmin):
 			'fields': ('estimated_completion_date', 'actual_completion_date'),
 			'classes': ('collapse',)
 		}),
-		('Customer Approval', {
-			'fields': ('customer_approval', 'approval_note'),
-			'classes': ('collapse',)
-		}),
 		('Cancellation', {
 			'fields': ('cancelled_at', 'cancelled_by', 'cancellation_reason'),
 			'classes': ('collapse',)

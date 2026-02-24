@@ -3,7 +3,7 @@ Payment Services - Business logic for payment processing
 
 This module handles:
 1. Khalti payment initiation and verification (ePayment API)
-2. eSewa payment initiation and verification
+2. Cash payment processing
 3. Transaction management
 4. Payment model updates
 """
@@ -18,7 +18,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction as db_transaction
-from .models import Transaction, KhaltiConfig, EsewaConfig
+from .models import Transaction, KhaltiConfig
 from bookings.models import Booking, Payment
 
 logger = logging.getLogger(__name__)
@@ -372,7 +372,7 @@ class PaymentService:
         # Get completed bookings without payment or with pending payment
         bookings = Booking.objects.filter(
             customer=customer,
-            status__in=['completed', 'provider_completed', 'awaiting_customer']
+            status__in=['completed', 'provider_completed']
         ).select_related('service', 'provider').prefetch_related('payment')
         
         pending = []
@@ -405,7 +405,7 @@ class PaymentService:
         Args:
             booking_id: Booking ID
             customer: User object
-            payment_method: Payment method ('khalti', 'esewa', 'cash')
+            payment_method: Payment method ('khalti', 'cash')
             **kwargs: Additional parameters (return_url, failure_url, etc.)
         
         Returns:
@@ -462,15 +462,6 @@ class PaymentService:
             )
             
             return transaction
-        elif payment_method == 'esewa':
-            esewa_service = EsewaService()
-            return esewa_service.initiate_payment(
-                booking_id=booking_id,
-                customer=customer,
-                amount=amount,
-                success_url=kwargs.get('return_url') or kwargs.get('success_url'),
-                failure_url=kwargs.get('failure_url')
-            )
         else:
             raise ValueError(f"Unsupported payment method: {payment_method}")
     
@@ -535,8 +526,8 @@ class PaymentService:
                 paid_at=timezone.now()
             )
         
-        # Update booking status to completed if it's in provider_completed or awaiting_customer
-        if booking.status in ['provider_completed', 'awaiting_customer', 'completed']:
+        # Update booking status to completed if it's in provider_completed
+        if booking.status in ['provider_completed', 'completed']:
             booking.status = 'completed'
             if not booking.completed_at:
                 booking.completed_at = timezone.now()
@@ -548,289 +539,3 @@ class PaymentService:
             'transaction': transaction,
             'booking': booking
         }
-
-
-class EsewaService:
-    """Service class for eSewa payment gateway integration"""
-    
-    # eSewa Epay endpoints
-    # Note: eSewa has deprecated the old /epay/main endpoint
-    # Use the newer /epay/main endpoint for both test and production
-    ESEWA_PAYMENT_URL = "https://uat.esewa.com.np/epay/main"  # Test/UAT
-    ESEWA_PRODUCTION_URL = "https://esewa.com.np/epay/main"   # Production
-    
-    # Alternative: Try the direct payment page
-    # ESEWA_PAYMENT_URL = "https://uat.esewa.com.np/epay/transrec"  # Alternative test URL
-    
-    def __init__(self):
-        """Initialize with active eSewa configuration"""
-        self.config = EsewaConfig.get_active_config()
-        if not self.config:
-            # Fallback to environment variables
-            self.merchant_code = getattr(settings, 'ESEWA_MERCHANT_CODE', 'EPAYTEST')
-            self.secret_key = getattr(settings, 'ESEWA_SECRET_KEY', '')
-            self.is_test_mode = getattr(settings, 'ESEWA_TEST_MODE', True)
-        else:
-            self.merchant_code = self.config.merchant_code
-            self.secret_key = self.config.secret_key
-            self.is_test_mode = self.config.is_test_mode
-    
-    def get_payment_url(self):
-        """Get payment URL based on mode"""
-        return self.ESEWA_PAYMENT_URL if self.is_test_mode else self.ESEWA_PRODUCTION_URL
-    
-    def initiate_payment(self, booking_id, customer, amount, success_url=None, failure_url=None):
-        """
-        Initiate eSewa payment - Create transaction and return form data
-        
-        eSewa uses form POST redirect method. This method returns the form data
-        that frontend will use to POST to eSewa gateway.
-        
-        Args:
-            booking_id: Booking ID
-            customer: User object
-            amount: Payment amount in NPR (not paisa)
-            success_url: URL to return after success
-            failure_url: URL to return after failure
-        
-        Returns:
-            dict: Payment form data including transaction object
-        """
-        try:
-            # Get booking
-            booking = Booking.objects.get(id=booking_id, customer=customer)
-            
-            # Validate amount
-            amount_decimal = Decimal(str(amount))
-            if amount_decimal <= 0:
-                raise ValueError("Amount must be greater than 0")
-            
-            # Create transaction
-            transaction = Transaction.objects.create(
-                booking=booking,
-                customer=customer,
-                payment_method='esewa',
-                amount=amount_decimal,
-                status='pending',
-                customer_name=customer.get_full_name() or customer.email,
-                customer_email=customer.email,
-                customer_phone=getattr(customer, 'phone', ''),
-                return_url=success_url or '',
-                failure_url=failure_url or '',
-                notes=f"Payment for booking #{booking.id}"
-            )
-            
-            # Generate eSewa form data
-            # eSewa expects amount in NPR (not paisa like Khalti)
-            payment_data = {
-                'amt': str(amount_decimal),  # Total amount
-                'psc': '0',  # Service charge
-                'pdc': '0',  # Delivery charge
-                'txAmt': '0',  # Tax amount
-                'tAmt': str(amount_decimal),  # Total amount (must equal amt + psc + pdc + txAmt)
-                'pid': str(transaction.transaction_uid),  # Product ID (our transaction UID)
-                'scd': self.merchant_code,  # Merchant code
-                'su': success_url or '',  # Success URL
-                'fu': failure_url or '',  # Failure URL
-            }
-            
-            logger.info(f"eSewa payment initiated: Transaction {transaction.transaction_uid}")
-            
-            return {
-                'transaction': transaction,
-                'payment_data': payment_data,
-                'payment_url': self.get_payment_url(),
-                'transaction_uid': str(transaction.transaction_uid)
-            }
-            
-        except Booking.DoesNotExist:
-            logger.error(f"Booking {booking_id} not found for customer {customer.id}")
-            raise ValueError("Booking not found")
-        except Exception as e:
-            logger.error(f"Error initiating eSewa payment: {str(e)}")
-            raise
-    
-    def verify_payment(self, query_params):
-        """
-        Verify eSewa payment using query parameters from success callback
-        
-        eSewa redirects to success URL with query parameters:
-        - oid: Transaction UID (our pid)
-        - amt: Amount
-        - refId: eSewa reference ID
-        
-        Args:
-            query_params: Dict of query parameters from eSewa callback
-        
-        Returns:
-            dict: Verification response
-        """
-        try:
-            # Extract parameters
-            transaction_uid = query_params.get('oid')  # Our transaction UID
-            amount = query_params.get('amt')
-            ref_id = query_params.get('refId')  # eSewa reference ID
-            
-            if not all([transaction_uid, amount, ref_id]):
-                raise ValueError("Missing required parameters in eSewa callback")
-            
-            # Get transaction
-            transaction_obj = Transaction.objects.get(transaction_uid=transaction_uid)
-            
-            # Verify amount matches
-            callback_amount = Decimal(str(amount))
-            if callback_amount != transaction_obj.amount:
-                logger.error(f"Amount mismatch: Expected {transaction_obj.amount}, got {callback_amount}")
-                transaction_obj.status = 'failed'
-                transaction_obj.verification_response = {
-                    'error': 'Amount mismatch',
-                    'expected': str(transaction_obj.amount),
-                    'received': str(callback_amount)
-                }
-                transaction_obj.save()
-                
-                return {
-                    'success': False,
-                    'message': 'Amount verification failed',
-                    'transaction': transaction_obj
-                }
-            
-            # Verify signature if secret key is available
-            if self.secret_key:
-                is_valid = self._verify_signature(query_params)
-                if not is_valid:
-                    logger.error(f"Signature verification failed for transaction {transaction_uid}")
-                    transaction_obj.status = 'failed'
-                    transaction_obj.verification_response = {
-                        'error': 'Signature verification failed'
-                    }
-                    transaction_obj.save()
-                    
-                    return {
-                        'success': False,
-                        'message': 'Signature verification failed',
-                        'transaction': transaction_obj
-                    }
-            
-            # Payment verified successfully
-            transaction_obj.gateway_transaction_id = ref_id
-            transaction_obj.gateway_payment_id = ref_id
-            transaction_obj.status = 'completed'
-            transaction_obj.completed_at = timezone.now()
-            transaction_obj.verification_response = {
-                'refId': ref_id,
-                'amount': amount,
-                'oid': transaction_uid,
-                'verified_at': str(timezone.now())
-            }
-            transaction_obj.save()
-            
-            # Update Payment model in bookings app
-            self._update_booking_payment(transaction_obj)
-            
-            logger.info(f"eSewa payment verified successfully: Transaction {transaction_uid}")
-            
-            return {
-                'success': True,
-                'message': 'Payment verified successfully',
-                'transaction': transaction_obj,
-                'verification_data': {
-                    'refId': ref_id,
-                    'amount': amount
-                }
-            }
-            
-        except Transaction.DoesNotExist:
-            logger.error(f"Transaction {transaction_uid} not found")
-            raise ValueError("Transaction not found")
-        except Exception as e:
-            logger.error(f"Error verifying eSewa payment: {str(e)}")
-            raise
-    
-    def _verify_signature(self, query_params):
-        """
-        Verify eSewa signature (if applicable)
-        
-        Note: eSewa Epay v2 doesn't always include signature in test mode.
-        This is a placeholder for production signature verification.
-        
-        Args:
-            query_params: Query parameters from eSewa
-        
-        Returns:
-            bool: True if valid or no signature required
-        """
-        # In test mode, signature verification may not be available
-        if self.is_test_mode:
-            logger.info("eSewa test mode: Skipping signature verification")
-            return True
-        
-        # For production, implement signature verification using secret key
-        # eSewa signature format varies by integration type
-        # This is a placeholder - adjust based on actual eSewa documentation
-        
-        return True  # Default to True for now
-    
-    @db_transaction.atomic
-    def _update_booking_payment(self, transaction_obj):
-        """
-        Update or create Payment record in bookings app
-        
-        Args:
-            transaction_obj: Transaction object
-        """
-        try:
-            from decimal import Decimal
-            
-            booking = transaction_obj.booking
-            amount = transaction_obj.amount
-            
-            # Calculate platform fee and provider amount upfront
-            # Default platform fee is 10% - use Decimal for proper calculation
-            platform_fee_percentage = Decimal('10.00')
-            platform_fee = (amount * platform_fee_percentage) / Decimal('100')
-            provider_amount = amount - platform_fee
-            
-            # Get or create Payment object with all required fields
-            payment, created = Payment.objects.get_or_create(
-                booking=booking,
-                defaults={
-                    'customer': transaction_obj.customer,
-                    'provider': booking.provider,
-                    'amount': amount,
-                    'platform_fee_percentage': platform_fee_percentage,
-                    'platform_fee': platform_fee,
-                    'provider_amount': provider_amount,  # Required field
-                    'payment_method': 'esewa',
-                    'status': 'completed',
-                    'transaction_id': str(transaction_obj.transaction_uid),
-                    'reference_number': transaction_obj.gateway_payment_id,
-                    'gateway_response': transaction_obj.verification_response,
-                    'paid_at': timezone.now()
-                }
-            )
-            
-            if not created:
-                # Update existing payment
-                payment.amount = amount
-                payment.platform_fee_percentage = platform_fee_percentage
-                payment.platform_fee = platform_fee
-                payment.provider_amount = provider_amount
-                payment.payment_method = 'esewa'
-                payment.status = 'completed'
-                payment.transaction_id = str(transaction_obj.transaction_uid)
-                payment.reference_number = transaction_obj.gateway_payment_id
-                payment.gateway_response = transaction_obj.verification_response
-                payment.paid_at = timezone.now()
-                payment.save()
-            
-            # Also update the booking status to completed if not already
-            if booking.status not in ['completed', 'cancelled']:
-                booking.status = 'completed'
-                booking.save(update_fields=['status'])
-            
-            logger.info(f"Payment record {'created' if created else 'updated'} for booking {booking.id}")
-            
-        except Exception as e:
-            logger.error(f"Error updating booking payment: {str(e)}")
-            raise

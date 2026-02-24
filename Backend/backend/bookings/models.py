@@ -3,6 +3,9 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from users.models import Specialization
+from datetime import datetime, timedelta
+from django.utils import timezone
+from zoneinfo import ZoneInfo
 import os
 
 User = get_user_model()
@@ -182,13 +185,19 @@ class Booking(models.Model):
         ('confirmed', 'Confirmed'),           # Provider accepted
         ('scheduled', 'Scheduled'),           # Date/time set
         ('in_progress', 'In Progress'),       # Work started
-        ('provider_completed', 'Provider Completed'),  # Provider uploaded after-photos
-        ('awaiting_customer', 'Awaiting Customer'),    # Waiting for customer approval/dispute
-        ('completed', 'Completed'),           # Work finished, approved by customer
+        ('provider_completed', 'Provider Completed'),  # Provider marked as completed
+        ('completed', 'Completed'),           # Work finished
         ('disputed', 'Disputed'),             # Customer disputed completion
         ('cancelled', 'Cancelled'),           # Cancelled by either party
         ('declined', 'Declined'),             # Provider declined
+        ('expired', 'Expired'),               # Provider did not respond before deadline
     ]
+
+    # Deadline constants
+    DEFAULT_RESPONSE_HOURS = 24        # Max hours a provider has to respond
+    EMERGENCY_RESPONSE_HOURS = 2       # Tighter deadline for emergency services
+    MIN_HOURS_BEFORE_SERVICE = 2       # Must respond at least 2h before service time
+    MAX_ADVANCE_BOOKING_DAYS = 5       # Customers can book at most 5 days in advance
     
     # Core relationships
     customer = models.ForeignKey(
@@ -335,16 +344,22 @@ class Booking(models.Model):
         help_text="When the service was completed"
     )
 
+    confirmation_deadline = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Deadline for provider to accept/decline. Auto-expired if not responded by this time."
+    )
+
+    expired_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the booking was auto-expired due to no provider response"
+    )
+
     provider_completed_at = models.DateTimeField(
         null=True,
         blank=True,
         help_text="When provider marked job as completed (uploaded after-photos)"
-    )
-
-    customer_review_expires_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When customer's review window expires for auto-approval"
     )
 
     completion_note = models.TextField(
@@ -363,12 +378,6 @@ class Booking(models.Model):
         blank=True,
         null=True,
         help_text="Customer's additional details about dispute"
-    )
-
-    approval_note = models.TextField(
-        blank=True,
-        null=True,
-        help_text="Customer's approval note"
     )
 
     cancelled_at = models.DateTimeField(
@@ -420,6 +429,83 @@ class Booking(models.Model):
     def is_editable(self):
         """Check if booking can be edited"""
         return self.status in ['pending', 'confirmed']
+
+    @property
+    def is_expired(self):
+        """Check if this pending booking has passed its confirmation deadline."""
+        if self.status != 'pending':
+            return False
+        if not self.confirmation_deadline:
+            return False
+        return timezone.now() >= self.confirmation_deadline
+
+    @property
+    def time_remaining(self):
+        """Return timedelta remaining before deadline, or None if not applicable."""
+        if self.status != 'pending' or not self.confirmation_deadline:
+            return None
+        remaining = self.confirmation_deadline - timezone.now()
+        return remaining if remaining.total_seconds() > 0 else timedelta(0)
+
+    def calculate_confirmation_deadline(self):
+        """
+        Calculate the confirmation deadline for this booking.
+
+        Rules:
+        - Provider must respond within DEFAULT_RESPONSE_HOURS (24h) of booking creation
+        - BUT must respond at least MIN_HOURS_BEFORE_SERVICE (2h) before the preferred service time
+        - Whichever comes FIRST is the deadline
+        - For emergency services: use EMERGENCY_RESPONSE_HOURS (2h) instead of 24h
+        """
+        NPT = ZoneInfo("Asia/Kathmandu")
+        now = timezone.now()
+
+        # Check if this is an emergency service
+        is_emergency = (
+            self.service and self.service.emergency_service
+        )
+        response_hours = self.EMERGENCY_RESPONSE_HOURS if is_emergency else self.DEFAULT_RESPONSE_HOURS
+
+        # Deadline 1: X hours from now (creation time)
+        deadline_from_creation = now + timedelta(hours=response_hours)
+
+        # Deadline 2: 2 hours before the preferred service date/time
+        if self.preferred_date and self.preferred_time:
+            service_dt = datetime.combine(
+                self.preferred_date, self.preferred_time, tzinfo=NPT
+            )
+            deadline_before_service = service_dt - timedelta(hours=self.MIN_HOURS_BEFORE_SERVICE)
+        else:
+            deadline_before_service = deadline_from_creation  # fallback
+
+        # Use whichever deadline comes first, but never in the past
+        self.confirmation_deadline = min(deadline_from_creation, deadline_before_service)
+
+        # Ensure deadline is at least 30 minutes from now (minimum response window)
+        min_deadline = now + timedelta(minutes=30)
+        if self.confirmation_deadline < min_deadline:
+            self.confirmation_deadline = min_deadline
+
+        return self.confirmation_deadline
+
+    def expire_if_overdue(self):
+        """
+        Check if this booking should be expired, and expire it if so.
+        Returns True if the booking was expired, False otherwise.
+        Used for lazy expiration on access.
+        """
+        if self.status != 'pending':
+            return False
+        if not self.confirmation_deadline:
+            return False
+        if timezone.now() < self.confirmation_deadline:
+            return False
+
+        self.status = 'expired'
+        self.expired_at = timezone.now()
+        self.cancellation_reason = 'Auto-expired: provider did not respond before the deadline.'
+        self.save(update_fields=['status', 'expired_at', 'cancellation_reason', 'updated_at'])
+        return True
 
 
 class BookingService(models.Model):
@@ -620,8 +706,7 @@ class Payment(models.Model):
     3. Platform verifies → Provider receives payment
     
     Supports multiple payment methods popular in Nepal:
-    - eSewa, Khalti (digital wallets)
-    - Bank transfer
+    - Khalti (digital wallet)
     - Cash on completion
     """
     
@@ -636,7 +721,6 @@ class Payment(models.Model):
     
     PAYMENT_METHOD_CHOICES = [
         ('cash', 'Cash'),                         # Cash on completion
-        ('esewa', 'eSewa'),                      # eSewa digital wallet
         ('khalti', 'Khalti'),                    # Khalti digital wallet
             
         ]
@@ -710,7 +794,7 @@ class Payment(models.Model):
         blank=True,
         null=True,
         unique=True,
-        help_text="Transaction ID from payment gateway (eSewa, Khalti, etc.)"
+        help_text="Transaction ID from payment gateway (Khalti, etc.)"
     )
     
     reference_number = models.CharField(

@@ -9,17 +9,17 @@ from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction as db_transaction
 
 from users.authentication import SupabaseAuthentication
-from .models import Transaction, KhaltiConfig, EsewaConfig
+from .models import Transaction, KhaltiConfig
 from bookings.models import Booking
 from bookings.views import IsServiceProvider
 from .serializers import (
     TransactionSerializer,
     InitiatePaymentSerializer,
     VerifyKhaltiPaymentSerializer,
-    VerifyEsewaPaymentSerializer,
-    PaymentHistorySerializer
+    PaymentHistorySerializer,
+    ProviderEarningsSerializer
 )
-from .services import KhaltiService, EsewaService, PaymentService
+from .services import KhaltiService, PaymentService
 
 import logging
 
@@ -38,7 +38,7 @@ class InitiatePaymentView(APIView):
     """
     POST /api/payments/initiate/
     
-    Initiate payment for a booking
+    Initiate payment for a booking (Khalti or Cash)
     
     Request body:
     {
@@ -52,16 +52,8 @@ class InitiatePaymentView(APIView):
     {
         "success": true,
         "transaction": {...},
-        "payment_url": "https://pay.khalti.com/?pidx=xxx",  # Redirect user here
+        "payment_url": "https://pay.khalti.com/?pidx=xxx",
         "pidx": "xxx"
-    }
-    
-    Response for eSewa:
-    {
-        "success": true,
-        "transaction": {...},
-        "payment_data": {...},  # Form data for POST
-        "payment_url": "https://uat.esewa.com.np/epay/main"
     }
     """
     authentication_classes = [SupabaseAuthentication]
@@ -95,19 +87,7 @@ class InitiatePaymentView(APIView):
             )
             
             # Handle different return types based on payment method
-            if payment_method == 'esewa':
-                # eSewa returns a dict with transaction object and payment data
-                transaction_obj = result['transaction']
-                response_data = {
-                    'success': True,
-                    'message': 'Payment initiated successfully',
-                    'transaction': TransactionSerializer(transaction_obj).data,
-                    'payment_data': result['payment_data'],
-                    'payment_url': result['payment_url'],
-                    'transaction_uid': result['transaction_uid']
-                }
-            
-            elif payment_method == 'khalti':
+            if payment_method == 'khalti':
                 # Khalti ePayment API returns dict with payment_url for redirect
                 transaction_obj = result['transaction']
                 response_data = {
@@ -120,7 +100,7 @@ class InitiatePaymentView(APIView):
                 }
             
             else:
-                # Cash or other methods return Transaction object
+                # Cash payment returns Transaction object
                 transaction_obj = result
                 response_data = {
                     'success': True,
@@ -362,153 +342,6 @@ class KhaltiPublicKeyView(APIView):
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-class InitiateEsewaPaymentView(APIView):
-    """
-    POST /api/payments/esewa/initiate/
-    
-    Initiate eSewa payment for a booking
-    
-    Request body:
-    {
-        "booking_id": 123,
-        "success_url": "http://localhost:5173/payment/esewa/success",
-        "failure_url": "http://localhost:5173/payment/esewa/failure"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "transaction": {...},
-        "payment_data": {
-            "amt": "1500",
-            "psc": "0",
-            "pdc": "0",
-            "txAmt": "0",
-            "tAmt": "1500",
-            "pid": "uuid-here",
-            "scd": "EPAYTEST",
-            "su": "success_url",
-            "fu": "failure_url"
-        },
-        "payment_url": "https://uat.esewa.com.np/epay/main",
-        "transaction_uid": "uuid-here"
-    }
-    """
-    authentication_classes = [SupabaseAuthentication]
-    permission_classes = [IsAuthenticated]
-    
-    @method_decorator(csrf_exempt)
-    def dispatch(self, *args, **kwargs):
-        return super().dispatch(*args, **kwargs)
-    
-    def post(self, request):
-        try:
-            booking_id = request.data.get('booking_id')
-            success_url = request.data.get('success_url', '')
-            failure_url = request.data.get('failure_url', '')
-            
-            if not booking_id:
-                return Response({
-                    'success': False,
-                    'message': 'Booking ID is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Initiate eSewa payment
-            esewa_service = EsewaService()
-            result = esewa_service.initiate_payment(
-                booking_id=booking_id,
-                customer=request.user,
-                amount=None,  # Will be fetched from booking
-                success_url=success_url,
-                failure_url=failure_url
-            )
-            
-            return Response({
-                'success': True,
-                'message': 'eSewa payment initiated successfully',
-                'transaction': TransactionSerializer(result['transaction']).data,
-                'payment_data': result['payment_data'],
-                'payment_url': result['payment_url'],
-                'transaction_uid': result['transaction_uid']
-            }, status=status.HTTP_201_CREATED)
-            
-        except Exception as e:
-            logger.error(f"Error initiating eSewa payment: {str(e)}")
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-
-class VerifyEsewaPaymentView(APIView):
-    """
-    GET /api/payments/esewa/verify/
-    
-    Verify eSewa payment after redirect from eSewa
-    
-    Query params from eSewa:
-    - oid: Transaction UID (our pid)
-    - amt: Amount in NPR
-    - refId: eSewa reference ID
-    
-    Response:
-    {
-        "success": true,
-        "message": "Payment verified successfully",
-        "transaction": {...},
-        "verification_data": {...}
-    }
-    """
-    authentication_classes = [SupabaseAuthentication]
-    permission_classes = [IsAuthenticated]
-    
-    @method_decorator(csrf_exempt)
-    def dispatch(self, *args, **kwargs):
-        return super().dispatch(*args, **kwargs)
-    
-    @db_transaction.atomic
-    def get(self, request):
-        try:
-            # Get query parameters from eSewa redirect
-            query_params = {
-                'oid': request.GET.get('oid'),
-                'amt': request.GET.get('amt'),
-                'refId': request.GET.get('refId')
-            }
-            
-            # Validate using serializer
-            serializer = VerifyEsewaPaymentSerializer(data=query_params)
-            if not serializer.is_valid():
-                return Response({
-                    'success': False,
-                    'errors': serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Verify payment
-            esewa_service = EsewaService()
-            result = esewa_service.verify_payment(query_params)
-            
-            if result['success']:
-                return Response({
-                    'success': True,
-                    'message': result['message'],
-                    'transaction': TransactionSerializer(result['transaction']).data,
-                    'verification_data': result.get('verification_data')
-                }, status=status.HTTP_200_OK)
-            else:
-                return Response({
-                    'success': False,
-                    'message': result['message']
-                }, status=status.HTTP_400_BAD_REQUEST)
-                
-        except Exception as e:
-            logger.error(f"Error verifying eSewa payment: {str(e)}")
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-
 class ConfirmCashPaymentView(APIView):
     """
     POST /api/payments/cash/confirm/
@@ -572,37 +405,179 @@ class ConfirmCashPaymentView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
-class EsewaPaymentInfoView(APIView):
+class ProviderEarningsHistoryView(generics.ListAPIView):
     """
-    GET /api/payments/esewa/info/
+    GET /api/payments/provider/earnings/history/
     
-    Get eSewa payment configuration info (no authentication required)
+    Get earnings history for logged-in provider (based on Payment model).
+    
+    Query params:
+    - page, page_size: Pagination
+    - status: Filter by payment status (pending, completed, etc.)
+    - period: Filter by period (this_week, this_month, last_month, this_year)
+    - payment_method: Filter by method (khalti, cash)
+    """
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated, IsServiceProvider]
+    serializer_class = ProviderEarningsSerializer
+    pagination_class = StandardResultsSetPagination
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+    
+    def get_queryset(self):
+        from bookings.models import Payment
+        from django.utils import timezone
+        from datetime import timedelta
+        import calendar
+        
+        queryset = Payment.objects.filter(provider=self.request.user)
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by payment method
+        method_filter = self.request.query_params.get('payment_method')
+        if method_filter:
+            queryset = queryset.filter(payment_method=method_filter)
+        
+        # Filter by period
+        period = self.request.query_params.get('period')
+        if period:
+            now = timezone.now()
+            if period == 'this_week':
+                start = now - timedelta(days=now.weekday())
+                start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+                queryset = queryset.filter(created_at__gte=start)
+            elif period == 'this_month':
+                start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                queryset = queryset.filter(created_at__gte=start)
+            elif period == 'last_month':
+                first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                if now.month == 1:
+                    start = first_of_this_month.replace(year=now.year - 1, month=12)
+                else:
+                    start = first_of_this_month.replace(month=now.month - 1)
+                queryset = queryset.filter(created_at__gte=start, created_at__lt=first_of_this_month)
+            elif period == 'this_year':
+                start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                queryset = queryset.filter(created_at__gte=start)
+        
+        return queryset.select_related(
+            'booking', 'booking__service', 'booking__service__specialization',
+            'booking__customer'
+        ).order_by('-created_at')
+
+
+class ProviderEarningsStatsView(APIView):
+    """
+    GET /api/payments/provider/earnings/stats/
+    
+    Get earnings statistics for logged-in provider.
+    Supports ?period= query param (this_week, this_month, last_month, this_year).
     
     Response:
     {
-        "success": true,
-        "payment_url": "https://uat.esewa.com.np/epay/main",
-        "is_test_mode": true,
-        "merchant_code": "EPAYTEST"
+        "total_earnings": 12500.00,
+        "provider_earnings": 11250.00,
+        "platform_fees": 1250.00,
+        "completed_jobs": 8,
+        "pending_amount": 500.00,
+        "pending_count": 1,
+        "avg_job_value": 1406.25,
+        "payment_methods_breakdown": {
+            "khalti": {"count": 5, "amount": 8000.00},
+            "cash": {"count": 3, "amount": 4500.00}
+        }
     }
     """
-    permission_classes = []  # Public endpoint
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated, IsServiceProvider]
+    
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     
     def get(self, request):
+        from bookings.models import Payment
+        from django.utils import timezone
+        from django.db.models import Sum, Count, Avg, Q
+        from datetime import timedelta
+        
         try:
-            esewa_service = EsewaService()
+            queryset = Payment.objects.filter(provider=request.user)
+            
+            # Apply period filter
+            period = request.query_params.get('period')
+            if period:
+                now = timezone.now()
+                if period == 'this_week':
+                    start = now - timedelta(days=now.weekday())
+                    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+                    queryset = queryset.filter(created_at__gte=start)
+                elif period == 'this_month':
+                    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                    queryset = queryset.filter(created_at__gte=start)
+                elif period == 'last_month':
+                    first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                    if now.month == 1:
+                        start = first_of_this_month.replace(year=now.year - 1, month=12)
+                    else:
+                        start = first_of_this_month.replace(month=now.month - 1)
+                    queryset = queryset.filter(created_at__gte=start, created_at__lt=first_of_this_month)
+                elif period == 'this_year':
+                    start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                    queryset = queryset.filter(created_at__gte=start)
+            
+            # Completed payments stats
+            completed_qs = queryset.filter(status='completed')
+            completed_agg = completed_qs.aggregate(
+                total_earnings=Sum('amount'),
+                provider_earnings=Sum('provider_amount'),
+                platform_fees=Sum('platform_fee'),
+                completed_jobs=Count('id'),
+                avg_job_value=Avg('provider_amount'),
+            )
+            
+            # Pending payments stats
+            pending_qs = queryset.filter(status='pending')
+            pending_agg = pending_qs.aggregate(
+                pending_amount=Sum('provider_amount'),
+                pending_count=Count('id'),
+            )
+            
+            # Payment methods breakdown (completed only)
+            method_breakdown = {}
+            for method_choice in Payment.PAYMENT_METHOD_CHOICES:
+                method_key = method_choice[0]
+                method_agg = completed_qs.filter(payment_method=method_key).aggregate(
+                    count=Count('id'),
+                    amount=Sum('provider_amount'),
+                )
+                if method_agg['count'] > 0:
+                    method_breakdown[method_key] = {
+                        'count': method_agg['count'],
+                        'amount': float(method_agg['amount'] or 0),
+                    }
             
             return Response({
-                'success': True,
-                'payment_url': esewa_service.get_payment_url(),
-                'is_test_mode': esewa_service.is_test_mode,
-                'merchant_code': esewa_service.merchant_code
+                'total_earnings': float(completed_agg['total_earnings'] or 0),
+                'provider_earnings': float(completed_agg['provider_earnings'] or 0),
+                'platform_fees': float(completed_agg['platform_fees'] or 0),
+                'completed_jobs': completed_agg['completed_jobs'] or 0,
+                'avg_job_value': round(float(completed_agg['avg_job_value'] or 0), 2),
+                'pending_amount': float(pending_agg['pending_amount'] or 0),
+                'pending_count': pending_agg['pending_count'] or 0,
+                'payment_methods_breakdown': method_breakdown,
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            logger.error(f"Error getting eSewa info: {str(e)}")
+            logger.error(f"Error fetching provider earnings stats: {str(e)}")
             return Response({
                 'success': False,
-                'message': 'eSewa is not configured. Please contact support.'
-            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 

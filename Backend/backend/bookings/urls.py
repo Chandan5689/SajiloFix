@@ -19,7 +19,6 @@ from .views import (
     ScheduleBookingView,
     StartBookingView,
     CompleteBookingView,
-    ApproveCompletionView,
     DisputeBookingView,
     ProviderMyServicesView,
     CreateServiceView,
@@ -36,6 +35,7 @@ from .views import (
     CheckBookingConflictView,
     GetAvailableTimeSlotsView,
     GetAlternativeDatesView,
+    RecentTestimonialsView,
 )
 
 urlpatterns = [
@@ -51,7 +51,6 @@ urlpatterns = [
     path('bookings/<int:booking_id>/schedule/', ScheduleBookingView.as_view(), name='booking-schedule'),
     path('bookings/<int:booking_id>/start/', StartBookingView.as_view(), name='booking-start'),
     path('bookings/<int:booking_id>/complete/', CompleteBookingView.as_view(), name='booking-complete'),
-    path('bookings/<int:booking_id>/approve-completion/', ApproveCompletionView.as_view(), name='booking-approve-completion'),
     path('bookings/<int:booking_id>/dispute/', DisputeBookingView.as_view(), name='booking-dispute'),
 
     # Payments
@@ -85,6 +84,9 @@ urlpatterns = [
     path('providers/<int:id>/', ProviderDetailView.as_view(), name='providers-detail'),
     path('providers/<int:provider_id>/availability/', ProviderAvailabilityPublicView.as_view(), name='provider-availability-public'),
     path('providers/<int:provider_id>/booked-slots/', ProviderBookedSlotsView.as_view(), name='provider-booked-slots'),
+
+    # Public - Recent testimonials for homepage
+    path('testimonials/', RecentTestimonialsView.as_view(), name='recent-testimonials'),
 
     # Booking Conflict Detection
     path('check-conflict/', CheckBookingConflictView.as_view(), name='check-booking-conflict'),

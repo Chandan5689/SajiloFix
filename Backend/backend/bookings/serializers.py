@@ -80,6 +80,7 @@ class BookingSerializer(serializers.ModelSerializer):
     images = BookingImageSerializer(many=True, read_only=True)
     booking_services = BookingServiceSerializer(many=True, read_only=True)
     payment = serializers.SerializerMethodField()
+    is_expired = serializers.BooleanField(read_only=True)
     services = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -97,12 +98,14 @@ class BookingSerializer(serializers.ModelSerializer):
             'customer_phone', 'customer_name', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
             'cancellation_reason', 'provider_notes', 'images', 'customer_email', 'provider_name',
-            'customer_name', 'booking_services', 'services', 'payment'
+            'customer_name', 'booking_services', 'services', 'payment',
+            'confirmation_deadline', 'expired_at', 'is_expired'
         ]
         read_only_fields = [
             'id', 'customer', 'provider', 'service_title', 'created_at', 'updated_at',
             'accepted_at', 'completed_at', 'cancelled_at', 'cancelled_by',
-            'images', 'customer_email', 'provider_name', 'customer_name', 'booking_services', 'payment'
+            'images', 'customer_email', 'provider_name', 'customer_name', 'booking_services', 'payment',
+            'confirmation_deadline', 'expired_at', 'is_expired'
         ]
 
     def get_provider_name(self, obj):
@@ -193,6 +196,7 @@ class BookingListSerializer(serializers.ModelSerializer):
     provider_name = serializers.SerializerMethodField()
     customer_name = serializers.SerializerMethodField()
     payment = serializers.SerializerMethodField()
+    is_expired = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Booking
@@ -203,7 +207,8 @@ class BookingListSerializer(serializers.ModelSerializer):
             'service_address', 'service_city', 'service_district',
             'description', 'special_instructions',
             'customer_phone',
-            'created_at', 'payment'
+            'created_at', 'payment',
+            'confirmation_deadline', 'expired_at', 'is_expired'
         ]
         read_only_fields = fields
 

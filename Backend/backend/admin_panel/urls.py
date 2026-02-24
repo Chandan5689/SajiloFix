@@ -6,6 +6,7 @@ from .views import (
     AdminBookingsViewSet,
     RecentUsersView,
     RecentBookingsView,
+    PlatformSettingsView,
 )
 
 router = DefaultRouter()
@@ -16,5 +17,6 @@ urlpatterns = [
     path('dashboard/stats/', AdminDashboardView.as_view(), name='admin-dashboard-stats'),
     path('recent-users/', RecentUsersView.as_view(), name='recent-users'),
     path('recent-bookings/', RecentBookingsView.as_view(), name='recent-bookings'),
+    path('settings/', PlatformSettingsView.as_view(), name='admin-settings'),
     path('', include(router.urls)),
 ]

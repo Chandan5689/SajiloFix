@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from bookings.models import Booking, Review
 from django.db.models import Avg, Sum
+from .models import PlatformSettings
 
 User = get_user_model()
 
@@ -17,8 +18,13 @@ class AdminUserSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'email', 'first_name', 'last_name', 'user_type', 'user_type_display',
             'phone_number', 'phone_verified', 'registration_completed', 'is_active',
-            'is_verified', 'created_at', 'total_bookings', 'avg_rating', 'business_name'
+            'is_verified', 'is_staff', 'is_superuser', 'created_at', 'total_bookings',
+            'avg_rating', 'business_name', 'profile_picture', 'bio',
+            'address', 'city', 'district', 'location',
+            'years_of_experience', 'service_area', 'citizenship_verified'
         ]
+        read_only_fields = ['id', 'email', 'created_at', 'user_type', 'user_type_display',
+                            'total_bookings', 'avg_rating']
     
     def get_total_bookings(self, obj):
         """Count total bookings for user"""
@@ -43,12 +49,17 @@ class AdminBookingSerializer(serializers.ModelSerializer):
     provider_name = serializers.SerializerMethodField()
     provider_email = serializers.CharField(source='provider.email', read_only=True)
     total_price = serializers.SerializerMethodField()
+    service_title = serializers.SerializerMethodField()
+    booking_date = serializers.SerializerMethodField()
     
     class Meta:
         model = Booking
         fields = [
             'id', 'customer_email', 'customer_name', 'provider_email', 'provider_name',
-            'status', 'status_display', 'scheduled_date', 'total_price', 'created_at'
+            'service_title', 'status', 'status_display', 'scheduled_date',
+            'preferred_date', 'preferred_time', 'booking_date',
+            'total_price', 'description', 'service_address', 'service_city',
+            'customer_phone', 'created_at'
         ]
     
     def get_customer_name(self, obj):
@@ -59,6 +70,16 @@ class AdminBookingSerializer(serializers.ModelSerializer):
 
     def get_total_price(self, obj):
         return obj.final_price or obj.quoted_price or 0
+
+    def get_service_title(self, obj):
+        try:
+            return obj.service.title or obj.service.specialization.name
+        except Exception:
+            return 'N/A'
+
+    def get_booking_date(self, obj):
+        """Return the most relevant date for display"""
+        return obj.scheduled_date or obj.preferred_date
 
 
 class DashboardStatsSerializer(serializers.Serializer):
@@ -101,3 +122,14 @@ class RecentBookingSerializer(serializers.ModelSerializer):
 
     def get_total_price(self, obj):
         return obj.final_price or obj.quoted_price or 0
+
+
+class PlatformSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for platform settings"""
+    class Meta:
+        model = PlatformSettings
+        fields = [
+            'platform_name', 'max_booking_per_day', 'commission_rate',
+            'notification_email', 'maintenance_mode', 'updated_at'
+        ]
+        read_only_fields = ['updated_at']

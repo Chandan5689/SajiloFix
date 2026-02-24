@@ -6,10 +6,9 @@ from .views import (
     PendingPaymentsView,
     TransactionDetailView,
     KhaltiPublicKeyView,
-    InitiateEsewaPaymentView,
-    VerifyEsewaPaymentView,
-    EsewaPaymentInfoView,
     ConfirmCashPaymentView,
+    ProviderEarningsHistoryView,
+    ProviderEarningsStatsView,
 )
 
 urlpatterns = [
@@ -23,14 +22,13 @@ urlpatterns = [
     # Cash payment endpoints
     path('cash/confirm/', ConfirmCashPaymentView.as_view(), name='cash-confirm'),
     
-    # eSewa-specific endpoints
-    path('esewa/initiate/', InitiateEsewaPaymentView.as_view(), name='esewa-initiate'),
-    path('esewa/verify/', VerifyEsewaPaymentView.as_view(), name='esewa-verify'),
-    path('esewa/info/', EsewaPaymentInfoView.as_view(), name='esewa-info'),
-    
-    # Payment history and status
+    # Payment history and status (customer)
     path('history/', PaymentHistoryView.as_view(), name='payment-history'),
     path('pending/', PendingPaymentsView.as_view(), name='payment-pending'),
     path('transactions/<uuid:transaction_uid>/', TransactionDetailView.as_view(), name='transaction-detail'),
+    
+    # Provider earnings
+    path('provider/earnings/history/', ProviderEarningsHistoryView.as_view(), name='provider-earnings-history'),
+    path('provider/earnings/stats/', ProviderEarningsStatsView.as_view(), name='provider-earnings-stats'),
 ]
 

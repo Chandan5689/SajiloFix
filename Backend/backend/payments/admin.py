@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Transaction, KhaltiConfig, EsewaConfig
+from .models import Transaction, KhaltiConfig
 
 
 @admin.register(Transaction)
@@ -107,48 +107,4 @@ class KhaltiConfigAdmin(admin.ModelAdmin):
         """Ensure only one active config"""
         if obj.is_active:
             KhaltiConfig.objects.filter(is_active=True).update(is_active=False)
-        super().save_model(request, obj, form, change)
-
-
-@admin.register(EsewaConfig)
-class EsewaConfigAdmin(admin.ModelAdmin):
-    """Admin interface for eSewa Configuration"""
-    
-    list_display = [
-        'name', 'merchant_code', 'is_active', 'is_test_mode', 'created_at'
-    ]
-    
-    list_filter = ['is_active', 'is_test_mode']
-    
-    fieldsets = (
-        ('Configuration', {
-            'fields': (
-                'name', 'is_active', 'is_test_mode'
-            )
-        }),
-        ('Epay v2 Credentials', {
-            'fields': (
-                'merchant_code', 'secret_key'
-            ),
-            'description': 'Get these from eSewa Merchant Dashboard'
-        }),
-        ('SDK Credentials (Optional)', {
-            'fields': (
-                'client_id', 'client_secret'
-            ),
-            'classes': ('collapse',)
-        }),
-        ('Metadata', {
-            'fields': (
-                'created_at', 'updated_at'
-            )
-        }),
-    )
-    
-    readonly_fields = ['created_at', 'updated_at']
-    
-    def save_model(self, request, obj, form, change):
-        """Ensure only one active config"""
-        if obj.is_active:
-            EsewaConfig.objects.filter(is_active=True).update(is_active=False)
         super().save_model(request, obj, form, change)

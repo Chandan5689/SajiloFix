@@ -23,7 +23,6 @@ class Transaction(models.Model):
     
     PAYMENT_METHOD_CHOICES = [
         ('khalti', 'Khalti'),
-        ('esewa', 'eSewa'),
         ('cash', 'Cash'),
     ]
     
@@ -85,7 +84,7 @@ class Transaction(models.Model):
         max_length=200,
         blank=True,
         null=True,
-        help_text="Transaction ID from payment gateway (Khalti token, eSewa ref, etc.)"
+        help_text="Transaction ID from payment gateway (Khalti token, etc.)"
     )
     
     gateway_payment_id = models.CharField(

@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from django.contrib.auth import get_user_model
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -12,10 +13,13 @@ from django.utils import timezone
 
 from bookings.models import Booking, Review
 from .permissions import IsAdmin
+from .models import PlatformSettings
 from .serializers import (
     AdminUserSerializer, AdminBookingSerializer, 
-    DashboardStatsSerializer, RecentBookingSerializer
+    DashboardStatsSerializer, RecentBookingSerializer,
+    PlatformSettingsSerializer
 )
+from .models import PlatformSettings
 from users.authentication import SupabaseAuthentication
 
 User = get_user_model()
@@ -130,11 +134,19 @@ class AdminDashboardView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
+class AdminPagination(PageNumberPagination):
+    """Custom pagination for admin panel"""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class AdminUsersViewSet(viewsets.ModelViewSet):
     """Admin Users Management API"""
     serializer_class = AdminUserSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
     authentication_classes = [SupabaseAuthentication]
+    pagination_class = AdminPagination
     queryset = User.objects.all().order_by('-created_at')
     
     @method_decorator(csrf_exempt)
@@ -167,27 +179,86 @@ class AdminUsersViewSet(viewsets.ModelViewSet):
         return queryset.order_by('-created_at')
     
     def list(self, request, *args, **kwargs):
-        """Override list to add success wrapper"""
+        """Override list to add success wrapper with pagination"""
         try:
-            # Get filtered queryset
             queryset = self.filter_queryset(self.get_queryset())
             
-            # Debug logging
-            user_type = request.query_params.get('user_type', None)
-            is_active_param = request.query_params.get('is_active', None)
-            search = request.query_params.get('search', None)
-            
-            print(f"DEBUG: user_type={user_type}, is_active={is_active_param}, search={search}, queryset_count={queryset.count()}")
+            # Paginate
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return Response({
+                    'success': True,
+                    'data': serializer.data,
+                    'count': self.paginator.page.paginator.count,
+                    'total_pages': self.paginator.page.paginator.num_pages,
+                    'current_page': self.paginator.page.number,
+                }, status=status.HTTP_200_OK)
             
             serializer = self.get_serializer(queryset, many=True)
             return Response({
                 'success': True,
-                'data': serializer.data
+                'data': serializer.data,
+                'count': queryset.count(),
+                'total_pages': 1,
+                'current_page': 1,
             }, status=status.HTTP_200_OK)
         except Exception as e:
-            print(f"DEBUG: Exception in list: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Get single user detail"""
+        try:
+            user = self.get_object()
+            serializer = self.get_serializer(user)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    def update(self, request, *args, **kwargs):
+        """Update user with success wrapper"""
+        try:
+            partial = kwargs.pop('partial', False)
+            user = self.get_object()
+            serializer = self.get_serializer(user, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'User updated successfully',
+                'data': serializer.data
+            })
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    def partial_update(self, request, *args, **kwargs):
+        """Partial update user"""
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Delete user with success wrapper"""
+        try:
+            user = self.get_object()
+            email = user.email
+            user.delete()
+            return Response({
+                'success': True,
+                'message': f'User {email} deleted successfully'
+            })
+        except Exception as e:
             return Response({
                 'success': False,
                 'message': str(e)
@@ -250,7 +321,8 @@ class AdminBookingsViewSet(viewsets.ModelViewSet):
     serializer_class = AdminBookingSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
     authentication_classes = [SupabaseAuthentication]
-    queryset = Booking.objects.all().select_related('customer', 'provider').order_by('-created_at')
+    pagination_class = AdminPagination
+    queryset = Booking.objects.all().select_related('customer', 'provider', 'service', 'service__specialization').order_by('-created_at')
     
     @method_decorator(csrf_exempt)
     def dispatch(self, *args, **kwargs):
@@ -258,45 +330,67 @@ class AdminBookingsViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter bookings based on query params"""
-        queryset = Booking.objects.select_related('customer', 'provider').all()
+        queryset = Booking.objects.select_related('customer', 'provider', 'service', 'service__specialization').all()
         
         # Filter by status
         status_filter = self.request.query_params.get('status', None)
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         
-        # Search by customer or provider email
+        # Search by customer or provider email/name
         search = self.request.query_params.get('search', None)
         if search:
             queryset = queryset.filter(
                 Q(customer__email__icontains=search) |
                 Q(provider__email__icontains=search) |
                 Q(customer__first_name__icontains=search) |
-                Q(provider__first_name__icontains=search)
+                Q(provider__first_name__icontains=search) |
+                Q(service__title__icontains=search)
             )
         
         return queryset.order_by('-created_at')
     
     def list(self, request, *args, **kwargs):
-        """Override list to add success wrapper"""
+        """Override list to add success wrapper with pagination"""
         try:
-            # Get filtered queryset
             queryset = self.filter_queryset(self.get_queryset())
             
-            status_filter = request.query_params.get('status', None)
-            search = request.query_params.get('search', None)
-            
-            print(f"DEBUG Bookings: status={status_filter}, search={search}, queryset_count={queryset.count()}")
+            # Paginate
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return Response({
+                    'success': True,
+                    'data': serializer.data,
+                    'count': self.paginator.page.paginator.count,
+                    'total_pages': self.paginator.page.paginator.num_pages,
+                    'current_page': self.paginator.page.number,
+                }, status=status.HTTP_200_OK)
             
             serializer = self.get_serializer(queryset, many=True)
             return Response({
                 'success': True,
-                'data': serializer.data
+                'data': serializer.data,
+                'count': queryset.count(),
+                'total_pages': 1,
+                'current_page': 1,
             }, status=status.HTTP_200_OK)
         except Exception as e:
-            print(f"DEBUG: Exception in bookings list: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Get single booking detail"""
+        try:
+            booking = self.get_object()
+            serializer = self.get_serializer(booking)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+        except Exception as e:
             return Response({
                 'success': False,
                 'message': str(e)
@@ -406,6 +500,52 @@ class RecentBookingsView(APIView):
                 'success': True,
                 'data': serializer.data
             }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PlatformSettingsView(APIView):
+    """View for managing platform settings (singleton)"""
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
+    def get(self, request):
+        """Get current platform settings"""
+        try:
+            settings = PlatformSettings.load()
+            serializer = PlatformSettingsSerializer(settings)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request):
+        """Update platform settings"""
+        try:
+            settings = PlatformSettings.load()
+            serializer = PlatformSettingsSerializer(settings, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response({
+                    'success': True,
+                    'data': serializer.data
+                }, status=status.HTTP_200_OK)
+            return Response({
+                'success': False,
+                'message': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({
                 'success': False,

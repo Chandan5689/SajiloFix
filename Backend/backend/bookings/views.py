@@ -14,7 +14,7 @@ from django.db.models.functions import Coalesce
 from django.core.cache import cache
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from users.authentication import SupabaseAuthentication
@@ -30,10 +30,34 @@ from .serializers import (
 	ProviderListSerializer,
 	ProviderDetailSerializer
 )
-from .emails import send_booking_notification_to_provider, send_booking_acceptance_to_customer
+from .emails import send_booking_notification_to_provider, send_booking_acceptance_to_customer, send_booking_expiry_notification
 
 User = get_user_model()
 NPT = ZoneInfo("Asia/Kathmandu")
+
+import logging
+logger = logging.getLogger(__name__)
+
+
+def _lazy_expire_overdue_bookings(customer=None, provider=None):
+	"""
+	Lazy-expire any pending bookings that are past their confirmation_deadline.
+	Called when listing bookings so expired ones are updated before the user sees them.
+	Sends expiry notification emails for each expired booking.
+	"""
+	filters = {'status': 'pending', 'confirmation_deadline__lte': timezone.now()}
+	if customer:
+		filters['customer'] = customer
+	if provider:
+		filters['provider'] = provider
+
+	overdue = Booking.objects.filter(**filters).select_related('customer', 'provider', 'service')
+	for booking in overdue:
+		if booking.expire_if_overdue():
+			try:
+				send_booking_expiry_notification(booking)
+			except Exception as e:
+				logger.error(f"Failed to send expiry email for booking {booking.id}: {e}")
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -72,6 +96,8 @@ class MyBookingsView(generics.ListAPIView):
 		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
+		# Lazy-expire any overdue pending bookings for this customer
+		_lazy_expire_overdue_bookings(customer=self.request.user)
 		return (
 			Booking.objects
 			.filter(customer=self.request.user)
@@ -93,6 +119,8 @@ class ProviderBookingsView(generics.ListAPIView):
 		return super().dispatch(*args, **kwargs)
 
 	def get_queryset(self):
+		# Lazy-expire any overdue pending bookings for this provider
+		_lazy_expire_overdue_bookings(provider=self.request.user)
 		return (
 			Booking.objects
 			.filter(provider=self.request.user)
@@ -107,11 +135,6 @@ class BookingDetailView(generics.RetrieveAPIView):
 	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated]
 	serializer_class = BookingSerializer
-	queryset = (
-		Booking.objects
-		.select_related('service', 'service__specialization', 'service__specialization__speciality', 'provider', 'customer')
-		.prefetch_related('images', 'booking_services__service', 'booking_services__service__specialization', 'booking_services__service__specialization__speciality')
-	)
 	
 	@method_decorator(csrf_exempt)
 	def dispatch(self, *args, **kwargs):
@@ -119,7 +142,24 @@ class BookingDetailView(generics.RetrieveAPIView):
 
 	def get_queryset(self):
 		user = self.request.user
-		return self.queryset.filter(Q(customer=user) | Q(provider=user))
+		return (
+			Booking.objects
+			.select_related('service', 'service__specialization', 'service__specialization__speciality', 'provider', 'customer')
+			.prefetch_related('images', 'booking_services__service', 'booking_services__service__specialization', 'booking_services__service__specialization__speciality')
+			.filter(Q(customer=user) | Q(provider=user))
+		)
+
+	def retrieve(self, request, *args, **kwargs):
+		instance = self.get_object()
+		# Lazy-expire if overdue
+		if instance.expire_if_overdue():
+			try:
+				send_booking_expiry_notification(instance)
+			except Exception:
+				pass
+			instance.refresh_from_db()
+		serializer = self.get_serializer(instance)
+		return Response(serializer.data)
 
 
 class AcceptBookingView(APIView):
@@ -135,6 +175,28 @@ class AcceptBookingView(APIView):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
 		if booking.status not in ['pending']:
 			return Response({'error': 'Only pending bookings can be accepted'}, status=status.HTTP_400_BAD_REQUEST)
+
+		# Check if the booking has expired (deadline passed)
+		if booking.is_expired:
+			booking.expire_if_overdue()
+			try:
+				send_booking_expiry_notification(booking)
+			except Exception:
+				pass
+			return Response(
+				{'error': 'This booking has expired because you did not respond before the deadline. The customer has been notified.'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+		# Check if the preferred service date/time has already passed
+		if booking.preferred_date and booking.preferred_time:
+			service_dt = datetime.combine(booking.preferred_date, booking.preferred_time, tzinfo=NPT)
+			if service_dt <= timezone.now().astimezone(NPT):
+				return Response(
+					{'error': 'Cannot accept this booking — the requested service date/time has already passed.'},
+					status=status.HTTP_400_BAD_REQUEST
+				)
+
 		booking.status = 'confirmed'
 		booking.accepted_at = booking.accepted_at or timezone.now()
 		booking.save()
@@ -168,6 +230,9 @@ class DeclineBookingView(APIView):
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, provider=request.user)
 		if booking.status not in ['pending']:
+			# If it expired in the meantime, give a clear message
+			if booking.status == 'expired':
+				return Response({'error': 'This booking has already expired.'}, status=status.HTTP_400_BAD_REQUEST)
 			return Response({'error': 'Only pending bookings can be declined'}, status=status.HTTP_400_BAD_REQUEST)
 		reason = request.data.get('reason', '')
 		booking.status = 'declined'
@@ -286,41 +351,19 @@ class CompleteBookingView(APIView):
 		final_price = request.data.get('final_price', None)
 		if final_price is not None:
 			booking.final_price = final_price
-		booking.status = 'provider_completed'
-		booking.provider_completed_at = timezone.now()
-		booking.completion_note = request.data.get('completion_note', '')
-		# Set customer review window (now set to 36 hours)
-		from datetime import timedelta
-		booking.customer_review_expires_at = timezone.now() + timedelta(hours=36)
-		booking.save()
-		return Response(BookingSerializer(booking).data)
-
-
-class ApproveCompletionView(APIView):
-	"""Customer approves provider's completed work"""
-	authentication_classes = [SupabaseAuthentication]
-	permission_classes = [IsAuthenticated, IsServiceSeeker]
-	
-	@method_decorator(csrf_exempt)
-	def dispatch(self, *args, **kwargs):
-		return super().dispatch(*args, **kwargs)
-
-	def post(self, request, booking_id):
-		booking = get_object_or_404(Booking, id=booking_id, customer=request.user)
-		if booking.status != 'awaiting_customer':
-			return Response({'error': 'Only bookings awaiting customer can be approved'}, status=status.HTTP_400_BAD_REQUEST)
 		booking.status = 'completed'
+		booking.provider_completed_at = timezone.now()
 		booking.completed_at = timezone.now()
-		booking.approval_note = request.data.get('note', '')
+		booking.completion_note = request.data.get('completion_note', '')
 		booking.save()
-		# Trigger payment release via service
+		# Trigger payment release
 		from .services import PaymentService
 		PaymentService.release_payment(booking)
 		return Response(BookingSerializer(booking).data)
 
 
 class DisputeBookingView(APIView):
-	"""Customer disputes provider's completed work"""
+	"""Customer disputes a completed booking — requires after-image upload and reason"""
 	authentication_classes = [SupabaseAuthentication]
 	permission_classes = [IsAuthenticated, IsServiceSeeker]
 	
@@ -330,15 +373,24 @@ class DisputeBookingView(APIView):
 
 	def post(self, request, booking_id):
 		booking = get_object_or_404(Booking, id=booking_id, customer=request.user)
-		if booking.status != 'awaiting_customer':
-			return Response({'error': 'Only bookings awaiting customer can be disputed'}, status=status.HTTP_400_BAD_REQUEST)
+		if booking.status != 'completed':
+			return Response(
+				{'error': 'Only completed bookings can be disputed'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+		reason = request.data.get('reason', '').strip()
+		if not reason:
+			return Response(
+				{'error': 'A dispute reason is required'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
 		booking.status = 'disputed'
-		booking.dispute_reason = request.data.get('reason', '')
+		booking.dispute_reason = reason
 		booking.dispute_note = request.data.get('note', '')
 		booking.save()
 		# Hold payment via service (if payment exists)
 		from .services import PaymentService
-		PaymentService.hold_payment(booking, reason=booking.dispute_reason or "")
+		PaymentService.hold_payment(booking, reason=booking.dispute_reason)
 		return Response(BookingSerializer(booking).data)
 
 
@@ -547,7 +599,32 @@ class CreateBookingView(generics.CreateAPIView):
 			now_npt = timezone.now().astimezone(NPT)
 			if requested_dt <= now_npt:
 				raise ValidationError({'preferred_time': f'Selected time is in the past. Current Nepal time: {now_npt.strftime("%Y-%m-%d %H:%M:%S")}'})
+
+			# Maximum advance booking check: at most 5 days ahead
+			max_advance = timedelta(days=Booking.MAX_ADVANCE_BOOKING_DAYS)
+			time_until_service = requested_dt - now_npt
+			if time_until_service > max_advance:
+				raise ValidationError({
+					'preferred_date': f'Bookings can only be made up to {Booking.MAX_ADVANCE_BOOKING_DAYS} days in advance. '
+					f'Please select a date within the next {Booking.MAX_ADVANCE_BOOKING_DAYS} days.'
+				})
+
+			# Minimum advance booking check
+			# Emergency services: at least 30 min | Normal services: at least 1 hour
+			is_emergency = primary_service.emergency_service if primary_service else False
+			min_advance = timedelta(minutes=30) if is_emergency else timedelta(hours=1)
+			min_label = "30 minutes" if is_emergency else "1 hour"
+			if time_until_service < min_advance:
+				raise ValidationError({
+					'preferred_time': f'You must book at least {min_label} before the service time. '
+					f'Please select a later time slot.'
+				})
+
 		booking = serializer.save(customer=self.request.user, provider=primary_service.provider)
+
+		# Calculate and set the confirmation deadline
+		booking.calculate_confirmation_deadline()
+		booking.save(update_fields=['confirmation_deadline'])
 		
 		# Reload booking with booking_services to ensure they're available for email
 		booking.refresh_from_db()
@@ -595,19 +672,6 @@ class UploadBookingImagesView(APIView):
 				created.append(img)
 			except Exception as e:
 				return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-		# Reload booking to get latest status
-		booking.refresh_from_db()
-		
-		# If provider uploaded 'after' images and booking is in provider_completed,
-		# automatically complete the booking and trigger payment release
-		if request.user == booking.provider and image_type == 'after' and booking.status == 'provider_completed':
-			booking.status = 'completed'
-			booking.completed_at = timezone.now()
-			booking.save()
-			# Trigger payment release via service
-			from .services import PaymentService
-			PaymentService.release_payment(booking)
 
 		return Response(BookingImageSerializer(created, many=True, context={'request': request}).data)
 
@@ -665,7 +729,7 @@ class UserDashboardStatsView(APIView):
 			return Response(cached)
 
 		qs = Booking.objects.filter(customer=request.user)
-		active_statuses = ['pending', 'confirmed', 'scheduled', 'in_progress', 'provider_completed', 'awaiting_customer']
+		active_statuses = ['pending', 'confirmed', 'scheduled', 'in_progress', 'provider_completed']
 		agg = qs.aggregate(
 			total_bookings=Count('id'),
 			active_jobs=Count('id', filter=Q(status__in=active_statuses)),
@@ -937,7 +1001,8 @@ class ProviderAvailabilityView(APIView):
 				],
 				'settings': {
 					'timezone': 'UTC',
-					'min_advance_booking': 24  # hours
+					'min_advance_booking': 24,  # hours
+					'max_advance_days': Booking.MAX_ADVANCE_BOOKING_DAYS
 				}
 			}
 			return Response(default_availability, status=status.HTTP_200_OK)
@@ -1127,7 +1192,8 @@ class ProviderAvailabilityPublicView(APIView):
 				],
 				'settings': {
 					'timezone': 'UTC',
-					'min_advance_booking': 24
+					'min_advance_booking': 24,
+					'max_advance_days': Booking.MAX_ADVANCE_BOOKING_DAYS
 				}
 			}
 			return Response(default_availability, status=status.HTTP_200_OK)
@@ -1146,6 +1212,9 @@ class ProviderBookedSlotsView(APIView):
 	
 	def get(self, request, provider_id):
 		"""Fetch booked slots for a provider on a specific date."""
+		from datetime import datetime, timedelta
+		from decimal import Decimal
+
 		provider = get_object_or_404(User, id=provider_id, user_type='offer', is_active=True)
 		date_str = request.query_params.get('date')
 		
@@ -1156,7 +1225,6 @@ class ProviderBookedSlotsView(APIView):
 			)
 		
 		try:
-			from datetime import datetime
 			date = datetime.strptime(date_str, '%Y-%m-%d').date()
 		except ValueError:
 			return Response(
@@ -1164,21 +1232,59 @@ class ProviderBookedSlotsView(APIView):
 				status=status.HTTP_400_BAD_REQUEST
 			)
 		
+		# Get provider buffer time from availability settings
+		buffer_minutes = 15  # default
+		try:
+			availability = ProviderAvailability.objects.get(provider=provider)
+			buffer_raw = availability.settings.get('bufferTime', 15)
+			# Handle values like "15 minutes" or plain integers
+			if isinstance(buffer_raw, str):
+				buffer_minutes = int(buffer_raw.split()[0])
+			else:
+				buffer_minutes = int(buffer_raw)
+		except (ProviderAvailability.DoesNotExist, ValueError, IndexError):
+			pass
+
 		# Get all bookings for this provider on this date (excluding cancelled/declined)
+		# Only block slots for bookings the provider has accepted (not pending)
 		bookings = Booking.objects.filter(
 			provider=provider,
 			preferred_date=date,
-			status__in=['pending', 'confirmed', 'scheduled', 'in_progress']
-		).values('preferred_time', 'status')
+			status__in=['confirmed', 'scheduled', 'in_progress']
+		).prefetch_related('booking_services', 'booking_services__service')
 		
-		# Format booked slots
-		booked_slots = [
-			{
-				'time': booking['preferred_time'].strftime('%H:%M:%S'),
-				'status': booking['status']
-			}
-			for booking in bookings
-		]
+		# Format booked slots with duration-based time ranges
+		booked_slots = []
+		for booking in bookings:
+			start_time = booking.preferred_time
+			
+			# Calculate total duration from all services in this booking
+			total_duration_hours = Decimal('0')
+			for bs in booking.booking_services.all():
+				duration = bs.estimated_duration_at_booking
+				if duration is None:
+					# Fallback to service's estimated_duration
+					duration = bs.service.estimated_duration if bs.service.estimated_duration else Decimal('1')
+				total_duration_hours += duration
+			
+			# Default to 1 hour if no duration info at all
+			if total_duration_hours <= 0:
+				total_duration_hours = Decimal('1')
+			
+			total_duration_minutes = int(total_duration_hours * 60)
+			
+			# Calculate end time and end time with buffer
+			start_dt = datetime.combine(date, start_time)
+			end_dt = start_dt + timedelta(minutes=total_duration_minutes)
+			end_with_buffer_dt = start_dt + timedelta(minutes=total_duration_minutes + buffer_minutes)
+			
+			booked_slots.append({
+				'time': start_time.strftime('%H:%M:%S'),
+				'end_time': end_dt.time().strftime('%H:%M:%S'),
+				'end_time_with_buffer': end_with_buffer_dt.time().strftime('%H:%M:%S'),
+				'duration_minutes': total_duration_minutes,
+				'status': booking.status
+			})
 		
 		return Response({
 			'date': date_str,
@@ -1388,3 +1494,39 @@ class GetAlternativeDatesView(APIView):
 				{'error': str(e)},
 				status=status.HTTP_400_BAD_REQUEST
 			)
+
+
+class RecentTestimonialsView(APIView):
+	"""Public endpoint - returns the 4 most recent reviews for the homepage"""
+	authentication_classes = []
+	permission_classes = [AllowAny]
+
+	def get(self, request):
+		reviews = (
+			Review.objects
+			.select_related('customer', 'booking__service', 'booking__service__specialization')
+			.filter(rating__gte=3)
+			.order_by('-created_at')[:4]
+		)
+
+		data = []
+		for r in reviews:
+			try:
+				service_name = (
+					r.booking.service.title
+					if r.booking and r.booking.service and r.booking.service.title
+					else (r.booking.service.specialization.name if r.booking and r.booking.service and r.booking.service.specialization else 'Customer')
+				)
+			except Exception:
+				service_name = 'Customer'
+
+			data.append({
+				'id': r.id,
+				'name': f"{r.customer.first_name} {r.customer.last_name}".strip() or 'Anonymous',
+				'role': service_name,
+				'image': r.customer.profile_picture or '',
+				'text': r.comment or r.title or 'Great service!',
+				'rating': r.rating,
+			})
+
+		return Response({'success': True, 'data': data}, status=status.HTTP_200_OK)
